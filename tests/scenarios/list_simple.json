@@ -1,0 +1,12 @@
+{
+  "name": "list_simple",
+  "prompt": "Show me all my pending todos.",
+  "extraction_gold": { "tools": ["list_todos"] },
+  "verification_gold": { "tools": ["list_todos"] },
+  "execution_gold": { "tools": ["list_todos"] },
+  "param_hints": {},
+  "setup": { "create_todos": [] },
+  "complexity": 1
+}
+
+

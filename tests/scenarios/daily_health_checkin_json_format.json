@@ -1,0 +1,17 @@
+{
+  "name": "daily_health_checkin_json_format",
+  "prompt": "Add a habit 'Morning stretch' for tomorrow with high priority, then list all pending high-priority habits for this week. Respond as a single JSON array of tool calls.",
+  "format": "json",
+  "expected_tools": ["create_todo", "list_todos"],
+  "expected_parameters": {
+    "create_todo": {"title": "Morning stretch", "priority": "high", "scheduledFor": "${TOMORROW}"}
+  },
+  "workflow_expectations": {
+    "logical_order": ["create_todo", "list_todos"],
+    "minimal_steps": 2,
+    "required_operations": ["create_todo", "list_todos"]
+  },
+  "sla_seconds": 10
+}
+
+

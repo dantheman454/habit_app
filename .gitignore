@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+
+# Persistent data storage
+data/
+
+# Results and logs (comment out if you want to track results)
+results/detailed_test_logs_*.json
+
+# Environment files
+.env
+.env.local
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.log
+
+# Temp MCP test working dirs
+/tmp_mcp_*/
+/.mcp-tmp-*/
+
+# Python virtual environments
+venv/
+env/
+.venv/
