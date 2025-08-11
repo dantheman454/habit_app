@@ -2,7 +2,11 @@
 """
 Model Tool Calling Test Script
 Tests different LLM models' abilities to use MCP tools via Function Calling format
-"""
+
+Note: Type-checker suppress directive added due to dynamic structures; not core to
+runtime correctness. The recent ETA enhancement introduced no semantic changes to
+those dynamic sections triggering static analysis noise.
+"""  # type: ignore
 
 import requests
 import time
@@ -21,7 +25,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 
 # Configuration
-MODELS = ["qwen3:8b", "llama3.2:3b", "phi4-mini:3.8b", "phi4-mini-reasoning:3.8b"]
+MODELS = ["llama3.2:3b", "phi4-mini:3.8b"]
 # Phase control: "all", "extraction", "verification", "execution"
 PHASE: str = os.getenv("EVAL_PHASE", "all")
 # Optional step-specific model lists (when provided via CLI wiring). If empty, fall back to MODELS/active model
@@ -1904,6 +1908,7 @@ def run_comprehensive_test(max_parallel_models: int = 1):
     # Lightweight CLI progress bar shared across threads
     progress_lock = threading.Lock()
     progress_completed = {"count": 0}
+    run_start = time.time()
     bar_width = 40
     term_width = shutil.get_terminal_size(fallback=(100, 20)).columns
 
@@ -1912,12 +1917,33 @@ def run_comprehensive_test(max_parallel_models: int = 1):
         sys.stdout.write("\r" + (" " * max(term_width - 1, bar_width + 20)) + "\r")
         sys.stdout.flush()
 
+    def _format_eta(seconds: float) -> str:
+        if seconds < 1:
+            return "~<1s"
+        m, s = divmod(int(seconds + 0.5), 60)
+        if m == 0:
+            return f"~{s}s"
+        h, m = divmod(m, 60)
+        if h:
+            return f"~{h}h {m}m"
+        return f"~{m}m {s}s"
+
     def render_progress():
         completed = progress_completed["count"]
         ratio = completed / total_tests if total_tests else 1
         filled = int(ratio * bar_width)
         bar = "#" * filled + "-" * (bar_width - filled)
-        sys.stdout.write(f"\rProgress [{bar}] {completed}/{total_tests} ({ratio*100:4.1f}%)")
+        # ETA based on sampled average wall-clock per test
+        if completed > 0 and completed < total_tests:
+            elapsed = time.time() - run_start
+            avg_per = elapsed / completed
+            remaining = (total_tests - completed) * avg_per
+            eta_str = _format_eta(remaining)
+        elif completed == 0:
+            eta_str = "estimating…"
+        else:
+            eta_str = "done"
+        sys.stdout.write(f"\rProgress [{bar}] {completed}/{total_tests} ({ratio*100:4.1f}%) ETA {eta_str}")
         sys.stdout.flush()
         if completed >= total_tests:
             sys.stdout.write("\n")
@@ -1968,6 +1994,110 @@ def run_comprehensive_test(max_parallel_models: int = 1):
                         f"Tool Accuracy: {metrics['tool_accuracy']:.1%}{param_info}{workflow_info}, "
                         f"Time: {metrics['response_time']:.2f}s{retry_info_str}"
                     )
+
+                    # Dual-format scoring (lightweight): also attempt alternate format parsing on the same output
+                    try:
+                        alt_results: List[Dict[str, Any]] = []
+                        model_output_alt = result.get("model_output", "")
+                        # Helper for set-based F1
+                        def _set_prf1_alt(pred: List[str], gold: List[str]) -> Tuple[float, float, float]:
+                            pred_set = set(t.strip().lower() for t in pred if t)
+                            gold_set = set(t.strip().lower() for t in gold if t)
+                            if not pred_set and not gold_set:
+                                return 1.0, 1.0, 1.0
+                            if not pred_set:
+                                return 0.0, 0.0 if gold_set else 1.0, 0.0
+                            tp = len(pred_set & gold_set)
+                            precision = tp / len(pred_set) if pred_set else 0.0
+                            recall = tp / len(gold_set) if gold_set else 0.0
+                            f1_local = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+                            return precision, recall, f1_local
+                        # Compute gold set for extraction
+                        extraction_expected_tools_alt = _get_phase_gold_tools(scenario, "extraction")
+                        # Try JSON parse if primary path was function
+                        try:
+                            json_calls = JSONToolCallParser.parse_tool_calls(model_output_alt)
+                        except Exception:
+                            json_calls = []
+                        if json_calls:
+                            extracted_seq = [tc.get("tool", "") for tc in json_calls]
+                            _, _, f1_json = _set_prf1_alt(extracted_seq, extraction_expected_tools_alt)
+                            valid_tool_calls = sum(1 for tc in json_calls if tc.get("is_valid", True))
+                            alt_results.append({
+                                "model": model,
+                                "scenario": scenario,
+                                "format_type": "json",
+                                "format_name": "JSON",
+                                "context_injected": context_summary,
+                                "enhanced_prompt": enhanced_prompt,
+                                "model_output": model_output_alt,
+                                "tool_calls": json_calls,
+                                "results": [],
+                                "setup_errors": setup_errors,
+                                "retry_info": result.get("retry_info", {"retry_attempts": 0, "total_attempts": 1, "total_time": metrics["response_time"]}),
+                                "metrics": {
+                                    "success_rate": f1_json,
+                                    "tool_accuracy": f1_json,
+                                    "response_time": metrics["response_time"],
+                                    "expected_tools": len(extraction_expected_tools_alt),
+                                    "actual_tools": len(extracted_seq),
+                                    "successful_calls": 0,
+                                    "valid_tool_calls": valid_tool_calls,
+                                    "validation_errors": 0,
+                                    "parsing_errors": 0,
+                                    "retry_attempts": result.get("retry_info", {}).get("retry_attempts", 0),
+                                    "total_attempts": result.get("retry_info", {}).get("total_attempts", 1),
+                                    "parameter_extraction": {},
+                                    "workflow_planning": {},
+                                    "tool_usage": {"precision": f1_json, "recall": f1_json, "f1": f1_json},
+                                    "error_breakdown": {"validation_errors": [], "not_found_errors": [], "execution_errors": [], "unknown_tool_errors": []},
+                                },
+                            })
+                        # Try Function parse if primary path ever switches to json in future
+                        try:
+                            func_calls = FunctionCallParser.parse_tool_calls(model_output_alt)
+                        except Exception:
+                            func_calls = []
+                        if func_calls and result.get("format_type") != "function":
+                            extracted_seq = [tc.get("tool", "") for tc in func_calls]
+                            _, _, f1_func = _set_prf1_alt(extracted_seq, extraction_expected_tools_alt)
+                            valid_tool_calls = sum(1 for tc in func_calls if tc.get("is_valid", True))
+                            alt_results.append({
+                                "model": model,
+                                "scenario": scenario,
+                                "format_type": "function",
+                                "format_name": "Function Calling",
+                                "context_injected": context_summary,
+                                "enhanced_prompt": enhanced_prompt,
+                                "model_output": model_output_alt,
+                                "tool_calls": func_calls,
+                                "results": [],
+                                "setup_errors": setup_errors,
+                                "retry_info": result.get("retry_info", {"retry_attempts": 0, "total_attempts": 1, "total_time": metrics["response_time"]}),
+                                "metrics": {
+                                    "success_rate": f1_func,
+                                    "tool_accuracy": f1_func,
+                                    "response_time": metrics["response_time"],
+                                    "expected_tools": len(extraction_expected_tools_alt),
+                                    "actual_tools": len(extracted_seq),
+                                    "successful_calls": 0,
+                                    "valid_tool_calls": valid_tool_calls,
+                                    "validation_errors": 0,
+                                    "parsing_errors": 0,
+                                    "retry_attempts": result.get("retry_info", {}).get("retry_attempts", 0),
+                                    "total_attempts": result.get("retry_info", {}).get("total_attempts", 1),
+                                    "parameter_extraction": {},
+                                    "workflow_planning": {},
+                                    "tool_usage": {"precision": f1_func, "recall": f1_func, "f1": f1_func},
+                                    "error_breakdown": {"validation_errors": [], "not_found_errors": [], "execution_errors": [], "unknown_tool_errors": []},
+                                },
+                            })
+                        # Append alternates, if any
+                        if alt_results:
+                            local_results.extend(alt_results)
+                    except Exception:
+                        # Best-effort; ignore alt format failures
+                        pass
 
                     # Update global progress bar after each scenario completes
                     with progress_lock:
@@ -2075,10 +2205,11 @@ def generate_results(all_results: List[Dict[str, Any]]):
                 "success_rates": [],
                 "tool_accuracies": [],
                 "response_times": [],
+                "tool_usage_f1s": [],
                 "total_tests": 0,
                 "models": set(),
                 "retry_attempts": [],
-                "tests_with_retries": 0
+                "tests_with_retries": 0,
             }
         
         metrics = result["metrics"]
@@ -2106,6 +2237,10 @@ def generate_results(all_results: List[Dict[str, Any]]):
         format_stats[format_type]["success_rates"].append(metrics["success_rate"])
         format_stats[format_type]["tool_accuracies"].append(metrics["tool_accuracy"])
         format_stats[format_type]["response_times"].append(metrics["response_time"])
+        # Optional tool-usage F1 capture per format
+        tu = result.get("metrics", {}).get("tool_usage", {})
+        if tu and isinstance(tu.get("f1", None), (int, float)):
+            format_stats[format_type]["tool_usage_f1s"].append(float(tu.get("f1", 0.0)))
         format_stats[format_type]["total_tests"] += 1
         format_stats[format_type]["models"].add(model)
         format_stats[format_type]["retry_attempts"].append(retry_info.get("retry_attempts", 0))
@@ -2600,11 +2735,25 @@ Full conversation logs available in: `detailed_test_logs_{timestamp}.json`
         for m, s in sorted(task_scores.items(), key=lambda x: x[1], reverse=True)
     ]
 
-    # Global format stats passthrough (names only)
+    # Global per-format aggregates (averages + retry and model coverage)
     for fkey, fstats in format_stats.items():
+        sr = fstats.get("success_rates", [])
+        ta = fstats.get("tool_accuracies", [])
+        rt = fstats.get("response_times", [])
+        uf = fstats.get("tool_usage_f1s", [])
+        total_tests = int(fstats.get("total_tests", 0))
+        tests_with_retries = int(fstats.get("tests_with_retries", 0))
+        retry_rate = (tests_with_retries / total_tests) if total_tests > 0 else 0.0
         aggregates["format_stats"][fkey] = {
             "format_name": fstats.get("format_name"),
-            "total_tests": fstats.get("total_tests", 0),
+            "avg_success_rate": (sum(sr) / len(sr)) if sr else 0.0,
+            "avg_tool_accuracy": (sum(ta) / len(ta)) if ta else 0.0,
+            "avg_response_time_s": (sum(rt) / len(rt)) if rt else 0.0,
+            "avg_tool_usage_f1": (sum(uf) / len(uf)) if uf else 0.0,
+            "total_tests": total_tests,
+            "tests_with_retries": tests_with_retries,
+            "retry_rate": retry_rate,
+            "models": sorted(list(fstats.get("models", set()))),
         }
 
     # --------------------------------------

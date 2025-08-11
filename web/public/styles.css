@@ -1,0 +1,30 @@
+:root { color-scheme: light dark; }
+body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; }
+header { display:flex; align-items:center; justify-content:space-between; padding: 12px 16px; border-bottom: 1px solid #ccc; }
+header h1 { margin: 0; font-size: 20px; }
+.controls { display:flex; gap: 12px; align-items:center; }
+main { padding: 16px; display: grid; gap: 20px; grid-template-columns: 1fr; max-width: 900px; margin: 0 auto; }
+section h2 { margin: 12px 0; font-size: 16px; }
+ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+li { padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px; display:flex; align-items:center; justify-content: space-between; }
+.date-header { font-weight: 600; opacity: 0.8; border: none; padding: 0; }
+.badge { padding: 2px 8px; border-radius: 999px; font-size: 12px; }
+.prio-low { background: #d3f9d8; color: #205b2a; }
+.prio-medium { background: #ffe8cc; color: #9c3b00; }
+.prio-high { background: #ffc9c9; color: #7d1414; }
+.message { min-height: 1.2em; }
+button { cursor: pointer; }
+
+/* Completed items visually distinct */
+.todo-completed { opacity: 0.6; text-decoration: line-through; }
+
+/* Inline edit form */
+.edit-form { display: flex; gap: 8px; align-items: center; }
+.edit-form input[type="text"] { width: 200px; }
+
+/* LLM proposal */
+#proposal { margin-top: 8px; display: grid; gap: 6px; }
+.proposal-item { border: 1px solid #ccc; border-radius: 6px; padding: 6px 8px; display:flex; align-items:center; gap:8px; }
+.proposal-op { font-weight: 600; }
+
+

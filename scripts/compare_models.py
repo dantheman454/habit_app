@@ -8,7 +8,7 @@ import subprocess
 import sys
 from datetime import datetime
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 # Local imports (robust): ensure project root is on sys.path and support both package and direct module import
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -34,13 +34,13 @@ except Exception:
         pass
 
 
-def start_mcp_server() -> subprocess.Popen:
-    """Deprecated: tests spawn per-test servers via the Node client; no global server needed."""
+def start_mcp_server() -> Optional[subprocess.Popen]:
+    """Deprecated: no global server needed. Kept for interface compatibility."""
     return None
 
 
-def stop_process(proc: subprocess.Popen):
-    if proc and proc.poll() is None:
+def stop_process(proc: Optional[subprocess.Popen]):
+    if proc is not None and proc.poll() is None:
         try:
             proc.send_signal(signal.SIGTERM)
         except Exception:
@@ -158,8 +158,13 @@ def main():
                         if proc.returncode == 0:
                             for line in proc.stdout.splitlines():
                                 parts = line.strip().split()
-                                if parts:
-                                    discovered.append(parts[0])
+                                if not parts:
+                                    continue
+                                first = parts[0]
+                                # Skip header line (starts with NAME) and empty artifacts
+                                if first.lower() == "name":
+                                    continue
+                                discovered.append(first)
                         if discovered:
                             tm.MODELS[:] = discovered
                     except Exception:
@@ -167,7 +172,7 @@ def main():
 
                 # Override models from CLI if provided
                 if args.models:
-                    tm.MODELS[:] = list(args.models)
+                    tm.MODELS[:] = [m for m in args.models if m.lower() != "name"]
                 else:
                     # Auto-discover when --models omitted
                     try:
@@ -176,8 +181,12 @@ def main():
                         if proc.returncode == 0:
                             for line in proc.stdout.splitlines():
                                 parts = line.strip().split()
-                                if parts:
-                                    discovered.append(parts[0])
+                                if not parts:
+                                    continue
+                                first = parts[0]
+                                if first.lower() == "name":
+                                    continue
+                                discovered.append(first)
                         if discovered:
                             tm.MODELS[:] = discovered
                     except Exception:
@@ -194,7 +203,9 @@ def main():
                 for sub in (args.models_execute or []):
                     step_specific.add(sub)
                 if step_specific:
-                    tm.MODELS[:] = sorted(step_specific)
+                    tm.MODELS[:] = [m for m in sorted(step_specific) if m.lower() != "name"]
+                # Final defensive filter against stray header tokens
+                tm.MODELS[:] = [m for m in tm.MODELS if m.lower() != "name"]
                 # Propagate step lists to harness if those attributes exist
                 if hasattr(tm, "MODELS_EXTRACT"):
                     tm.MODELS_EXTRACT[:] = list(args.models_extract or [])
@@ -218,6 +229,17 @@ def main():
             # The runner internally writes summary and detailed logs
             # Pass parallelism through if supported
             try:
+                # Inject estimated time banner (best-effort) before starting run by monkeypatching print inside harness
+                if tm is not None:
+                    try:
+                        total_tests = len(getattr(tm, 'MODELS', [])) * len(getattr(tm, 'TEST_SCENARIOS', {})) * getattr(tm, 'REPEAT_RUNS', 1)
+                        per_test_guess = float(os.getenv("EVAL_ESTIMATE_PER_TEST", "1.0"))
+                        est_total_sec = total_tests * per_test_guess
+                        mins, secs = divmod(int(est_total_sec + 0.5), 60)
+                        est_str = f"~{mins}m {secs}s" if mins else f"~{secs}s"
+                        print(f"⏱ Estimated total time: {est_str} (assuming {per_test_guess:.2f}s/test; override via EVAL_ESTIMATE_PER_TEST)")
+                    except Exception:
+                        pass
                 run_comprehensive_test(max_parallel_models=args.max_parallel_models)
             except TypeError:
                 run_comprehensive_test()

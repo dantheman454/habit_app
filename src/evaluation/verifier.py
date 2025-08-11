@@ -39,6 +39,8 @@ def verify_extraction(scenario: Dict[str, Any], extraction_artifact: Dict[str, A
         or scenario.get("expected_tools")
         or []
     )
+    strict_mode = bool(scenario.get("strict_mode", False))
+    expected_parameters = scenario.get("expected_parameters") or {}
 
     accepted: List[Dict[str, Any]] = []
     rejected: List[Dict[str, Any]] = []
@@ -50,7 +52,11 @@ def verify_extraction(scenario: Dict[str, Any], extraction_artifact: Dict[str, A
         gates: List[Tuple[str, bool, str]] = []
 
         # Gate 1: allowlist
-        allow_ok = (not allowlist) or (tool in allowlist)
+        if strict_mode:
+            # Closed-set: empty allowlist means no tools allowed
+            allow_ok = tool in allowlist
+        else:
+            allow_ok = (not allowlist) or (tool in allowlist)
         gates.append(("allowlist", allow_ok, "tool not in scenario allowlist" if not allow_ok else ""))
 
         # Gate 2: required parameters present
@@ -58,6 +64,59 @@ def verify_extraction(scenario: Dict[str, Any], extraction_artifact: Dict[str, A
         missing = [p for p in required if p not in params]
         req_ok = not missing
         gates.append(("required_params", req_ok, f"missing: {missing}" if not req_ok else ""))
+
+        # Gate 3 (strict mode only): parameter exactness for specified keys
+        if strict_mode and expected_parameters:
+            # Support two shapes:
+            #  - {"title": ..., "priority": ...} when a single tool of interest
+            #  - {"create_todo": {...}, "get_todo": {...}} per-tool expectations
+            per_tool_expected: Dict[str, Any] | None
+            if any(k in expected_parameters for k in ("create_todo", "list_todos", "search_todos", "get_todo", "update_todo", "delete_todo")):
+                per_tool_expected = expected_parameters.get(tool)
+            else:
+                # Only apply if the allowlist uniquely identifies this tool
+                if isinstance(allowlist, list) and len(allowlist) == 1 and allowlist[0] == tool:
+                    per_tool_expected = expected_parameters
+                else:
+                    per_tool_expected = None
+
+            if per_tool_expected:
+                exact_mismatches: List[str] = []
+                for key, expected_value in per_tool_expected.items():
+                    # Skip placeholder-valued expectations (e.g., "$CALL_1.id")
+                    if isinstance(expected_value, str) and expected_value.startswith("$CALL_"):
+                        continue
+                    if key not in params:
+                        exact_mismatches.append(f"missing key '{key}'")
+                        continue
+                    actual = params.get(key)
+                    if key == "priority":
+                        ev = str(expected_value).lower()
+                        av = str(actual).lower()
+                        if ev != av:
+                            exact_mismatches.append(f"priority mismatch: expected '{expected_value}', got '{actual}'")
+                    elif isinstance(expected_value, bool):
+                        # Accept boolean or equivalent string literal
+                        if actual is True or actual is False:
+                            ok = (actual is expected_value)
+                        else:
+                            ok = str(actual).lower() in ("true", "false") and (str(actual).lower() == str(expected_value).lower())
+                        if not ok:
+                            exact_mismatches.append(f"boolean mismatch for '{key}': expected {expected_value}, got {actual}")
+                    elif isinstance(expected_value, (int, float)):
+                        try:
+                            ok = float(actual) == float(expected_value)
+                        except Exception:
+                            ok = False
+                        if not ok:
+                            exact_mismatches.append(f"numeric mismatch for '{key}': expected {expected_value}, got {actual}")
+                    else:
+                        # Default to string equality
+                        if str(actual) != str(expected_value):
+                            exact_mismatches.append(f"mismatch for '{key}': expected '{expected_value}', got '{actual}'")
+
+                exact_ok = not exact_mismatches
+                gates.append(("parameter_exactness", exact_ok, "; ".join(exact_mismatches) if not exact_ok else ""))
 
         # Decision
         if all(ok for _, ok, _ in gates):

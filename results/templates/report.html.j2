@@ -63,16 +63,15 @@
             <tr>
               <td>Extraction</td>
               <td>
-                {% set ew = '' %}
-                {% set ew_score = -1 %}
+                {% set ns = namespace(winner='', score=-1) %}
                 {% for model, stats in e.items() %}
                   {% set score = stats.tool_f1 | default(0) %}
-                  {% if score > ew_score %}
-                    {% set ew = model %}
-                    {% set ew_score = score %}
+                  {% if score > ns.score %}
+                    {% set ns.winner = model %}
+                    {% set ns.score = score %}
                   {% endif %}
                 {% endfor %}
-                {{ ew }}
+                {{ ns.winner }}
               </td>
             </tr>
             {% endif %}
@@ -80,16 +79,15 @@
             <tr>
               <td>Verification</td>
               <td>
-                {% set vw = '' %}
-                {% set vw_score = -1 %}
+                {% set ns = namespace(winner='', score=-1) %}
                 {% for model, stats in v.items() %}
                   {% set score = stats.acceptance_f1 | default(0) %}
-                  {% if score > vw_score %}
-                    {% set vw = model %}
-                    {% set vw_score = score %}
+                  {% if score > ns.score %}
+                    {% set ns.winner = model %}
+                    {% set ns.score = score %}
                   {% endif %}
                 {% endfor %}
-                {{ vw }}
+                {{ ns.winner }}
               </td>
             </tr>
             {% endif %}
@@ -97,16 +95,15 @@
             <tr>
               <td>Execution</td>
               <td>
-                {% set xw = '' %}
-                {% set xw_score = -1 %}
+                {% set ns = namespace(winner='', score=-1) %}
                 {% for model, stats in x.items() %}
                   {% set score = stats.success_rate | default(0) %}
-                  {% if score > xw_score %}
-                    {% set xw = model %}
-                    {% set xw_score = score %}
+                  {% if score > ns.score %}
+                    {% set ns.winner = model %}
+                    {% set ns.score = score %}
                   {% endif %}
                 {% endfor %}
-                {{ xw }}
+                {{ ns.winner }}
               </td>
             </tr>
             {% endif %}
@@ -115,35 +112,7 @@
         {% endif %}
 
         <details open>
-          <summary>Per-model Stats (sorted by Task Score)</summary>
-          {% if aggregates.task_ranking %}
-          <table>
-            <tr>
-              <th>Rank</th>
-              <th>Model</th>
-              <th>Task Score</th>
-              <th>Correctness</th>
-              <th>Latency Score</th>
-              <th>Stability Score</th>
-              <th>Avg Time (s)</th>
-              <th>Total Tests</th>
-            </tr>
-            {% for item in aggregates.task_ranking %}
-            {% set m = item.model %}
-            {% set s = aggregates.model_stats[m] %}
-            <tr>
-              <td>{{ loop.index }}</td>
-              <td>{{ m }}</td>
-              <td>{{ (item.task_score * 100) | round(1) }}%</td>
-              <td>{{ (s.avg_success_rate * 100) | round(1) }}%</td>
-              <td>{{ (s.avg_latency_score * 100) | round(1) }}%</td>
-              <td>{{ (s.avg_stability_score * 100) | round(1) }}%</td>
-              <td>{{ s.avg_response_time_s | round(2) }}</td>
-              <td>{{ s.total_tests }}</td>
-            </tr>
-            {% endfor %}
-          </table>
-          {% endif %}
+          <summary>Per-model Stats</summary>
           <table>
             <tr>
               <th>Model</th>
@@ -166,6 +135,40 @@
           </table>
         </details>
 
+        {% if aggregates.format_stats %}
+        <details open>
+          <summary>Formats</summary>
+          <div class="callout">Per-format performance across all models.</div>
+          <table>
+            <tr>
+              <th>Format</th>
+              <th>Success Rate</th>
+              <th>Tool Accuracy</th>
+              <th>Avg Time (s)</th>
+              <th>Tool Usage F1</th>
+              <th>Total Tests</th>
+              <th>Retry Rate</th>
+              <th>Models</th>
+            </tr>
+            {% for fkey, fstats in aggregates.format_stats.items() %}
+            <tr>
+              <td>{{ fstats.format_name or fkey }}</td>
+              <td>{{ (fstats.avg_success_rate * 100) | default(0) | round(1) }}%</td>
+              <td>{{ (fstats.avg_tool_accuracy * 100) | default(0) | round(1) }}%</td>
+              <td>{{ (fstats.avg_response_time_s) | default(0) | round(2) }}</td>
+              <td>{{ (fstats.avg_tool_usage_f1 * 100) | default(0) | round(1) }}%</td>
+              <td>{{ fstats.total_tests | default(0) }}</td>
+              <td>{{ (fstats.retry_rate * 100) | default(0) | round(1) }}%</td>
+              <td class="muted">{{ (fstats.models or []) | join(', ') }}</td>
+            </tr>
+            {% endfor %}
+          </table>
+        </details>
+        {% endif %}
+
+        {% set rt = aggregates.retry_stats.tests_with_retries | default(0) %}
+        {% set tra = aggregates.retry_stats.total_retry_attempts | default(0) %}
+        {% if (rt > 0) or (tra > 0) %}
         <details open>
           <summary>Retry Summary</summary>
           <table>
@@ -181,14 +184,10 @@
               <td>{{ aggregates.retry_stats.tests_with_retries }}</td>
               <td>{{ aggregates.retry_stats.total_retry_attempts }}</td>
               <td>
-                {% set rt = aggregates.retry_stats.tests_with_retries %}
                 {% set tt = aggregates.retry_stats.total_tests %}
                 {{ ( (rt / tt) * 100 ) | round(1) if tt > 0 else 0 }}%
               </td>
-              <td>
-                {% set tra = aggregates.retry_stats.total_retry_attempts %}
-                {{ (tra / rt) | round(1) if rt > 0 else 0 }}
-              </td>
+              <td>{{ (tra / rt) | round(1) if rt > 0 else 0 }}</td>
             </tr>
           </table>
           {% if aggregates.retry_stats.retry_reasons %}
@@ -211,6 +210,7 @@
           </table>
           {% endif %}
         </details>
+        {% endif %}
 
         {% if aggregates.parameter_extraction and aggregates.parameter_extraction.model_averages %}
         <details open>
@@ -340,6 +340,52 @@
         </details>
         {% endif %}
 
+        {% if aggregates.scenarios %}
+        <details open>
+          <summary>Top Issues</summary>
+          <div class="callout">Scenarios with low average success across models, plus notable slowness.</div>
+          <table>
+            <tr><th>Scenario</th><th>Avg Success</th><th>Models < 60%</th></tr>
+            {% for scenario_name, per_model in aggregates.scenarios.items() %}
+              {% set ns = namespace(total=0.0, n=0, below=0) %}
+              {% for model, m in per_model.items() %}
+                {% set ns.total = ns.total + (m.success_rate | default(0)) %}
+                {% set ns.n = ns.n + 1 %}
+                {% if (m.success_rate | default(0)) < 0.6 %}
+                  {% set ns.below = ns.below + 1 %}
+                {% endif %}
+              {% endfor %}
+              {% set avg = (ns.total / ns.n) if ns.n > 0 else 0 %}
+              {% if avg < 0.7 %}
+                <tr>
+                  <td>{{ scenario_name.replace('_', ' ') }}</td>
+                  <td>{{ (avg * 100) | round(1) }}%</td>
+                  <td>{{ ns.below }}</td>
+                </tr>
+              {% endif %}
+            {% endfor %}
+          </table>
+
+          <table>
+            <tr><th>Scenario</th><th>Avg Time (s)</th></tr>
+            {% for scenario_name, per_model in aggregates.scenarios.items() %}
+              {% set ns = namespace(total=0.0, n=0) %}
+              {% for model, m in per_model.items() %}
+                {% set ns.total = ns.total + (m.avg_time_s | default(0)) %}
+                {% set ns.n = ns.n + 1 %}
+              {% endfor %}
+              {% set avg_t = (ns.total / ns.n) if ns.n > 0 else 0 %}
+              {% if avg_t > 5 %}
+                <tr>
+                  <td>{{ scenario_name.replace('_', ' ') }}</td>
+                  <td>{{ avg_t | round(2) }}</td>
+                </tr>
+              {% endif %}
+            {% endfor %}
+          </table>
+        </details>
+        {% endif %}
+
         {% if aggregates.provenance %}
         <details>
           <summary>Provenance</summary>
@@ -352,7 +398,7 @@
         {% endif %}
 
         {% if aggregates.scenarios %}
-        <details open>
+        <details>
           <summary>Scenario Breakdown</summary>
           <div class="grid">
             {% for scenario_name, per_model in aggregates.scenarios.items() %}

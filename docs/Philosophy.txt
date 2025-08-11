@@ -1,0 +1,8 @@
+Vision:
+-Make a virtual seceratary to go over calendar and ask for vision to then put into concrete tasks
+-Help tie actual tasks to overall habits
+-Track task success rates to be able to make informed decisions based on success rates of tasks
+
+Behaviour flow (how I am going to use it):
+-quickly add/modify/delete todos
+-Consolidate/organize large amounts of todos that build up

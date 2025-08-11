@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Todo MCP UI</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Todos</h1>
+      <div class="controls">
+        <label>Anchor date <input type="date" id="anchor" /></label>
+        <select id="view">
+          <option value="day">Day</option>
+          <option value="week">Week</option>
+          <option value="month">Month</option>
+        </select>
+        <label><input type="checkbox" id="showCompleted" /> Show completed</label>
+        <input id="search" placeholder="Search" />
+      </div>
+    </header>
+
+    <main>
+      <section>
+        <h2>Scheduled</h2>
+        <ul id="todos"></ul>
+      </section>
+
+      <section>
+        <h2>Backlog</h2>
+        <ul id="backlog"></ul>
+      </section>
+
+      <section>
+        <h2>Search</h2>
+        <ul id="searchResults"></ul>
+      </section>
+
+      <section>
+        <h2>Add</h2>
+        <form id="addForm">
+          <input id="title" placeholder="Title" required />
+          <input id="notes" placeholder="Notes (optional)" />
+          <input id="scheduledFor" type="date" />
+          <select id="priority">
+            <option value="low">low</option>
+            <option value="medium" selected>medium</option>
+            <option value="high">high</option>
+          </select>
+          <button type="submit">Create</button>
+        </form>
+      </section>
+
+      <section>
+        <h2>LLM Propose</h2>
+        <form id="llmForm">
+          <input id="instruction" placeholder="e.g., schedule high priority backlog for next week" />
+          <button type="submit">Propose</button>
+        </form>
+        <div id="proposal"></div>
+        <button id="applyOps" style="display:none">Apply Selected</button>
+      </section>
+
+      <div id="message" class="message" aria-live="polite"></div>
+    </main>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+  </html>
+
+
