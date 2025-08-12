@@ -1,0 +1,23 @@
+{
+  "name": "admin_search_then_update",
+  "prompt": "Search for any task about 'billing' and then mark it as completed.",
+  "format": "function",
+  "expected_tools": ["search_todos", "update_todo"],
+  "workflow_expectations": {
+    "logical_order": ["search_todos", "update_todo"],
+    "minimal_steps": 2,
+    "required_operations": ["search_todos", "update_todo"],
+    "context_requirements": [
+      {"source": "search_todos", "target": "update_todo", "parameter": "id"}
+    ]
+  },
+  "sla_seconds": 10,
+  "setup": {
+    "create_todos": [
+      {"title": "Check billing statement", "notes": "admin task", "priority": "medium"},
+      {"title": "Plan weekly schedule", "priority": "low"}
+    ]
+  }
+}
+
+

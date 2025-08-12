@@ -1,0 +1,427 @@
+{
+  "timestamp": "2025-08-12_13-15-58",
+  "models": [
+    "granite-code:8b",
+    "granite3.3:8b"
+  ],
+  "model_stats": {
+    "granite-code:8b": {
+      "avg_success_rate": 0.8809523809523809,
+      "avg_tool_accuracy": 0.9595238095238096,
+      "avg_response_time_s": 3.2724862287914944,
+      "total_tests": 63,
+      "retry_rate": 0.0,
+      "avg_tool_usage": {
+        "precision": 0.9444444444444444,
+        "recall": 0.9761904761904762,
+        "f1": 0.9571428571428571
+      },
+      "task_score": 0.9164497112849401,
+      "avg_latency_score": 0.9989152230913677,
+      "avg_stability_score": 1.0
+    },
+    "granite3.3:8b": {
+      "avg_success_rate": 0.5529100529100529,
+      "avg_tool_accuracy": 0.8357142857142857,
+      "avg_response_time_s": 9.622572032232133,
+      "total_tests": 63,
+      "retry_rate": 0.0,
+      "avg_tool_usage": {
+        "precision": 0.9047619047619048,
+        "recall": 0.9365079365079365,
+        "f1": 0.9043083900226757
+      },
+      "task_score": 0.6695805085399164,
+      "avg_latency_score": 0.9127173575143965,
+      "avg_stability_score": 1.0
+    }
+  },
+  "format_stats": {
+    "function": {
+      "format_name": "Function Calling",
+      "avg_success_rate": 0.7169312169312169,
+      "avg_tool_accuracy": 0.8976190476190475,
+      "avg_response_time_s": 6.447529130511814,
+      "avg_tool_usage_f1": 0.9307256235827664,
+      "total_tests": 126,
+      "tests_with_retries": 0,
+      "retry_rate": 0.0,
+      "models": [
+        "granite-code:8b",
+        "granite3.3:8b"
+      ]
+    }
+  },
+  "retry_stats": {
+    "total_tests": 126,
+    "tests_with_retries": 0,
+    "total_retry_attempts": 0,
+    "retry_reasons": {}
+  },
+  "best_in_class": {
+    "best_success_rate": "granite-code:8b",
+    "best_tool_accuracy": "granite-code:8b",
+    "fastest_response": "granite-code:8b",
+    "best_task_score": "granite-code:8b"
+  },
+  "pipeline": {
+    "extraction": {
+      "granite-code:8b": {
+        "tool_f1": 0.9174603174603174,
+        "order_adherence": 0.9714285714285714,
+        "parameter_readiness": 0.19047619047619047
+      },
+      "granite3.3:8b": {
+        "tool_f1": 0.792063492063492,
+        "order_adherence": 0.9428571428571428,
+        "parameter_readiness": 0.19047619047619047
+      }
+    },
+    "verification": {
+      "granite-code:8b": {
+        "acceptance_f1": 0.9571428571428571,
+        "hallucination_f1": 0.0
+      },
+      "granite3.3:8b": {
+        "acceptance_f1": 0.8873015873015873,
+        "hallucination_f1": 0.0
+      }
+    },
+    "execution": {
+      "granite-code:8b": {
+        "success_rate": 0.8809523809523809,
+        "tool_accuracy": 0.9595238095238096,
+        "tool_usage_f1": 0.9571428571428571
+      },
+      "granite3.3:8b": {
+        "success_rate": 0.5529100529100529,
+        "tool_accuracy": 0.8357142857142857,
+        "tool_usage_f1": 0.9043083900226757
+      }
+    },
+    "best_in_class": {
+      "winner": "granite-code:8b",
+      "details": "Wins: {'granite-code:8b': 3, 'granite3.3:8b': 0} | Avg rank: {'granite-code:8b': 1.0, 'granite3.3:8b': 2.0}"
+    }
+  },
+  "provenance": {
+    "anchor_date": "2025-08-06",
+    "phase": "all",
+    "ollama_options": {
+      "temperature": 0,
+      "seed": 1234,
+      "top_p": 1.0,
+      "top_k": 0
+    }
+  },
+  "task_ranking": [
+    {
+      "model": "granite-code:8b",
+      "task_score": 0.9164497112849401
+    },
+    {
+      "model": "granite3.3:8b",
+      "task_score": 0.6695805085399164
+    }
+  ],
+  "parameter_extraction": {
+    "model_averages": {
+      "granite-code:8b": {
+        "semantic_accuracy": 1.0,
+        "title_accuracy": 1.0,
+        "priority_accuracy": 1.0,
+        "date_accuracy": 0.5,
+        "completeness": 1.0,
+        "tests": 12
+      },
+      "granite3.3:8b": {
+        "semantic_accuracy": 0.975,
+        "title_accuracy": 0.9500000000000001,
+        "priority_accuracy": 1.0,
+        "date_accuracy": 0.5,
+        "completeness": 1.0,
+        "tests": 12
+      }
+    },
+    "best_model": "granite-code:8b",
+    "best_score": 1.0
+  },
+  "workflow_planning": {
+    "model_averages": {
+      "granite-code:8b": {
+        "sequence_logic": 0.65,
+        "dependency_awareness": 0.6749999999999999,
+        "efficiency": 0.5,
+        "context_usage": 0.425,
+        "error_anticipation": 0.75,
+        "workflow_completeness": 0.75,
+        "tests": 12
+      },
+      "granite3.3:8b": {
+        "sequence_logic": 0.7000000000000001,
+        "dependency_awareness": 0.6749999999999999,
+        "efficiency": 0.875,
+        "context_usage": 0.5,
+        "error_anticipation": 1.0,
+        "workflow_completeness": 0.875,
+        "tests": 12
+      }
+    },
+    "best_model": "granite3.3:8b",
+    "best_score": 0.75
+  },
+  "scenarios": {
+    "create_simple": {
+      "granite-code:8b": {
+        "success_rate": 1.0,
+        "tool_accuracy": 1.0,
+        "avg_time_s": 4.702937285105388
+      },
+      "granite3.3:8b": {
+        "success_rate": 1.0,
+        "tool_accuracy": 1.0,
+        "avg_time_s": 5.364991585413615
+      }
+    },
+    "list_simple": {
+      "granite-code:8b": {
+        "success_rate": 1.0,
+        "tool_accuracy": 1.0,
+        "avg_time_s": 0.5241303443908691
+      },
+      "granite3.3:8b": {
+        "success_rate": 1.0,
+        "tool_accuracy": 1.0,
+        "avg_time_s": 4.581538915634155
+      }
+    },
+    "update_with_context": {
+      "granite-code:8b": {
+        "success_rate": 1.0,
+        "tool_accuracy": 1.0,
+        "avg_time_s": 3.414766232172648
+      },
+      "granite3.3:8b": {
+        "success_rate": 1.0,
+        "tool_accuracy": 1.0,
+        "avg_time_s": 11.06168564160665
+      }
+    },
+    "workflow_multiple": {
+      "granite-code:8b": {
+        "success_rate": 0.6666666666666666,
+        "tool_accuracy": 0.8000000000000002,
+        "avg_time_s": 4.11105481783549
+      },
+      "granite3.3:8b": {
+        "success_rate": 0.6666666666666666,
+        "tool_accuracy": 1.0,
+        "avg_time_s": 14.753216981887817
+      }
+    },
+    "workflow_complex": {
+      "granite-code:8b": {
+        "success_rate": 1.0,
+        "tool_accuracy": 1.0,
+        "avg_time_s": 2.592212120691935
+      },
+      "granite3.3:8b": {
+        "success_rate": 0.6666666666666666,
+        "tool_accuracy": 0.6666666666666666,
+        "avg_time_s": 10.64888326327006
+      }
+    },
+    "edge_case_boolean": {
+      "granite-code:8b": {
+        "success_rate": 1.0,
+        "tool_accuracy": 1.0,
+        "avg_time_s": 7.829607327779134
+      },
+      "granite3.3:8b": {
+        "success_rate": 0.5,
+        "tool_accuracy": 0.5,
+        "avg_time_s": 6.926983118057251
+      }
+    },
+    "edge_case_null_date": {
+      "granite-code:8b": {
+        "success_rate": 1.0,
+        "tool_accuracy": 1.0,
+        "avg_time_s": 1.1096944014231365
+      },
+      "granite3.3:8b": {
+        "success_rate": 1.0,
+        "tool_accuracy": 1.0,
+        "avg_time_s": 4.124386548995972
+      }
+    },
+    "precision_test": {
+      "granite-code:8b": {
+        "success_rate": 1.0,
+        "tool_accuracy": 1.0,
+        "avg_time_s": 2.084230979283651
+      },
+      "granite3.3:8b": {
+        "success_rate": 0.3333333333333333,
+        "tool_accuracy": 0.3333333333333333,
+        "avg_time_s": 3.4472928047180176
+      }
+    },
+    "extraction_simple": {
+      "granite-code:8b": {
+        "success_rate": 1.0,
+        "tool_accuracy": 1.0,
+        "avg_time_s": 1.4021206696828206
+      },
+      "granite3.3:8b": {
+        "success_rate": 1.0,
+        "tool_accuracy": 1.0,
+        "avg_time_s": 4.770311673482259
+      }
+    },
+    "extraction_inference": {
+      "granite-code:8b": {
+        "success_rate": 1.0,
+        "tool_accuracy": 1.0,
+        "avg_time_s": 6.4061674276987715
+      },
+      "granite3.3:8b": {
+        "success_rate": 1.0,
+        "tool_accuracy": 1.0,
+        "avg_time_s": 5.752085447311401
+      }
+    },
+    "extraction_mixed_format": {
+      "granite-code:8b": {
+        "success_rate": 1.0,
+        "tool_accuracy": 1.0,
+        "avg_time_s": 1.591396967569987
+      },
+      "granite3.3:8b": {
+        "success_rate": 1.0,
+        "tool_accuracy": 1.0,
+        "avg_time_s": 6.574942906697591
+      }
+    },
+    "extraction_implicit_date": {
+      "granite-code:8b": {
+        "success_rate": 1.0,
+        "tool_accuracy": 1.0,
+        "avg_time_s": 1.9405299822489421
+      },
+      "granite3.3:8b": {
+        "success_rate": 1.0,
+        "tool_accuracy": 1.0,
+        "avg_time_s": 6.643008391062419
+      }
+    },
+    "workflow_create_update_sequence": {
+      "granite-code:8b": {
+        "success_rate": 0.5,
+        "tool_accuracy": 1.0,
+        "avg_time_s": 6.297449986139934
+      },
+      "granite3.3:8b": {
+        "success_rate": 0.5,
+        "tool_accuracy": 0.5,
+        "avg_time_s": 15.026389757792154
+      }
+    },
+    "workflow_list_then_update": {
+      "granite-code:8b": {
+        "success_rate": 0.5,
+        "tool_accuracy": 1.0,
+        "avg_time_s": 5.841434319814046
+      },
+      "granite3.3:8b": {
+        "success_rate": 0.5,
+        "tool_accuracy": 1.0,
+        "avg_time_s": 7.113228956858317
+      }
+    },
+    "workflow_complex_planning": {
+      "granite-code:8b": {
+        "success_rate": 0.6666666666666666,
+        "tool_accuracy": 0.6,
+        "avg_time_s": 9.25087340672811
+      },
+      "granite3.3:8b": {
+        "success_rate": 0.4444444444444444,
+        "tool_accuracy": 0.8000000000000002,
+        "avg_time_s": 6.384684721628825
+      }
+    },
+    "workflow_conditional_logic": {
+      "granite-code:8b": {
+        "success_rate": 1.0,
+        "tool_accuracy": 1.0,
+        "avg_time_s": 2.0738396644592285
+      },
+      "granite3.3:8b": {
+        "success_rate": 0.0,
+        "tool_accuracy": 0.5,
+        "avg_time_s": 9.625175476074219
+      }
+    },
+    "decomposition_basic_multi": {
+      "granite-code:8b": {
+        "success_rate": 0.6666666666666666,
+        "tool_accuracy": 0.75,
+        "avg_time_s": 3.1868530909220376
+      },
+      "granite3.3:8b": {
+        "success_rate": 0.0,
+        "tool_accuracy": 0.75,
+        "avg_time_s": 12.576292673746744
+      }
+    },
+    "decomposition_conditional": {
+      "granite-code:8b": {
+        "success_rate": 0.5,
+        "tool_accuracy": 1.0,
+        "avg_time_s": 0.5537472565968832
+      },
+      "granite3.3:8b": {
+        "success_rate": 0.0,
+        "tool_accuracy": 1.0,
+        "avg_time_s": 43.23569734891256
+      }
+    },
+    "decomposition_cleanup": {
+      "granite-code:8b": {
+        "success_rate": 1.0,
+        "tool_accuracy": 1.0,
+        "avg_time_s": 0.9249140421549479
+      },
+      "granite3.3:8b": {
+        "success_rate": 0.0,
+        "tool_accuracy": 0.5,
+        "avg_time_s": 5.1093259652455645
+      }
+    },
+    "filter_high_priority_week": {
+      "granite-code:8b": {
+        "success_rate": 1.0,
+        "tool_accuracy": 1.0,
+        "avg_time_s": 1.669598897298177
+      },
+      "granite3.3:8b": {
+        "success_rate": 0.0,
+        "tool_accuracy": 1.0,
+        "avg_time_s": 6.384347597757976
+      }
+    },
+    "search_and_update": {
+      "granite-code:8b": {
+        "success_rate": 1.0,
+        "tool_accuracy": 1.0,
+        "avg_time_s": 1.2146515846252441
+      },
+      "granite3.3:8b": {
+        "success_rate": 0.0,
+        "tool_accuracy": 1.0,
+        "avg_time_s": 11.969542900721232
+      }
+    }
+  }
+}

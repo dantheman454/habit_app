@@ -1,0 +1,14 @@
+{
+  "name": "social_conditional_checkin",
+  "prompt": "List all pending items. If any pending, create a brief 'Check in with friend' task (medium).",
+  "format": "function",
+  "expected_tools": ["list_todos", "create_todo"],
+  "workflow_expectations": {
+    "logical_order": ["list_todos", "create_todo"],
+    "minimal_steps": 2,
+    "required_operations": ["list_todos", "create_todo"]
+  },
+  "sla_seconds": 10
+}
+
+

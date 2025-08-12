@@ -1,0 +1,14 @@
+{
+  "name": "simple_chores_today_json_format",
+  "prompt": "Create two chores: 'Take out trash' (medium) and 'Do dishes' (low) for today, then list pending items for today. Respond as a single JSON array of tool calls.",
+  "format": "json",
+  "expected_tools": ["create_todo", "create_todo", "list_todos"],
+  "workflow_expectations": {
+    "logical_order": ["create_todo", "create_todo", "list_todos"],
+    "minimal_steps": 3,
+    "required_operations": ["create_todo", "list_todos"]
+  },
+  "sla_seconds": 10
+}
+
+
