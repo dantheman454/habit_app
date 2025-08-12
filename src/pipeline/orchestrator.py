@@ -2,10 +2,10 @@
 """EVX Orchestrator: chains Extraction → Verification → Execution.
 
 Intuitive CLI:
-  python -m src.pipeline.orchestrator --scenario create_simple --out results/artifacts --phase all
+  python -m src.pipeline.orchestrator --scenario create_simple --out tests/_artifacts --phase all
 
 Phases: all | extraction | verification | execution
-Writes artifacts under results/artifacts/{scenario}/
+Writes artifacts under the chosen output directory, e.g., tests/_artifacts/{scenario}/
 """
 
 from __future__ import annotations
@@ -273,7 +273,7 @@ def orchestrate(
 def main() -> None:
     parser = argparse.ArgumentParser(description="EVX Orchestrator")
     parser.add_argument("--scenario", required=True, help="Scenario name (without .json)")
-    parser.add_argument("--out", required=True, help="Output directory (e.g., results/artifacts)")
+    parser.add_argument("--out", required=True, help="Output directory (e.g., tests/_artifacts)")
     parser.add_argument("--phase", choices=["all", "extraction", "verification", "execution"], default="all")
     parser.add_argument("--model", default=None, help="(Optional) Ollama model name for LLM-backed extraction")
     parser.add_argument("--temperature", type=float, default=0.1, help="Temperature for LLM extraction (only if --model provided)")

@@ -1,4 +1,4 @@
--get a todo list app up and running
+-get a todo list app up and running fully and soundly
 -get a natural language to todo list item creation/deletion/modification
     *Use LLM to deconstruct into subtask(s) with as much detail as possible, one to validate for hallucinations, and then one to make the tool call(s)
 

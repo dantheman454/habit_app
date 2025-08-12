@@ -25,7 +25,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 
 # Configuration
-MODELS = ["llama3.2:3b", "phi4-mini:3.8b"]
+MODELS = ["llama3.2:3b", "phi4-mini:3.8b", "granite3.3:8b", "granite3.3:2b"]
 # Phase control: "all", "extraction", "verification", "execution"
 PHASE: str = os.getenv("EVAL_PHASE", "all")
 # Optional step-specific model lists (when provided via CLI wiring). If empty, fall back to MODELS/active model
@@ -2610,7 +2610,10 @@ Full conversation logs available in: `detailed_test_logs_{timestamp}.json`
 """
     
     # Write summary markdown file
-    with open("/Users/dantheman/Desktop/habit_app/results/TEST_RESULTS_SUMMARY.md", "w") as f:
+    PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    RESULTS_DIR = os.environ.get("EVX_RESULTS_DIR", os.path.join(PROJECT_ROOT, "tests", "_artifacts"))
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    with open(os.path.join(RESULTS_DIR, "TEST_RESULTS_SUMMARY.md"), "w") as f:
         f.write(summary_content)
     
     # Build JSON aggregates
@@ -2993,15 +2996,15 @@ Full conversation logs available in: `detailed_test_logs_{timestamp}.json`
     aggregates["scenarios"] = scenarios_aggregate
 
     # Write JSON summary files
-    summary_json_path = f"/Users/dantheman/Desktop/habit_app/results/summary_{timestamp}.json"
+    summary_json_path = os.path.join(RESULTS_DIR, f"summary_{timestamp}.json")
     with open(summary_json_path, "w") as fjson:
         json.dump(aggregates, fjson, indent=2)
     # Stable latest pointer
-    with open("/Users/dantheman/Desktop/habit_app/results/summary_latest.json", "w") as fjson_latest:
+    with open(os.path.join(RESULTS_DIR, "summary_latest.json"), "w") as fjson_latest:
         json.dump(aggregates, fjson_latest, indent=2)
 
     # Write detailed logs
-    with open(f"/Users/dantheman/Desktop/habit_app/results/detailed_test_logs_{timestamp}.json", "w") as f:
+    with open(os.path.join(RESULTS_DIR, f"detailed_test_logs_{timestamp}.json"), "w") as f:
         json.dump(all_results, f, indent=2, default=str)
 
 if __name__ == "__main__":

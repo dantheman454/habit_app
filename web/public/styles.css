@@ -27,4 +27,13 @@ button { cursor: pointer; }
 .proposal-item { border: 1px solid #ccc; border-radius: 6px; padding: 6px 8px; display:flex; align-items:center; gap:8px; }
 .proposal-op { font-weight: 600; }
 
+/* Diff view */
+.diff { margin-left: 28px; padding: 6px 8px; border-left: 2px solid #ddd; display: grid; gap: 4px; }
+.diff-row { display: grid; grid-template-columns: 140px 1fr; gap: 8px; align-items: center; }
+.diff-field { color: #555; }
+.diff-old { color: #7d1414; text-decoration: line-through; }
+.diff-new { color: #205b2a; }
+.diff-add { color: #205b2a; }
+.diff-del { color: #7d1414; }
+
 

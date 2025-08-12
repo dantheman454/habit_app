@@ -212,7 +212,7 @@ def main() -> None:
     parser.add_argument("--scenario", required=True, help="Scenario name (without .json)")
     parser.add_argument("--in-artifact", required=True, help="Path to verification.json")
     parser.add_argument("--out", required=True, help="Output directory for artifacts")
-    parser.add_argument("--cwd", default="", help="Working directory to isolate data/ (defaults to results/tmp/<scenario>)")
+    parser.add_argument("--cwd", default="", help="Working directory to isolate data/ (defaults to <out>/tmp/<scenario>)")
     args = parser.parse_args()
 
     scenario = load_scenario(args.scenario)  # not used now but reserved for extensions

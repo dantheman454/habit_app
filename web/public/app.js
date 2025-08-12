@@ -136,9 +136,29 @@ function renderList(container, items) {
   }
 }
 
+function renderListItems(container, items) {
+  for (const t of items) {
+    const left = el('div', { class: 'left' });
+    const checkbox = el('input', { type: 'checkbox' });
+    checkbox.checked = !!t.completed;
+    checkbox.addEventListener('change', () => toggleCompleted(t));
+    const titleSpan = el('span', { html: `${priorityBadge(t.priority)} ${t.title}` });
+    left.appendChild(checkbox);
+    left.appendChild(document.createTextNode(' '));
+    left.appendChild(titleSpan);
+
+    const actions = el('div', { class: 'actions' }, [
+      el('button', { onClick: () => startInlineEdit(t) }, [document.createTextNode('Edit')]),
+      el('button', { onClick: () => deleteTodo(t) }, [document.createTextNode('Delete')]),
+    ]);
+
+    const li = el('li', { class: t.completed ? 'todo-completed' : '' }, [left, actions]);
+    container.appendChild(li);
+  }
+}
+
 function renderScheduledGrouped(container, items) {
   container.innerHTML = '';
-  // group by scheduledFor
   const groups = new Map();
   for (const t of items) {
     const key = t.scheduledFor || 'unscheduled';
@@ -149,7 +169,7 @@ function renderScheduledGrouped(container, items) {
   for (const k of keys) {
     const header = el('li', { class: 'date-header' }, [document.createTextNode(k)]);
     container.appendChild(header);
-    renderList(container, groups.get(k));
+    renderListItems(container, groups.get(k));
   }
 }
 
@@ -301,6 +321,28 @@ function renderProposal(operations) {
     const label = el('div', { html: `<span class="proposal-op">${op.op}</span> ${op.id ? `#${op.id}` : ''} ${op.title ? `– ${op.title}` : ''}` });
     row.appendChild(cb);
     row.appendChild(label);
+
+    // Small diff view for update/complete ops
+    if (op.op === 'update' || op.op === 'complete') {
+      const diff = el('div', { class: 'diff' });
+      const original = window.__proposal_cache__ && window.__proposal_cache__.byId ? window.__proposal_cache__.byId[op.id] : null;
+      const fields = ['title','notes','scheduledFor','priority','completed'];
+      for (const f of fields) {
+        if (!(f in op)) continue;
+        const oldVal = original ? original[f] : undefined;
+        const newVal = op[f];
+        if (JSON.stringify(oldVal) === JSON.stringify(newVal)) continue;
+        const r = el('div', { class: 'diff-row' });
+        const name = el('div', { class: 'diff-field' }, [document.createTextNode(f)]);
+        const vals = el('div');
+        if (oldVal !== undefined) vals.appendChild(el('span', { class: 'diff-old' }, [document.createTextNode(String(oldVal))]));
+        if (oldVal !== undefined) vals.appendChild(document.createTextNode(' → '));
+        vals.appendChild(el('span', { class: 'diff-new' }, [document.createTextNode(String(newVal))]));
+        r.appendChild(name); r.appendChild(vals);
+        diff.appendChild(r);
+      }
+      if (diff.childNodes.length > 0) row.appendChild(diff);
+    }
     proposalDiv.appendChild(row);
   }
   applyOpsBtn.style.display = operations.length ? 'inline-block' : 'none';
@@ -325,6 +367,12 @@ async function submitInstruction(evt) {
   const instruction = (instructionInput.value || '').trim();
   if (!instruction) return;
   try {
+    // Cache current todos by id for diffing
+    const [scheduled, backlog] = await Promise.all([loadTodos(), loadBacklog()]);
+    const byId = Object.create(null);
+    for (const t of [...scheduled, ...backlog]) byId[t.id] = t;
+    window.__proposal_cache__ = { byId };
+
     const resp = await fetchJSON('/api/llm/propose', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ instruction }) });
     renderProposal(resp.operations || []);
   } catch (e) {

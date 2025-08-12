@@ -126,6 +126,7 @@ Implemented so far:
    - Start server and POST to `/api/llm/propose`.
  - Search UI added (debounced) and wired to `/api/todos/search`.
  - Scheduled list grouped by date; URL now persists `anchor`, `view`, `completed` state.
+ - Proposal review now includes a small inline diff for `update`/`complete` operations, comparing proposed fields to current values.
 
 
 ## 7) LLM proposal-and-verify feature (design, Ollama-backed)
@@ -283,7 +284,7 @@ Phase C — Cleanup
  - Update README to remove bridge/MCP references after deletion. Add a migration note and changelog entry.
 
 Status:
-- Endpoint tests added in `tests/test_llm_endpoints.py`; they pass locally. Proceed with legacy removal next.
+- Endpoint tests added in `tests/test_llm_endpoints.py`; they pass locally. Legacy bridge files removed.
 
 
 ## 10) Testing

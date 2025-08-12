@@ -73,8 +73,11 @@ def test_pipeline_aggregates_and_best_in_class(tmp_path):
     # Generate summary files
     tm.generate_results(results)
 
-    # Load latest summary
-    summary_path = "/Users/dantheman/Desktop/habit_app/results/summary_latest.json"
+    # Load latest summary from EVX_RESULTS_DIR or default tests/_artifacts
+    PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    RESULTS_DIR = os.environ.get("EVX_RESULTS_DIR", os.path.join(PROJECT_ROOT, "tests", "_artifacts"))
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    summary_path = os.path.join(RESULTS_DIR, "summary_latest.json")
     assert os.path.exists(summary_path), "summary_latest.json not found"
     with open(summary_path, "r") as f:
         aggregates = json.load(f)
