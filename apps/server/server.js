@@ -18,7 +18,7 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const DATA_DIR = path.join(REPO_ROOT, 'data');
 const TODOS_FILE = path.join(DATA_DIR, 'todos.json');
 const COUNTER_FILE = path.join(DATA_DIR, 'counter.json');
-const STATIC_DIR = process.env.STATIC_DIR || path.join(REPO_ROOT, 'apps', 'web', 'build', 'web');
+const STATIC_DIR = process.env.STATIC_DIR || path.join(REPO_ROOT, 'apps', 'web', 'flutter_app', 'build', 'web');
 
 // Ensure data dir exists
 try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch {}
