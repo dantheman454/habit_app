@@ -1,72 +1,38 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Todo MCP UI</title>
-    <link rel="stylesheet" href="/styles.css" />
-  </head>
-  <body>
-    <header>
-      <h1>Todos</h1>
-      <div class="controls">
-        <label>Anchor date <input type="date" id="anchor" /></label>
-        <select id="view">
-          <option value="day">Day</option>
-          <option value="week">Week</option>
-          <option value="month">Month</option>
-        </select>
-        <label><input type="checkbox" id="showCompleted" /> Show completed</label>
-        <input id="search" placeholder="Search" />
-      </div>
-    </header>
+<!DOCTYPE html>
+<html>
+<head>
+  <!--
+    If you are serving your web app in a path other than the root, change the
+    href value below to reflect the base path you are serving from.
 
-    <main>
-      <section>
-        <h2>Scheduled</h2>
-        <ul id="todos"></ul>
-      </section>
+    The path provided below has to start and end with a slash "/" in order for
+    it to work correctly.
 
-      <section>
-        <h2>Backlog</h2>
-        <ul id="backlog"></ul>
-      </section>
+    For more details:
+    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
 
-      <section>
-        <h2>Search</h2>
-        <ul id="searchResults"></ul>
-      </section>
+    This is a placeholder for base href that will be replaced by the value of
+    the `--base-href` argument provided to `flutter build`.
+  -->
+  <base href="/">
 
-      <section>
-        <h2>Add</h2>
-        <form id="addForm">
-          <input id="title" placeholder="Title" required />
-          <input id="notes" placeholder="Notes (optional)" />
-          <input id="scheduledFor" type="date" />
-          <select id="priority">
-            <option value="low">low</option>
-            <option value="medium" selected>medium</option>
-            <option value="high">high</option>
-          </select>
-          <button type="submit">Create</button>
-        </form>
-      </section>
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="A new Flutter project.">
 
-      <section>
-        <h2>LLM Propose</h2>
-        <form id="llmForm">
-          <input id="instruction" placeholder="e.g., schedule high priority backlog for next week" />
-          <button type="submit">Propose</button>
-        </form>
-        <div id="proposal"></div>
-        <button id="applyOps" style="display:none">Apply Selected</button>
-      </section>
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="flutter_app">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
-      <div id="message" class="message" aria-live="polite"></div>
-    </main>
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
 
-    <script src="/app.js" type="module"></script>
-  </body>
-  </html>
-
-
+  <title>flutter_app</title>
+  <link rel="manifest" href="manifest.json">
+</head>
+<body>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

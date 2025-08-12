@@ -1,4 +1,10 @@
+MENTAL MODELS ARE THE GRAPHS I HAVE BEEN LOOKING FOR???
+
 -get a todo list app up and running fully and soundly
+    *add in time of day and repeating reminders
+    *Look into using the thinking mode of the LLM in the best way. Make a router based on complexity? Classify different intents to then route to proper engine
+    *add in todo imports from txt files each as a query to the LLM
+    *then add in Habit tracking and chatting with thinking and non-thinking version of LLM
 -get a natural language to todo list item creation/deletion/modification
     *Use LLM to deconstruct into subtask(s) with as much detail as possible, one to validate for hallucinations, and then one to make the tool call(s)
 
