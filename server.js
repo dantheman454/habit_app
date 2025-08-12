@@ -230,7 +230,7 @@ app.delete('/api/todos/:id', (req, res) => {
 });
 
 // --- LLM proposal-and-verify (Ollama) ---
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || '';
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'granite3.3:8b';
 const OLLAMA_TEMPERATURE = parseFloat(process.env.OLLAMA_TEMPERATURE || '0.1');
 const GLOBAL_TIMEOUT_SECS = parseInt(process.env.GLOBAL_TIMEOUT_SECS || '90', 10);
 
@@ -312,12 +312,15 @@ function runOllamaPrompt(prompt) {
 }
 
 function buildProposalPrompt({ instruction, todosSnapshot }) {
+  const today = new Date();
+  const todayYmd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const system = `You are an assistant for a todo app. Output ONLY a single JSON object with key "operations" as an array. No prose.\n` +
     `Each operation MUST include field "op" which is one of: "create", "update", "delete", "complete".\n` +
     `Allowed fields: op, id (int for update/delete/complete), title, notes, scheduledFor (YYYY-MM-DD or null), priority (low|medium|high), completed (bool).\n` +
-    `Do NOT invent invalid IDs. Prefer fewer changes over hallucination.`;
+    `If the user's instruction does not specify a date for a create operation, DEFAULT scheduledFor to TODAY (${todayYmd}).\n` +
+    `Today's date is ${todayYmd}. Do NOT invent invalid IDs. Prefer fewer changes over hallucination.`;
   const context = JSON.stringify({ todos: todosSnapshot }, null, 2);
-  const user = `Instruction:\n${instruction}\n\nContext:\n${context}\n\nRespond with JSON ONLY that matches this exact example format:\n{\n  "operations": [\n    {"op": "create", "title": "Buy milk", "scheduledFor": "2025-08-12", "priority": "high"}\n  ]\n}`;
+  const user = `Instruction:\n${instruction}\n\nContext:\n${context}\n\nRespond with JSON ONLY that matches this exact example format:\n{\n  "operations": [\n    {"op": "create", "title": "Buy milk", "scheduledFor": "${todayYmd}", "priority": "high"}\n  ]\n}`;
   return `${system}\n\n${user}`;
 }
 
