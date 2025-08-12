@@ -25,7 +25,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 
 # Configuration
-MODELS = ["llama3.2:3b", "phi4-mini:3.8b", "granite3.3:8b", "granite3.3:2b"]
+MODELS = ["granite-code:8b", "granite3.3:8b"]
 # Phase control: "all", "extraction", "verification", "execution"
 PHASE: str = os.getenv("EVAL_PHASE", "all")
 # Optional step-specific model lists (when provided via CLI wiring). If empty, fall back to MODELS/active model

@@ -7,7 +7,9 @@ MENTAL MODELS ARE THE GRAPHS I HAVE BEEN LOOKING FOR???
     *then add in Habit tracking and chatting with thinking and non-thinking version of LLM
 -get a natural language to todo list item creation/deletion/modification
     *Use LLM to deconstruct into subtask(s) with as much detail as possible, one to validate for hallucinations, and then one to make the tool call(s)
+    *use the code generation one for the exact function calls?
 
+    
 for granite models to enable thinking:
 {
     "messages": [
@@ -16,4 +18,6 @@ for granite models to enable thinking:
     ]
 }
 
+Long term:
+-fork VS Code?
 -ask mitchell if I could fine tune models on the dgx (figure out best way to do this)

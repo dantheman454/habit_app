@@ -319,6 +319,16 @@ Confirming decisions and next steps:
 - We will use Ollama via the CLI (`ollama run`) for proposals, mirroring the test suite approach.
 - For the verification UI, a right-side panel keeps context visible; a modal is also feasible.
 
-Would you like me to proceed with Phase A now and immediately follow with Phase B once the single server is in place?
+See the modular handbook under `docs/handbook/` for in-depth, single-user local documentation:
+
+- `docs/handbook/overview.md`
+- `docs/handbook/architecture.md`
+- `docs/handbook/api.md`
+- `docs/handbook/ui.md`
+- `docs/handbook/llm.md`
+- `docs/handbook/development.md`
+- `docs/handbook/testing.md`
+- `docs/handbook/troubleshooting.md`
+- `docs/handbook/roadmap.md`
 
 
