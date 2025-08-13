@@ -345,6 +345,27 @@ function runOllamaWithThinkingIfGranite({ userContent }) {
   return runOllamaPrompt(userContent);
 }
 
+// If Granite returns <think>...</think><response>...</response>,
+// extract the inner of <response> first, then proceed with JSON parsing.
+function extractResponseBody(text) {
+  try {
+    const match = String(text).match(/<response>([\s\S]*?)<\/response>/i);
+    return match ? match[1].trim() : String(text);
+  } catch { return String(text); }
+}
+
+// Remove Granite-style thinking/response tags from free-form text summaries
+function stripGraniteTags(text) {
+  try {
+    let s = String(text);
+    // Drop entire <think>...</think> blocks
+    s = s.replace(/<think>[\s\S]*?<\/think>/gi, '');
+    // Remove <response> wrappers but keep inner content if any remain
+    s = s.replace(/<\/?response>/gi, '');
+    return s;
+  } catch { return String(text); }
+}
+
 function buildProposalPrompt({ instruction, todosSnapshot, transcript }) {
   const today = new Date();
   const todayYmd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
@@ -434,7 +455,7 @@ function buildConversationalSummaryPrompt({ instruction, operations, todosSnapsh
   }).join('\n');
   const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
   const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
-  const system = `You are a helpful assistant for a todo app. Reply ultra-briefly (prefer 1 sentence; max 2). No markdown, no lists, no JSON.`;
+  const system = `You are a helpful assistant for a todo app. Keep answers concise and clear. Prefer 1–3 short sentences; allow a short paragraph when needed. No markdown, no lists, no JSON.`;
   const context = `Conversation (last 3 turns):\n${convo}\n\nToday: ${todayYmd}\nProposed operations (count: ${operations.length}):\n${compactOps}`;
   const user = `User instruction:\n${instruction}`;
   const task = `Summarize the plan in plain English grounded in the proposed operations above. If there are no valid operations, briefly explain and suggest what to clarify.`;
@@ -476,15 +497,16 @@ app.post('/api/assistant/message', async (req, res) => {
     // Call 1 — generate operations (reuse robust proposal pipeline)
     const prompt1 = buildProposalPrompt({ instruction: message.trim(), todosSnapshot: todos, transcript });
     const raw1 = await runOllamaWithThinkingIfGranite({ userContent: prompt1 });
+    const raw1MaybeResponse = extractResponseBody(raw1);
     const tryParse = (text) => { try { return JSON.parse(text); } catch { return null; } };
-    let parsed1 = tryParse(raw1);
-    if (!parsed1 && /```/.test(raw1)) {
-      const inner = raw1.replace(/```json|```/g, '').trim();
+    let parsed1 = tryParse(raw1MaybeResponse);
+    if (!parsed1 && /```/.test(raw1MaybeResponse)) {
+      const inner = raw1MaybeResponse.replace(/```json|```/g, '').trim();
       parsed1 = tryParse(inner);
     }
     if (!parsed1) {
       // Try extracting first JSON object
-      const s = raw1;
+      const s = raw1MaybeResponse;
       const start = s.indexOf('{');
       if (start !== -1) {
         let depth = 0; let end = -1;
@@ -509,6 +531,15 @@ app.post('/api/assistant/message', async (req, res) => {
     }).filter(Boolean);
 
     const validation = validateProposal({ operations: ops });
+    const annotatedAll = validation.results.map(r => ({ op: r.op, errors: r.errors }));
+    // Audit the model's understanding (internal-only)
+    try {
+      const summary = {
+        valid: validation.results.filter(r => r.errors.length === 0).length,
+        invalid: validation.results.filter(r => r.errors.length > 0).length,
+      };
+      appendAudit({ action: 'assistant_understanding', results: annotatedAll, summary });
+    } catch {}
     if (validation.errors.length) {
       // Keep only valid operations for UX; include detail for debugging
       ops = validation.results.filter(r => r.errors.length === 0).map(r => r.op);
@@ -520,9 +551,11 @@ app.post('/api/assistant/message', async (req, res) => {
     try {
       const prompt2 = buildConversationalSummaryPrompt({ instruction: message.trim(), operations: ops, todosSnapshot: todos, transcript });
       const raw2 = await runOllamaWithThinkingIfGranite({ userContent: prompt2 });
-      // Extract a clean one- or two-sentence plain text
-      text = String(raw2 || '').replace(/```[\s\S]*?```/g, '').trim();
-      text = text.replace(/[\r\n]+/g, ' ').trim();
+      // Extract a clean plain-text summary
+      let s2 = stripGraniteTags(String(raw2 || ''));
+      s2 = s2.replace(/```[\s\S]*?```/g, '').trim();
+      s2 = s2.replace(/[\r\n]+/g, ' ').trim();
+      text = s2;
       if (!text) throw new Error('empty_text');
     } catch (e) {
       usedFallback = true;
@@ -530,27 +563,97 @@ app.post('/api/assistant/message', async (req, res) => {
       appendAudit({ action: 'assistant_message', conversational_fallback: true, error: String(e && e.message ? e.message : e) });
     }
 
-    // Optional SSE streaming for summary only when client requests it
-    const wantsSse = (options && options.streamSummary === true) && String(req.headers.accept || '').includes('text/event-stream');
-    if (wantsSse) {
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-      if (typeof res.flushHeaders === 'function') res.flushHeaders();
-      const send = (event, data) => {
-        res.write(`event: ${event}\n`);
-        res.write(`data: ${data}\n\n`);
-      };
-      send('summary', JSON.stringify({ text }));
-      send('done', 'true');
-      return res.end();
-    }
+    // POST endpoint always returns final JSON; streaming is served by GET /api/assistant/message/stream
 
-    const body = { text };
-    if (ops.length) body.operations = ops;
-    res.json(body);
+    res.json({ text, operations: annotatedAll });
   } catch (err) {
     res.status(502).json({ error: 'assistant_failure', detail: String(err && err.message ? err.message : err) });
+  }
+});
+
+// SSE-friendly GET endpoint for browsers (streams summary and final result)
+app.get('/api/assistant/message/stream', async (req, res) => {
+  try {
+    const message = String(req.query.message || '');
+    const transcriptParam = req.query.transcript;
+    const transcript = (() => {
+      try { return Array.isArray(transcriptParam) ? transcriptParam : JSON.parse(String(transcriptParam || '[]')); } catch { return []; }
+    })();
+    if (message.trim() === '') return res.status(400).json({ error: 'invalid_message' });
+
+    // Call 1 — generate operations
+    const prompt1 = buildProposalPrompt({ instruction: message.trim(), todosSnapshot: todos, transcript });
+    const raw1 = await runOllamaWithThinkingIfGranite({ userContent: prompt1 });
+    const raw1MaybeResponse = extractResponseBody(raw1);
+    const tryParse = (text) => { try { return JSON.parse(text); } catch { return null; } };
+    let parsed1 = tryParse(raw1MaybeResponse);
+    if (!parsed1 && /```/.test(raw1MaybeResponse)) {
+      const inner = raw1MaybeResponse.replace(/```json|```/g, '').trim();
+      parsed1 = tryParse(inner);
+    }
+    if (!parsed1) {
+      const s = raw1MaybeResponse;
+      const start = s.indexOf('{');
+      if (start !== -1) {
+        let depth = 0; let end = -1;
+        for (let i = start; i < s.length; i++) {
+          const ch = s[i];
+          if (ch === '{') depth++;
+          else if (ch === '}') { depth--; if (depth === 0) { end = i; break; } }
+        }
+        if (end !== -1) parsed1 = tryParse(s.slice(start, end + 1));
+      }
+    }
+    let ops = [];
+    if (Array.isArray(parsed1)) ops = parsed1;
+    else if (parsed1 && Array.isArray(parsed1.operations)) ops = parsed1.operations;
+    else if (parsed1 && Array.isArray(parsed1.actions)) ops = parsed1.actions;
+    if (!ops.length && parsed1 && typeof parsed1 === 'object') ops = [parsed1];
+    ops = ops.filter(o => o && typeof o === 'object').map(o => {
+      const m = { ...o };
+      if (!m.op && typeof m.action === 'string') m.op = m.action;
+      if (!m.op && typeof m.type === 'string') m.op = m.type;
+      return inferOperationShape(m);
+    }).filter(Boolean);
+
+    const validation = validateProposal({ operations: ops });
+    const annotatedAll = validation.results.map(r => ({ op: r.op, errors: r.errors }));
+    try {
+      const summary = {
+        valid: validation.results.filter(r => r.errors.length === 0).length,
+        invalid: validation.results.filter(r => r.errors.length > 0).length,
+      };
+      appendAudit({ action: 'assistant_understanding', results: annotatedAll, summary });
+    } catch {}
+    const validOps = validation.results.filter(r => r.errors.length === 0).map(r => r.op);
+
+    // Call 2 — conversational summary
+    let text;
+    try {
+      const prompt2 = buildConversationalSummaryPrompt({ instruction: message.trim(), operations: validOps, todosSnapshot: todos, transcript });
+      const raw2 = await runOllamaWithThinkingIfGranite({ userContent: prompt2 });
+      let s2 = stripGraniteTags(String(raw2 || ''));
+      s2 = s2.replace(/```[\s\S]*?```/g, '').trim();
+      s2 = s2.replace(/[\r\n]+/g, ' ').trim();
+      if (!s2) throw new Error('empty_text');
+      text = s2;
+    } catch (e) {
+      text = buildDeterministicSummaryText(validOps);
+      appendAudit({ action: 'assistant_message', conversational_fallback: true, error: String(e && e.message ? e.message : e) });
+    }
+
+    // Stream SSE
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    if (typeof res.flushHeaders === 'function') res.flushHeaders();
+    const send = (event, data) => { res.write(`event: ${event}\n`); res.write(`data: ${data}\n\n`); };
+    send('summary', JSON.stringify({ text }));
+    send('result', JSON.stringify({ text, operations: annotatedAll }));
+    send('done', 'true');
+    return res.end();
+  } catch (err) {
+    try { res.status(502).json({ error: 'assistant_failure', detail: String(err && err.message ? err.message : err) }); } catch {}
   }
 });
 

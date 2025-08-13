@@ -85,6 +85,18 @@ class LlmOperation {
       };
 }
 
+class AnnotatedOp {
+  final LlmOperation op;
+  final List<String> errors;
+  AnnotatedOp({required this.op, required this.errors});
+  factory AnnotatedOp.fromJson(Map<String, dynamic> j) => AnnotatedOp(
+        op: LlmOperation.fromJson(Map<String, dynamic>.from(j['op'] as Map)),
+        errors: (j['errors'] as List<dynamic>? ?? const <dynamic>[])
+            .map((e) => e.toString())
+            .toList(),
+      );
+}
+
 String ymd(DateTime d) =>
     '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
@@ -173,7 +185,8 @@ class _HomePageState extends State<HomePage> {
   // Assistant (chat) panel state
   final TextEditingController assistantCtrl = TextEditingController();
   final List<Map<String, String>> assistantTranscript = [];
-  List<LlmOperation> assistantOps = [];
+  // Annotated operations with per-op errors
+  List<AnnotatedOp> assistantOps = [];
   List<bool> assistantOpsChecked = [];
   bool assistantSending = false;
   bool assistantShowDiff = false;
@@ -380,12 +393,13 @@ class _HomePageState extends State<HomePage> {
       final reply = (res['text'] as String?) ?? '';
       final opsRaw = res['operations'] as List<dynamic>?;
       final ops = opsRaw == null
-          ? <LlmOperation>[]
-          : opsRaw.map((e) => LlmOperation.fromJson(e as Map<String, dynamic>)).toList();
+          ? <AnnotatedOp>[]
+          : opsRaw.map((e) => AnnotatedOp.fromJson(e as Map<String, dynamic>)).toList();
       setState(() {
         assistantTranscript.add({'role': 'assistant', 'text': reply});
         assistantOps = ops;
-        assistantOpsChecked = List<bool>.filled(ops.length, true);
+        // Auto-check only valid ops
+        assistantOpsChecked = List<bool>.generate(ops.length, (i) => ops[i].errors.isEmpty);
         assistantShowDiff = false;
       });
       assistantCtrl.clear();
@@ -402,7 +416,9 @@ class _HomePageState extends State<HomePage> {
     try {
       final selectedOps = <Map<String, dynamic>>[];
       for (var i = 0; i < assistantOps.length; i++) {
-        if (assistantOpsChecked[i]) selectedOps.add(assistantOps[i].toJson());
+        if (assistantOpsChecked[i] && assistantOps[i].errors.isEmpty) {
+          selectedOps.add(assistantOps[i].op.toJson());
+        }
       }
       if (selectedOps.isEmpty) {
         setState(() => message = 'No operations selected.');
@@ -569,7 +585,7 @@ class _HomePageState extends State<HomePage> {
                               onDiscard: () => setState(() { assistantOps = []; assistantOpsChecked = []; assistantShowDiff = false; }),
                               inputController: assistantCtrl,
                               onSend: _sendAssistantMessage,
-                              opLabel: (op) => _opLabel(op as LlmOperation),
+                              opLabel: (op) => _opLabel((op as AnnotatedOp).op),
                             ),
                           ),
                         ],

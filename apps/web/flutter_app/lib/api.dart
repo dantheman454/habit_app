@@ -1,4 +1,7 @@
 import 'package:dio/dio.dart';
+import 'dart:async';
+import 'dart:html' as html; // For EventSource in Flutter Web
+import 'dart:convert';
 
 String _computeApiBase() {
   // Works when served by Express or running Flutter in Chrome
@@ -47,12 +50,48 @@ Future<void> deleteTodo(int id) async {
 }
 
 Future<Map<String, dynamic>> assistantMessage(String message, {List<Map<String, String>> transcript = const [], bool streamSummary = false}) async {
-  final res = await api.post('/api/assistant/message', data: {
+  if (!streamSummary) {
+    final res = await api.post('/api/assistant/message', data: {
+      'message': message,
+      'transcript': transcript,
+      'options': {'streamSummary': false},
+    });
+    return Map<String, dynamic>.from(res.data as Map);
+  }
+  // Flutter Web: use EventSource against GET streaming endpoint
+  final uri = Uri.parse('${api.options.baseUrl}/api/assistant/message/stream').replace(queryParameters: {
     'message': message,
-    'transcript': transcript,
-    'options': {'streamSummary': streamSummary},
-  });
-  return Map<String, dynamic>.from(res.data as Map);
+    'transcript': transcript.isEmpty ? '[]' : jsonEncode(transcript),
+  }).toString();
+
+  final completer = Completer<Map<String, dynamic>>();
+  try {
+    final es = html.EventSource(uri);
+    Map<String, dynamic>? result;
+    es.addEventListener('result', (event) {
+      try {
+        final data = (event as html.MessageEvent).data as String;
+        result = Map<String, dynamic>.from(jsonDecode(data) as Map);
+      } catch (_) {}
+    });
+    es.addEventListener('done', (_) {
+      es.close();
+      completer.complete(result ?? {'text': '', 'operations': []});
+    });
+    es.addEventListener('error', (_) {
+      try { es.close(); } catch (_) {}
+      if (!completer.isCompleted) completer.completeError(Exception('sse_error'));
+    });
+  } catch (_) {
+    // Fallback to non-streaming on any error
+    final res = await api.post('/api/assistant/message', data: {
+      'message': message,
+      'transcript': transcript,
+      'options': {'streamSummary': false},
+    });
+    return Map<String, dynamic>.from(res.data as Map);
+  }
+  return completer.future;
 }
 
 Future<Map<String, dynamic>> applyOperations(List<Map<String, dynamic>> ops) async {

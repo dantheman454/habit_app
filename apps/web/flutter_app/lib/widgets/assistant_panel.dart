@@ -31,7 +31,7 @@ String defaultOpLabel(LlmOperationLike op) {
 
 class AssistantPanel extends StatelessWidget {
   final List<Map<String, String>> transcript;
-  final List<dynamic> operations; // Accepts domain type with fields used above
+  final List<dynamic> operations; // Accepts domain type with fields used above (supports annotated ops)
   final List<bool> operationsChecked;
   final bool sending;
   final bool showDiff;
@@ -62,15 +62,16 @@ class AssistantPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final labeler = opLabel ?? (dynamic op) {
-      // Best-effort mapping of dynamic op to label using reflection-like access
+      // Support annotated ops: { op: {...}, errors: [...] }
+      final candidate = op is Map<String, dynamic> && op.containsKey('op') ? (op['op'] as dynamic) : op;
       final like = LlmOperationLike(
-        op: _getString(op, 'op') ?? '',
-        id: _getInt(op, 'id'),
-        title: _getString(op, 'title'),
-        notes: _getString(op, 'notes'),
-        scheduledFor: _getString(op, 'scheduledFor'),
-        priority: _getString(op, 'priority'),
-        completed: _getBool(op, 'completed'),
+        op: _getString(candidate, 'op') ?? '',
+        id: _getInt(candidate, 'id'),
+        title: _getString(candidate, 'title'),
+        notes: _getString(candidate, 'notes'),
+        scheduledFor: _getString(candidate, 'scheduledFor'),
+        priority: _getString(candidate, 'priority'),
+        completed: _getBool(candidate, 'completed'),
       );
       return defaultOpLabel(like);
     };
@@ -97,12 +98,27 @@ class AssistantPanel extends StatelessWidget {
                 const SizedBox(height: 4),
                 ...List.generate(operations.length, (i) {
                   final op = operations[i];
+                  final errs = _getErrors(op);
+                  final isInvalid = errs.isNotEmpty;
                   return Row(children: [
                     Checkbox(
                       value: operationsChecked[i],
                       onChanged: (v) => onToggleOperation(i, v ?? true),
                     ),
-                    Expanded(child: Text(labeler(op))),
+                    Expanded(child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(labeler(op)),
+                        if (isInvalid)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(
+                              errs.join(', '),
+                              style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 12),
+                            ),
+                          ),
+                      ],
+                    )),
                   ]);
                 }),
                 const SizedBox(height: 8),
@@ -196,6 +212,16 @@ class AssistantPanel extends StatelessWidget {
   }
   static bool? _getBool(dynamic obj, String key) {
     try { final v = (obj as dynamic)[key]; return v is bool ? v : null; } catch (_) { return null; }
+  }
+
+  static List<String> _getErrors(dynamic obj) {
+    try {
+      final errs = (obj as dynamic)['errors'];
+      if (errs is List) {
+        return errs.map((e) => e.toString()).toList();
+      }
+      return const <String>[];
+    } catch (_) { return const <String>[]; }
   }
 }
 

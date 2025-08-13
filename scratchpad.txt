@@ -2,6 +2,7 @@
     *fix sidebar
     *make LLM chat go all the way to the top
     *clean up search results
+    *add in loading symbol for chat and make sure it is clean
 -look at current LLM setup and update the prompts and query flow
     *make sure it will just respond to a natural language query without making a tool call
     *do two LLM calls; one to determine how to respond then the other to respond (plan response then respond)
@@ -11,18 +12,10 @@
     *Look into using the thinking mode of the LLM in the best way. Make a router based on complexity? Classify different intents to then route to proper engine
     *add in todo imports from txt files each as a query to the LLM
     *then add in Habit tracking and chatting with thinking and non-thinking version of LLM
--get a natural language to todo list item creation/deletion/modification
-    *Use LLM to deconstruct into subtask(s) with as much detail as possible, one to validate for hallucinations, and then one to make the tool call(s)
-    *use the code generation one for the exact function calls?
+
 
     
-for granite models to enable thinking:
-{
-    "messages": [
-        {"role": "control", "content": "thinking"},
-        {"role": "user", "content": "How do I get to the airport if my car won't start?"}
-    ]
-}
+
 
 Long term:
 -fork VS Code?
