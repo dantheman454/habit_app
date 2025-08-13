@@ -42,6 +42,9 @@ class AssistantPanel extends StatelessWidget {
   final TextEditingController inputController;
   final VoidCallback onSend;
   final String Function(dynamic op)? opLabel;
+  final String? mode; // 'chat' | 'plan'
+  final void Function(String mode)? onModeChanged;
+  final VoidCallback? onClearChat;
 
   const AssistantPanel({
     super.key,
@@ -57,6 +60,9 @@ class AssistantPanel extends StatelessWidget {
     required this.inputController,
     required this.onSend,
     this.opLabel,
+    this.mode,
+    this.onModeChanged,
+    this.onClearChat,
   });
 
   @override
@@ -80,12 +86,40 @@ class AssistantPanel extends StatelessWidget {
       color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.15),
       child: Column(
         children: [
+        // Header controls
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          child: Row(
+            children: [
+              if (onModeChanged != null && mode != null)
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(value: 'chat', label: Text('Chat')),
+                    ButtonSegment(value: 'plan', label: Text('Plan')),
+                  ],
+                  selected: <String>{mode!},
+                  onSelectionChanged: (s) {
+                    if (s.isNotEmpty) onModeChanged!(s.first);
+                  },
+                ),
+              const Spacer(),
+              if (onClearChat != null)
+                TextButton.icon(
+                  onPressed: onClearChat,
+                  icon: const Icon(Icons.clear_all, size: 16),
+                  label: const Text('Clear'),
+                ),
+            ],
+          ),
+        ),
         Expanded(
           child: ListView(
             padding: const EdgeInsets.all(8),
             children: [
               for (final turn in transcript)
                 _buildTurnBubble(context, turn),
+              if (sending)
+                _buildTypingBubble(context),
               if (operations.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 const Text('Proposed operations', style: TextStyle(fontWeight: FontWeight.w600)),
@@ -232,6 +266,75 @@ class AssistantPanel extends StatelessWidget {
       }
       return const <String>[];
     } catch (_) { return const <String>[]; }
+  }
+
+  Widget _buildTypingBubble(BuildContext context) {
+    final bg = Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.6);
+    final fg = Theme.of(context).colorScheme.onSurfaceVariant;
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      alignment: Alignment.centerLeft,
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: const _TypingDots(),
+      ),
+    );
+  }
+}
+
+class _TypingDots extends StatefulWidget {
+  const _TypingDots();
+
+  @override
+  State<_TypingDots> createState() => _TypingDotsState();
+}
+
+class _TypingDotsState extends State<_TypingDots> with SingleTickerProviderStateMixin {
+  late final AnimationController _c;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 900))..repeat();
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.onSurfaceVariant;
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (_, __) {
+        final t = _c.value; // 0..1
+        final active = (t * 3).floor() % 3; // 0,1,2 cycling
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: List.generate(3, (i) {
+            final on = i <= active;
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: Opacity(
+                opacity: on ? 1.0 : 0.3,
+                child: Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+                ),
+              ),
+            );
+          }),
+        );
+      },
+    );
   }
 }
 

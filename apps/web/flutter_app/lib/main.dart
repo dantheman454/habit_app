@@ -192,6 +192,8 @@ class _HomePageState extends State<HomePage> {
   List<bool> assistantOpsChecked = [];
   bool assistantSending = false;
   bool assistantShowDiff = false;
+  // Assistant mode: 'chat' | 'plan' (server default remains 'plan' if omitted)
+  String assistantMode = 'chat';
 
   // Import UI removed; state no longer used
 
@@ -431,10 +433,12 @@ class _HomePageState extends State<HomePage> {
       assistantTranscript.add({'role': 'user', 'text': text});
       assistantSending = true;
     });
+    // Clear input immediately for snappier UX while preserving `text` captured above
+    assistantCtrl.clear();
     try {
       // Send last 3 turns and request streaming summary (server will fall back to JSON if not SSE)
       final recent = assistantTranscript.length <= 3 ? assistantTranscript : assistantTranscript.sublist(assistantTranscript.length - 3);
-      final res = await api.assistantMessage(text, transcript: recent, streamSummary: true);
+      final res = await api.assistantMessage(text, transcript: recent, streamSummary: true, mode: assistantMode);
       final reply = (res['text'] as String?) ?? '';
       final opsRaw = res['operations'] as List<dynamic>?;
       final ops = opsRaw == null
@@ -447,7 +451,6 @@ class _HomePageState extends State<HomePage> {
         assistantOpsChecked = List<bool>.generate(ops.length, (i) => ops[i].errors.isEmpty);
         assistantShowDiff = false;
       });
-      assistantCtrl.clear();
     } catch (e) {
       setState(() {
         assistantTranscript.add({'role': 'assistant', 'text': 'Sorry, I could not process that. (${e.toString()})'});
@@ -553,56 +556,57 @@ class _HomePageState extends State<HomePage> {
               // Unified dark-blue header spanning entire app width
               Container(
                 color: const Color(0xFF0B3D91),
-                padding: const EdgeInsets.all(12),
-                child: Row(
-                  children: [
-                    // Reserve space visually aligned with left sidebar width
-                    const SizedBox(width: 220),
-                    const SizedBox(width: 1),
-                    // Search box (responsive, centered within available region)
-                    Expanded(
-                      child: Center(
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(minWidth: 320, maxWidth: 560),
-                          child: TextField(
-                            controller: searchCtrl,
-                            decoration: InputDecoration(
-                              prefixIcon: const Icon(Icons.search),
-                              hintText: 'Search',
-                              filled: true,
-                              fillColor: Colors.white,
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
-                                borderSide: BorderSide.none,
+                padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 0),
+                child: IntrinsicHeight(
+                  child: Row(
+                    children: [
+                      // Reserve space visually aligned with left sidebar width
+                      const SizedBox(width: 220),
+                      // Full-height divider aligning with body split (left of main tasks)
+                      VerticalDivider(width: 1, thickness: 1, color: Theme.of(context).colorScheme.outline),
+                      // Search box (responsive, centered within available region)
+                      Expanded(
+                        child: Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(minWidth: 320, maxWidth: 560),
+                            child: TextField(
+                              controller: searchCtrl,
+                              decoration: InputDecoration(
+                                prefixIcon: const Icon(Icons.search),
+                                hintText: 'Search',
+                                filled: true,
+                                fillColor: Colors.white,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: BorderSide.none,
+                                ),
                               ),
+                              onChanged: _onSearchChanged,
                             ),
-                            onChanged: _onSearchChanged,
                           ),
                         ),
                       ),
-                    ),
-                    // Push assistant zone to the far right so header split aligns with body split
-                    const Spacer(),
-                    // Header divider aligned with body split
-                    Container(width: 1, height: 36, color: Theme.of(context).colorScheme.outline),
-                    // Assistant header zone (right-aligned)
-                    SizedBox(
-                      width: 360,
-                      child: Center(
-                        child: showAssistantText
-                            ? Row(
-                                mainAxisSize: MainAxisSize.min,
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: const [
-                                  Icon(Icons.smart_toy_outlined, color: Colors.white, size: 18),
-                                  SizedBox(width: 6),
-                                  Text('Assistant', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.white)),
-                                ],
-                              )
-                            : const Icon(Icons.smart_toy_outlined, color: Colors.white, size: 18),
+                      // Full-height divider aligning with body split (right of main tasks / left of assistant)
+                      VerticalDivider(width: 1, thickness: 1, color: Theme.of(context).colorScheme.outline),
+                      // Assistant header zone (right-aligned)
+                      SizedBox(
+                        width: 360,
+                        child: Center(
+                          child: showAssistantText
+                              ? Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: const [
+                                    Icon(Icons.smart_toy_outlined, color: Colors.white, size: 18),
+                                    SizedBox(width: 6),
+                                    Text('Assistant', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.white)),
+                                  ],
+                                )
+                              : const Icon(Icons.smart_toy_outlined, color: Colors.white, size: 18),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
               const Divider(height: 1),
@@ -701,6 +705,22 @@ class _HomePageState extends State<HomePage> {
                                     inputController: assistantCtrl,
                                     onSend: _sendAssistantMessage,
                                     opLabel: (op) => _opLabel((op as AnnotatedOp).op),
+                                    mode: assistantMode,
+                                    onModeChanged: (m) => setState(() {
+                                      assistantMode = m;
+                                      // Clear pending ops when switching to chat mode to avoid stale UI
+                                      if (assistantMode == 'chat') {
+                                        assistantOps = [];
+                                        assistantOpsChecked = [];
+                                        assistantShowDiff = false;
+                                      }
+                                    }),
+                                    onClearChat: () => setState(() {
+                                      assistantTranscript.clear();
+                                      assistantOps = [];
+                                      assistantOpsChecked = [];
+                                      assistantShowDiff = false;
+                                    }),
                                   ),
                                 ),
                               ],

@@ -56,12 +56,12 @@ Future<void> deleteTodo(int id) async {
   await api.delete('/api/todos/$id');
 }
 
-Future<Map<String, dynamic>> assistantMessage(String message, {List<Map<String, String>> transcript = const [], bool streamSummary = false}) async {
+Future<Map<String, dynamic>> assistantMessage(String message, {List<Map<String, String>> transcript = const [], bool streamSummary = false, String mode = 'plan'}) async {
   if (!streamSummary) {
     final res = await api.post('/api/assistant/message', data: {
       'message': message,
       'transcript': transcript,
-      'options': {'streamSummary': false},
+      'options': {'streamSummary': false, 'mode': mode},
     });
     return Map<String, dynamic>.from(res.data as Map);
   }
@@ -69,6 +69,7 @@ Future<Map<String, dynamic>> assistantMessage(String message, {List<Map<String, 
   final uri = Uri.parse('${api.options.baseUrl}/api/assistant/message/stream').replace(queryParameters: {
     'message': message,
     'transcript': transcript.isEmpty ? '[]' : jsonEncode(transcript),
+    'mode': mode,
   }).toString();
 
   final completer = Completer<Map<String, dynamic>>();
@@ -94,7 +95,7 @@ Future<Map<String, dynamic>> assistantMessage(String message, {List<Map<String, 
     final res = await api.post('/api/assistant/message', data: {
       'message': message,
       'transcript': transcript,
-      'options': {'streamSummary': false},
+      'options': {'streamSummary': false, 'mode': mode},
     });
     return Map<String, dynamic>.from(res.data as Map);
   }

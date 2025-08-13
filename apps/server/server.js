@@ -487,11 +487,40 @@ function buildDeterministicSummaryText(operations) {
   return s.trim();
 }
 
+// Lightweight chat-only prompt (no operations)
+function buildChatPrompt({ instruction, transcript }) {
+  const today = new Date();
+  const todayYmd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
+  const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
+  const system = `You are a helpful assistant for a todo app. Keep answers concise and clear. Prefer 1–3 short sentences; allow a short paragraph when needed. No markdown, no lists.`;
+  const context = `Conversation (last 3 turns):\n${convo}\n\nToday: ${todayYmd}`;
+  const user = `User message:\n${instruction}`;
+  const task = `Respond helpfully and concretely. Do not output JSON.`;
+  return `${system}\n\n${context}\n\n${user}\n\n${task}`;
+}
+
 app.post('/api/assistant/message', async (req, res) => {
   try {
     const { message, transcript = [], options = {} } = req.body || {};
     if (typeof message !== 'string' || message.trim() === '') {
       return res.status(400).json({ error: 'invalid_message' });
+    }
+    const mode = String((options && options.mode) || 'plan').toLowerCase();
+
+    // Chat-only mode: single LLM call, no operations
+    if (mode === 'chat') {
+      try {
+        const prompt = buildChatPrompt({ instruction: message.trim(), transcript });
+        const raw = await runOllamaWithThinkingIfGranite({ userContent: prompt });
+        let s = stripGraniteTags(String(raw || ''));
+        s = s.replace(/```[\s\S]*?```/g, '').trim();
+        s = s.replace(/[\r\n]+/g, ' ').trim();
+        const text = s || 'Okay.';
+        return res.json({ text, operations: [] });
+      } catch (e) {
+        return res.status(502).json({ error: 'assistant_failure', detail: String(e && e.message ? e.message : e) });
+      }
     }
 
     // Call 1 — generate operations (reuse robust proposal pipeline)
@@ -580,6 +609,31 @@ app.get('/api/assistant/message/stream', async (req, res) => {
       try { return Array.isArray(transcriptParam) ? transcriptParam : JSON.parse(String(transcriptParam || '[]')); } catch { return []; }
     })();
     if (message.trim() === '') return res.status(400).json({ error: 'invalid_message' });
+    const mode = String(req.query.mode || 'plan').toLowerCase();
+
+    if (mode === 'chat') {
+      try {
+        const prompt = buildChatPrompt({ instruction: message.trim(), transcript });
+        const raw = await runOllamaWithThinkingIfGranite({ userContent: prompt });
+        let s = stripGraniteTags(String(raw || ''));
+        s = s.replace(/```[\s\S]*?```/g, '').trim();
+        s = s.replace(/[\r\n]+/g, ' ').trim();
+        const text = s || 'Okay.';
+
+        // Stream SSE
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        if (typeof res.flushHeaders === 'function') res.flushHeaders();
+        const send = (event, data) => { res.write(`event: ${event}\n`); res.write(`data: ${data}\n\n`); };
+        send('summary', JSON.stringify({ text }));
+        send('result', JSON.stringify({ text, operations: [] }));
+        send('done', 'true');
+        return res.end();
+      } catch (e) {
+        try { return res.status(502).json({ error: 'assistant_failure', detail: String(e && e.message ? e.message : e) }); } catch {}
+      }
+    }
 
     // Call 1 — generate operations
     const prompt1 = buildProposalPrompt({ instruction: message.trim(), todosSnapshot: todos, transcript });

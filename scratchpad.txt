@@ -4,8 +4,7 @@ Keep in mind:
 
 Actionable:
 -clean up web UI
-    *fix sidebar
-    *add in loading symbol for chat and make sure it is clean
+    *add in loading symbol for chat and make sure it is cleaner
 -fix search bar
     *make it cleaner functionally and visually
     *have it only show non-complete tasks (have it be based on the toggle in the bottom left)
@@ -23,3 +22,4 @@ Actionable:
 
 Long term:
 -ask mitchell if I could fine tune models on the dgx (figure out best way to do this)
+-kaizen journal integration somehow?
