@@ -245,9 +245,9 @@ app.delete('/api/todos/:id', (req, res) => {
 });
 
 // --- LLM proposal-and-verify (Ollama) ---
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'granite3.3:8b';
-const OLLAMA_TEMPERATURE = parseFloat(process.env.OLLAMA_TEMPERATURE || '0.1');
-const GLOBAL_TIMEOUT_SECS = parseInt(process.env.GLOBAL_TIMEOUT_SECS || '90', 10);
+const OLLAMA_MODEL = 'granite3.3:8b';
+const OLLAMA_TEMPERATURE = 0.1;
+const GLOBAL_TIMEOUT_SECS = 120;
 
 function validateOperation(op) {
   const errors = [];
@@ -326,16 +326,38 @@ function runOllamaPrompt(prompt) {
   });
 }
 
-function buildProposalPrompt({ instruction, todosSnapshot }) {
+function isGraniteModel() {
+  try { return /granite/i.test(String(OLLAMA_MODEL)); } catch { return false; }
+}
+
+function runOllamaWithThinkingIfGranite({ userContent }) {
+  // For Granite models that support control messages, send a messages JSON
+  // with a control "thinking" directive followed by the user content.
+  if (isGraniteModel()) {
+    const messagesPayload = JSON.stringify({
+      messages: [
+        { role: 'control', content: 'thinking' },
+        { role: 'user', content: userContent }
+      ]
+    });
+    return runOllamaPrompt(messagesPayload);
+  }
+  return runOllamaPrompt(userContent);
+}
+
+function buildProposalPrompt({ instruction, todosSnapshot, transcript }) {
   const today = new Date();
   const todayYmd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const system = `You are an assistant for a todo app. Output ONLY a single JSON object with key "operations" as an array. No prose.\n` +
     `Each operation MUST include field "op" which is one of: "create", "update", "delete", "complete".\n` +
     `Allowed fields: op, id (int for update/delete/complete), title, notes, scheduledFor (YYYY-MM-DD or null), priority (low|medium|high), completed (bool).\n` +
     `If the user's instruction does not specify a date for a create operation, DEFAULT scheduledFor to TODAY (${todayYmd}).\n` +
-    `Today's date is ${todayYmd}. Do NOT invent invalid IDs. Prefer fewer changes over hallucination.`;
+    `Today's date is ${todayYmd}. Do NOT invent invalid IDs. Prefer fewer changes over hallucination.\n` +
+    `You may reason internally, but the final output MUST be a single JSON object exactly as specified. Do not include your reasoning or any prose.`;
+  const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
+  const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
   const context = JSON.stringify({ todos: todosSnapshot }, null, 2);
-  const user = `Instruction:\n${instruction}\n\nContext:\n${context}\n\nRespond with JSON ONLY that matches this exact example format:\n{\n  "operations": [\n    {"op": "create", "title": "Buy milk", "scheduledFor": "${todayYmd}", "priority": "high"}\n  ]\n}`;
+  const user = `Conversation (last 3 turns):\n${convo}\n\nInstruction:\n${instruction}\n\nContext:\n${context}\n\nRespond with JSON ONLY that matches this exact example format:\n{\n  "operations": [\n    {"op": "create", "title": "Buy milk", "scheduledFor": "${todayYmd}", "priority": "high"}\n  ]\n}`;
   return `${system}\n\n${user}`;
 }
 
@@ -397,7 +419,7 @@ app.post('/api/llm/apply', async (req, res) => {
 });
 
 // --- Assistant chat (two-call pipeline) ---
-function buildConversationalSummaryPrompt({ instruction, operations, todosSnapshot }) {
+function buildConversationalSummaryPrompt({ instruction, operations, todosSnapshot, transcript }) {
   const today = new Date();
   const todayYmd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const compactOps = operations.map((op) => {
@@ -410,8 +432,10 @@ function buildConversationalSummaryPrompt({ instruction, operations, todosSnapsh
     if (typeof op.completed === 'boolean') parts.push(op.completed ? '[done]' : '[undone]');
     return `- ${parts.join(' ')}`;
   }).join('\n');
+  const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
+  const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
   const system = `You are a helpful assistant for a todo app. Reply ultra-briefly (prefer 1 sentence; max 2). No markdown, no lists, no JSON.`;
-  const context = `Today: ${todayYmd}\nProposed operations (count: ${operations.length}):\n${compactOps}`;
+  const context = `Conversation (last 3 turns):\n${convo}\n\nToday: ${todayYmd}\nProposed operations (count: ${operations.length}):\n${compactOps}`;
   const user = `User instruction:\n${instruction}`;
   const task = `Summarize the plan in plain English grounded in the proposed operations above. If there are no valid operations, briefly explain and suggest what to clarify.`;
   return `${system}\n\n${context}\n\n${user}\n\n${task}`;
@@ -444,14 +468,14 @@ function buildDeterministicSummaryText(operations) {
 
 app.post('/api/assistant/message', async (req, res) => {
   try {
-    const { message } = req.body || {};
+    const { message, transcript = [], options = {} } = req.body || {};
     if (typeof message !== 'string' || message.trim() === '') {
       return res.status(400).json({ error: 'invalid_message' });
     }
 
     // Call 1 — generate operations (reuse robust proposal pipeline)
-    const prompt1 = buildProposalPrompt({ instruction: message.trim(), todosSnapshot: todos });
-    const raw1 = await runOllamaPrompt(prompt1);
+    const prompt1 = buildProposalPrompt({ instruction: message.trim(), todosSnapshot: todos, transcript });
+    const raw1 = await runOllamaWithThinkingIfGranite({ userContent: prompt1 });
     const tryParse = (text) => { try { return JSON.parse(text); } catch { return null; } };
     let parsed1 = tryParse(raw1);
     if (!parsed1 && /```/.test(raw1)) {
@@ -494,8 +518,8 @@ app.post('/api/assistant/message', async (req, res) => {
     let text;
     let usedFallback = false;
     try {
-      const prompt2 = buildConversationalSummaryPrompt({ instruction: message.trim(), operations: ops, todosSnapshot: todos });
-      const raw2 = await runOllamaPrompt(prompt2);
+      const prompt2 = buildConversationalSummaryPrompt({ instruction: message.trim(), operations: ops, todosSnapshot: todos, transcript });
+      const raw2 = await runOllamaWithThinkingIfGranite({ userContent: prompt2 });
       // Extract a clean one- or two-sentence plain text
       text = String(raw2 || '').replace(/```[\s\S]*?```/g, '').trim();
       text = text.replace(/[\r\n]+/g, ' ').trim();
@@ -504,6 +528,22 @@ app.post('/api/assistant/message', async (req, res) => {
       usedFallback = true;
       text = buildDeterministicSummaryText(ops);
       appendAudit({ action: 'assistant_message', conversational_fallback: true, error: String(e && e.message ? e.message : e) });
+    }
+
+    // Optional SSE streaming for summary only when client requests it
+    const wantsSse = (options && options.streamSummary === true) && String(req.headers.accept || '').includes('text/event-stream');
+    if (wantsSse) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      if (typeof res.flushHeaders === 'function') res.flushHeaders();
+      const send = (event, data) => {
+        res.write(`event: ${event}\n`);
+        res.write(`data: ${data}\n\n`);
+      };
+      send('summary', JSON.stringify({ text }));
+      send('done', 'true');
+      return res.end();
     }
 
     const body = { text };

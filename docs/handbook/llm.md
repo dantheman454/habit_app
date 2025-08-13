@@ -3,10 +3,10 @@
 Goal: convert natural-language instructions into a safe, reviewable set of operations that you explicitly approve before applying.
 
 Flow
-1) UI sends `{ instruction }` → `/api/llm/propose`
-2) Server builds a strict prompt, runs `ollama run <model>`, parses/normalizes JSON
-3) Server validates operations (shape, IDs, dates, priority)
-4) UI renders operations; you select a subset
+1) UI sends `{ message, transcript?, options? }` → `/api/assistant/message`
+2) Server builds a strict prompt for operations, runs `ollama run <model>`, parses/normalizes JSON
+3) Server validates operations (shape, IDs, dates, priority); also generates a brief summary (second call)
+4) UI renders summary and operations; you select a subset
 5) UI sends `{ operations }` → `/api/llm/apply`
 6) Server mutates JSON persistence under a simple mutex and appends `data/audit.jsonl`
 
@@ -25,7 +25,7 @@ Operation schema
 Models and environment
 - Current default model: `granite3.3:8b`
 - Also supported: `granite-code:8b`
-- Env vars: `OLLAMA_MODEL` (default `granite3.3:8b`), `OLLAMA_TEMPERATURE` (default `0.1`), `GLOBAL_TIMEOUT_SECS` (default `90`)
+- Env vars: `OLLAMA_MODEL` (default `granite3.3:8b`), `OLLAMA_TEMPERATURE` (default `0.1`), `GLOBAL_TIMEOUT_SECS` (default `120`)
 
 Setup
 ```bash
@@ -47,6 +47,20 @@ Server strategy
 - Normalization: lowercase `priority`; empty string `scheduledFor: ''` → `null`
 - Validation: per-operation (`priority` enum, `scheduledFor` format, `id` existence for `update|delete|complete`); `invalid_operations` is returned with per-op errors in `detail`
 - Apply: executed under an in-process mutex (`withApplyLock`) to serialize writes; appends audit lines
+
+```333:361:apps/server/server.js
+function buildProposalPrompt({ instruction, todosSnapshot, transcript }) {
+  const today = new Date();
+  const todayYmd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const system = `You are an assistant for a todo app. Output ONLY a single JSON object with key "operations" as an array. No prose.\n` +
+    `Each operation MUST include field "op" which is one of: "create", "update", "delete", "complete".\n` +
+    `Allowed fields: op, id (int for update/delete/complete), title, notes, scheduledFor (YYYY-MM-DD or null), priority (low|medium|high), completed (bool).\n` +
+    `If the user's instruction does not specify a date for a create operation, DEFAULT scheduledFor to TODAY (${todayYmd}).\n` +
+    `Today's date is ${todayYmd}. Do NOT invent invalid IDs. Prefer fewer changes over hallucination.\n` +
+    `You may reason internally, but the final output MUST be a single JSON object exactly as specified. Do not include your reasoning or any prose.`;
+  // ...
+}
+```
 
 Safety/guardrails
 - Strict JSON parsing (codefence and brace-matching fallbacks)
@@ -88,7 +102,7 @@ Model tips
 - When unsure, the server defaults create scheduledFor to TODAY
 
 Timeouts and CLI compatibility
-- End-to-end propose timeout controlled by `GLOBAL_TIMEOUT_SECS`
+- End-to-end assistant timeout controlled by `GLOBAL_TIMEOUT_SECS`
 - If the local Ollama CLI does not support `--temperature`, the server auto-retries without that flag
 
 

@@ -3,10 +3,11 @@
 Day-to-day workflows optimized for speed and clarity.
 
 ### Capture (fast entry)
-- Type a short title into Quick Entry
-- Choose entry mode:
-  - Direct: creates a todo scheduled for the current anchor date
-  - LLM: enter a natural instruction (e.g., “Schedule haircut Friday and set priority high”), review proposed ops, select, apply
+- Open the Quick Actions sheet (FAB)
+- Choose action:
+  - Create: title, notes, date (YYYY-MM-DD or empty), priority
+  - Update: select a task, change fields
+  - Complete/Delete: select a task
 
 Tips
 - Use short, imperative titles (verb-first)
@@ -27,9 +28,9 @@ Tips
 - Prepare a `.txt` list (one task per line)
 - Import → select lines → choose schedule (anchor or backlog) and default priority → apply
 
-### Propose-and-Verify (structured changes via LLM)
+### Assistant (structured changes via LLM)
 - Enter a concise instruction; example: “Move all high-priority backlog to next week and rename ‘Test’ to ‘Buy milk’”
-- Review operations; uncheck anything surprising; apply
+- Review summary and operations; uncheck anything surprising; apply
 - Check summary and spot-check a few todos
 
 ### Weekly review (habit lens)

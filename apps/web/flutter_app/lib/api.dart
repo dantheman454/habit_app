@@ -46,8 +46,12 @@ Future<void> deleteTodo(int id) async {
   await api.delete('/api/todos/$id');
 }
 
-Future<Map<String, dynamic>> assistantMessage(String message) async {
-  final res = await api.post('/api/assistant/message', data: {'message': message});
+Future<Map<String, dynamic>> assistantMessage(String message, {List<Map<String, String>> transcript = const [], bool streamSummary = false}) async {
+  final res = await api.post('/api/assistant/message', data: {
+    'message': message,
+    'transcript': transcript,
+    'options': {'streamSummary': streamSummary},
+  });
   return Map<String, dynamic>.from(res.data as Map);
 }
 

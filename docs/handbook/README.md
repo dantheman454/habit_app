@@ -1,6 +1,6 @@
 ## Habit App Handbook
 
-Audience: you (single user). Scope: in-depth, single-machine, entirely local. This handbook is the living source for how Habit App works and how to extend it. It mirrors the implementation in `server.js` and the test suite under `tests/` so you can trust it for day-to-day operations and development.
+Audience: you (single user). Scope: in-depth, single-machine, entirely local. This handbook is the living source for how Habit App works and how to extend it. It mirrors the implementation in `apps/server/server.js` and the test suite under `python/tests/` so you can trust it for day-to-day operations and development.
 
 ### Table of contents
 - `overview.md` — high-level purpose, capabilities, philosophy alignment, non-goals

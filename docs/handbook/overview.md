@@ -6,13 +6,12 @@ Core capabilities
 - Capture: create todos with title, notes, date (or backlog), and priority
 - Organize: Day/Week/Month views anchored to a date; Backlog; Flagged (by priority)
 - Execute: mark complete, edit inline, delete, search
-- Import: bulk-create from `.txt` lines (deduplicated in-session)
-- Propose-and-Verify (LLM): natural language instructions → structured operations to review → apply
+- Assistant: natural language instructions → proposed operations with a brief summary → apply
 
 Philosophy alignment
 - Virtual secretary: translate intent + calendar into concrete tasks
 - Habits lens: tasks are scheduled intentionally; success rates (future) inform behavior
-- Low friction: keyboard-friendly quick entry; minimal clicks to edit/complete/delete
+- Low friction: quick actions sheet; minimal clicks to edit/complete/delete
 
 User behaviors the app optimizes for
 - Quickly add/modify/delete todos

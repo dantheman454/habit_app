@@ -374,7 +374,9 @@ class _HomePageState extends State<HomePage> {
       assistantSending = true;
     });
     try {
-      final res = await api.assistantMessage(text);
+      // Send last 3 turns and request streaming summary (server will fall back to JSON if not SSE)
+      final recent = assistantTranscript.length <= 3 ? assistantTranscript : assistantTranscript.sublist(assistantTranscript.length - 3);
+      final res = await api.assistantMessage(text, transcript: recent, streamSummary: true);
       final reply = (res['text'] as String?) ?? '';
       final opsRaw = res['operations'] as List<dynamic>?;
       final ops = opsRaw == null

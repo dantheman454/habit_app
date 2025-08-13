@@ -8,12 +8,12 @@ graph TD
   B -->|CRUD/search/backlog| C[("data/todos.json")]
   B -->|autoincrement| D[("data/counter.json")]
   B -->|append audit| E[("data/audit.jsonl")]
-  B -->|/api/llm/propose| F[["Ollama CLI (local model)"]]
+  B -->|/api/assistant/message| F[["Ollama CLI (local model)"]]
   B -->|/api/llm/apply→mutate| C
 ```
 
 Key responsibilities
-- UI (Flutter Web): Renders views, performs edits, search, import, and LLM propose/apply review
+- UI (Flutter Web): Renders views, performs edits, search, and Assistant plan/apply review
 - API (Node/Express, `server.js`): Owns validation, persistence, search, and LLM prompt/parse/validate
 - Persistence: `data/` directory (JSON files); synchronous writes for simplicity
 - LLM: `ollama run <model>` with strict output coercion, normalization, and validation
@@ -34,18 +34,18 @@ sequenceDiagram
   API-->>UI: { todo }
 ```
 
-Sequence: LLM propose-and-apply
+Sequence: Assistant plan-and-apply
 ```mermaid
 sequenceDiagram
   participant UI as Flutter UI
   participant API as Express API
   participant LLM as Ollama (local)
   participant FS as data/*.json
-  UI->>API: POST /api/llm/propose { instruction }
+  UI->>API: POST /api/assistant/message { message, transcript?, options? }
   API->>LLM: run prompt via `ollama run <model>`
   LLM-->>API: raw text
   API->>API: parse (JSON, codefence strip, brace-match), normalize (infer op, lowercase priority, ''→null for scheduledFor), validate operations
-  API-->>UI: { operations }
+  API-->>UI: { text, operations }
   UI->>API: POST /api/llm/apply { operations (selected) }
   API->>API: withApplyLock(); apply ops; append audit.jsonl
   API-->>UI: { results, summary }
@@ -55,22 +55,47 @@ Concurrency and durability
 - Single-process mutex (`withApplyLock`) serializes apply operations to prevent interleaving writes
 - Synchronous file writes minimize partial state; audit lines are append-only
 - In-memory state loaded at startup from disk (`todos.json`, `counter.json`); next ID persisted to `counter.json`
-- Static files served from `web/public/` (e.g., Flutter build output)
+- Static files served from `apps/web/flutter_app/build/web` by default (override with `STATIC_DIR`)
+
+```16:22:apps/server/server.js
+const REPO_ROOT = path.resolve(__dirname, '..', '..');
+const DATA_DIR = path.join(REPO_ROOT, 'data');
+const TODOS_FILE = path.join(DATA_DIR, 'todos.json');
+const COUNTER_FILE = path.join(DATA_DIR, 'counter.json');
+const STATIC_DIR = process.env.STATIC_DIR || path.join(REPO_ROOT, 'apps', 'web', 'flutter_app', 'build', 'web');
+```
 
 Security and privacy
 - No accounts or remote calls except optional local Ollama process
 - Inputs validated on all endpoints; LLM outputs validated before display/apply
 - CORS enabled (local), `x-powered-by` header disabled
 
+```95:101:apps/server/server.js
+const app = express();
+app.disable('x-powered-by');
+app.use(cors());
+app.use(express.json({ limit: '256kb' }));
+```
+
 Non-goals
 - No multi-user, accounts, or remote storage
 - No external DB; no cloud services
 
-### Environment variables (read at runtime)
-- `PORT` (default `3000`)
-- `OLLAMA_MODEL` (default `granite3.3:8b`) — required for `/api/llm/propose`
-- `OLLAMA_TEMPERATURE` (default `0.1`); if the Ollama CLI does not support `--temperature`, server auto-retries without it
-- `GLOBAL_TIMEOUT_SECS` (default `90`) — propose end-to-end timeout
+### Runtime configuration
+- Env vars:
+  - `PORT` (default `3000`)
+  - `STATIC_DIR` (optional; defaults to Flutter build dir)
+- LLM constants (hard-coded in server):
+  - `OLLAMA_MODEL = 'granite3.3:8b'`
+  - `OLLAMA_TEMPERATURE = 0.1`
+  - `GLOBAL_TIMEOUT_SECS = 120`
+
+```247:251:apps/server/server.js
+// --- LLM proposal-and-verify (Ollama) ---
+const OLLAMA_MODEL = 'granite3.3:8b';
+const OLLAMA_TEMPERATURE = 0.1;
+const GLOBAL_TIMEOUT_SECS = 120;
+```
 
 ### Request lifecycle (create example)
 1. Client POSTs JSON to `/api/todos`

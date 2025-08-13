@@ -23,10 +23,38 @@ Notes
 - Execution stage can sandbox data by using a temp working directory
 
 HTTP endpoint tests
-- See `tests/test_llm_endpoints.py` for starting the server under test and exercising `/api/llm/*` and `/api/todos`
-- The propose test is skipped unless `OLLAMA_MODEL` is set
+- See `python/tests/test_llm_endpoints.py` for starting the server under test and exercising `/api/llm/apply` and `/api/todos`. A legacy propose test targeting `/api/llm/propose` remains but is skipped unless `OLLAMA_MODEL` is set.
 - Verify health: `GET /health`
 - Validate apply workflow assertions: creation, update, and complete counters in `summary`
+
+```30:36:python/tests/test_llm_endpoints.py
+@pytest.fixture(scope="module")
+def web_server():
+    cmd = ["node", "apps/server/server.js"]
+    proc = subprocess.Popen(cmd, cwd=REPO_ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    # waits for 127.0.0.1:3000
+```
+
+```70:89:python/tests/test_llm_endpoints.py
+def test_apply_endpoint_create_update_complete_delete(web_server):
+    created = _post_json(f"{SERVER_URL}/api/todos", {"title": "Test A", "priority": "medium", "scheduledFor": None})
+    tid = created["todo"]["id"]
+    ops = [
+        {"op": "update", "id": tid, "title": "Test A+", "priority": "high"},
+        {"op": "complete", "id": tid, "completed": True},
+        {"op": "create", "title": "LLM Created", "scheduledFor": None, "priority": "low"},
+    ]
+    result = _post_json(f"{SERVER_URL}/api/llm/apply", {"operations": ops})
+```
+
+```92:97:python/tests/test_llm_endpoints.py
+@pytest.mark.skipif(not os.environ.get("OLLAMA_MODEL"), reason="OLLAMA_MODEL not set")
+def test_propose_endpoint_roundtrip(web_server):
+    payload = {"instruction": "create a new todo tomorrow titled Buy bread with priority high"}
+    resp = _post_json(f"{SERVER_URL}/api/llm/propose", payload)
+```
+
+Note: `/api/llm/propose` was removed from the server in favor of `/api/assistant/message`. Keep `OLLAMA_MODEL` unset when running tests to skip this legacy test.
 
 Python test deps
 - Listed in `requirements.txt` (pytest, requests, jsonschema, jinja2, psutil)

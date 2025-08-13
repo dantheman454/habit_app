@@ -8,8 +8,8 @@
 - Data model (backward compatible)
   - Optional fields: `flagged`, `order`, `repeatRule`, `listId`, `parentId`
 
-- LLM workflow
-  - Enhanced diffs in proposal review (field-by-field comparison)
+- Assistant workflow
+  - Enhanced diffs in assistant review (field-by-field comparison)
   - Additional guardrails and dry-run diagnostics
 
 - Testing
@@ -25,7 +25,7 @@ Stretch ideas
 ### Acceptance criteria (samples)
 - Keyboard-first quick entry: can create, edit, and submit with Enter/Esc/Tab only; visible focus outlines
 - Date headers: lists of scheduled items render in ascending `scheduledFor` groups with human-friendly headings
-- Proposal diffs: UI shows before/after for updates; create/delete/complete are clearly labeled
+- Assistant diffs: UI shows before/after for updates; create/delete/complete are clearly labeled
 
 ### Compatibility notes
 - Persist new optional fields in JSON without breaking existing readers; default missing fields at read time

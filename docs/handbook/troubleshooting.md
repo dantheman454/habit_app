@@ -8,11 +8,11 @@ Data not saving
 - Verify write permissions to the data/ directory and that it exists
 - Check for JSON parse errors in data/todos.json
 
-LLM propose failures
+Assistant failures
 - Confirm `ollama list` works and the model is pulled
 - Example: `ollama pull granite3.3:8b` (or `ollama pull granite-code:8b`)
 - Increase GLOBAL_TIMEOUT_SECS if generations are slow
- - If you see errors mentioning an unknown CLI flag for temperature, upgrade Ollama; the server auto-retries without `--temperature`, but it's better to update
+- If you see errors mentioning an unknown CLI flag for temperature, upgrade Ollama; the server auto-retries without `--temperature`, but it's better to update
 
 Validation errors
 - Ensure scheduledFor is YYYY-MM-DD or null
@@ -29,7 +29,7 @@ Port conflicts
 Server logs and diagnostics
 - Start server in dev mode for live logs: `npm run web:dev`
 - Look for `Server listening at http://127.0.0.1:<PORT>`
-- HTTP 400 errors include specific `error` codes in JSON; HTTP 502 on propose includes `detail`
+- HTTP 400 errors include specific `error` codes in JSON; HTTP 502 on assistant includes `detail`
 
 Resetting state quickly
 - Stop the server, then delete `data/todos.json`, `data/counter.json`, and `data/audit.jsonl`; restart the server

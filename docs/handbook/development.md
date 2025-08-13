@@ -10,18 +10,18 @@ Install and run
 npm install
 npm run web         # starts single Express server at http://127.0.0.1:3000
 # or
-npm run web:dev     # nodemon server.js
+npm run web:dev     # nodemon apps/server/server.js
 ```
 
 Directory structure (selected)
 ```
 habit_app/
-  server.js              # Express API (single server)
-  data/                  # todos.json, counter.json, audit.jsonl
-  web/public/            # served static assets (when not using Flutter build)
-  flutter_app/           # Flutter Web app source
-  src/                   # EVX pipeline (Python)
-  docs/handbook/         # this handbook
+  apps/server/server.js                 # Express API (single server)
+  apps/web/flutter_app/                 # Flutter Web app source
+  data/                                 # todos.json, counter.json, audit.jsonl
+  docs/handbook/                        # this handbook
+  python/src/                           # EVX pipeline (Python)
+  python/tests/                         # tests (start server and hit HTTP)
 ```
 
 Data management (no external scripts)
@@ -38,7 +38,8 @@ Environment
 - `PORT` (default: 3000)
 - `OLLAMA_MODEL` (default: `granite3.3:8b`)
 - `OLLAMA_TEMPERATURE` (default: `0.1`)
-- `GLOBAL_TIMEOUT_SECS` (default: `90`)
+- `GLOBAL_TIMEOUT_SECS` (default: `120`)
+- `STATIC_DIR` (optional: override static web root; default is `apps/web/flutter_app/build/web`)
 
 Notes
 - Single user. All data under `data/` in repo root. No external services required.
@@ -52,7 +53,18 @@ curl -s http://127.0.0.1:3000/api/todos
 ```
 
 Using the Flutter web app
-- The server serves static files from `web/public/`. To use the Flutter app, build the Flutter Web project and copy its build output (e.g., `flutter_app/build/web/*`) into `web/public/`.
-- See `docs/handbook/ui.md` for behaviors and URL state recommendations.
+- Default static dir is `apps/web/flutter_app/build/web` (override with `STATIC_DIR`).
+- Build the Flutter Web project in `apps/web/flutter_app`:
+```bash
+cd apps/web/flutter_app
+flutter build web
+```
+- Start the server; it will serve from that build directory by default.
+- See `docs/handbook/ui.md` for behaviors.
+
+```557:559:apps/server/server.js
+// Mount static assets last so API routes are matched first
+app.use(express.static(STATIC_DIR));
+```
 
 

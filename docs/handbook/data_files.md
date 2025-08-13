@@ -61,4 +61,17 @@ Creation bootstrap
 - If `data/` is missing, the server creates it on startup
 - If `todos.json` or `counter.json` are missing, server assumes `[]` and `1` respectively and will create them on first write
 
+```23:31:apps/server/server.js
+// Ensure data dir exists
+try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch {}
+function loadTodos() {
+  try { if (fs.existsSync(TODOS_FILE)) { return JSON.parse(fs.readFileSync(TODOS_FILE, 'utf8')); } } catch {}
+  return [];
+}
+function loadNextId() {
+  try { if (fs.existsSync(COUNTER_FILE)) { const obj = JSON.parse(fs.readFileSync(COUNTER_FILE, 'utf8')); if (obj && Number.isFinite(obj.nextId)) return obj.nextId; } } catch {}
+  return 1;
+}
+```
+
 
