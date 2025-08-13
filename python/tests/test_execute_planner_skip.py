@@ -1,9 +1,10 @@
 import importlib.util
+import os
 
 
 def test_execution_phase_skips_execute_planner(monkeypatch):
-    # Load harness
-    path = "/Users/dantheman/Desktop/habit_app/tests/test_models_tool_calling.py"
+    # Load harness from EVX orchestrator tests (same repo)
+    path = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")), "tests", "test_models_tool_calling.py")
     spec = importlib.util.spec_from_file_location("harness_module", path)
     tm = importlib.util.module_from_spec(spec)
     assert spec and spec.loader

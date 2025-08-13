@@ -80,12 +80,6 @@ class AssistantPanel extends StatelessWidget {
       color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.15),
       child: Column(
         children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          alignment: Alignment.centerLeft,
-          child: const Text('Assistant', style: TextStyle(fontWeight: FontWeight.w600)),
-        ),
-        const Divider(height: 1),
         Expanded(
           child: ListView(
             padding: const EdgeInsets.all(8),
@@ -143,12 +137,28 @@ class AssistantPanel extends StatelessWidget {
               Expanded(
                 child: TextField(
                   controller: inputController,
-                  decoration: const InputDecoration(hintText: 'Message the assistant...'),
+                  decoration: InputDecoration(
+                    hintText: 'Message the assistant...',
+                    filled: true,
+                    fillColor: Colors.white,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(24),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
                   onSubmitted: (_) => onSend(),
                 ),
               ),
               const SizedBox(width: 8),
-              FilledButton(onPressed: sending ? null : onSend, child: const Text('Send')),
+              FilledButton(
+                onPressed: sending ? null : onSend,
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                  shape: const StadiumBorder(),
+                ),
+                child: const Text('Send'),
+              ),
             ],
           ),
         ),

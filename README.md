@@ -43,6 +43,16 @@ node server.js  # or add an npm script like: "start:web": "node server.js"
 
 Current status: single server `server.js` has been added and `npm run web` now starts it.
 
+Flutter Web build (if you modify the UI):
+
+```bash
+cd apps/web/flutter_app
+flutter build web
+cd -
+# Then start the server (serves build/web):
+npm run web
+```
+
 Seed/clear data:
 
 ```bash

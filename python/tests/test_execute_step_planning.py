@@ -1,11 +1,12 @@
 import importlib.util
+import os
 
 
 def test_execute_step_uses_final_calls(monkeypatch):
     # Import harness
     spec = importlib.util.spec_from_file_location(
         "harness_module",
-        "/Users/dantheman/Desktop/habit_app/tests/test_models_tool_calling.py",
+        os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")), "tests", "test_models_tool_calling.py"),
     )
     tm = importlib.util.module_from_spec(spec)
     assert spec and spec.loader

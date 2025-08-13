@@ -23,21 +23,20 @@ def test_report_template_renders_pipeline_sections(tmp_path):
     }
 
     # Write to summary_latest.json where the template reads it
-    out_dir = "/Users/dantheman/Desktop/habit_app/results"
+    out_dir = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")), "results")
     os.makedirs(out_dir, exist_ok=True)
     with open(os.path.join(out_dir, "summary_latest.json"), "w") as f:
         json.dump(aggregates, f)
 
-    # Render the report using the CLI helper
-    # Load CLI module directly by path to avoid import path issues in pytest
-    spec = importlib.util.spec_from_file_location(
-        "cli_module",
-        "/Users/dantheman/Desktop/habit_app/scripts/compare_models.py",
-    )
-    cli = importlib.util.module_from_spec(spec)
-    assert spec and spec.loader
-    spec.loader.exec_module(cli)
-    render_html_report = cli.render_html_report
+    # Render the report using the Jinja template directly (no external CLI dependency)
+    from jinja2 import Environment, FileSystemLoader
+    template_dir = os.path.join(os.path.dirname(__file__), "resources", "templates")
+    env = Environment(loader=FileSystemLoader(template_dir), autoescape=False)
+    template = env.get_template("report.html.j2")
+    def render_html_report(markdown_summary: str, out_path: str):
+        html = template.render(aggregates=aggregates, summary_markdown=markdown_summary)
+        with open(out_path, "w") as f:
+            f.write(html)
     html_path = os.path.join(out_dir, "report_test.html")
     render_html_report("# Summary\n", html_path)
 

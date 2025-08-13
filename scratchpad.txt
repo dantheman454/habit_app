@@ -1,3 +1,5 @@
+-Add in page for kaizen journal (today, current one is out of space)
+-Have full functionality so I can get my actual todos and events in
 -clean up web UI
     *fix sidebar
     *make LLM chat go all the way to the top
@@ -6,6 +8,8 @@
 -look at current LLM setup and update the prompts and query flow
     *make sure it will just respond to a natural language query without making a tool call
     *do two LLM calls; one to determine how to respond then the other to respond (plan response then respond)
+
+-Upload pics of whiteboards to get vision into this repo
 
 -get a todo list app up and running fully and soundly
     *add in time of day and repeating reminders

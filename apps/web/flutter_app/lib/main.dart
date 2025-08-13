@@ -283,35 +283,61 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _openFabSheet() async {
+    final titleCtrl = TextEditingController();
+    final notesCtrl = TextEditingController();
+    final dateCtrl = TextEditingController(text: anchor);
+    String prio = 'medium';
+
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       builder: (c) {
         return Padding(
           padding: EdgeInsets.only(bottom: MediaQuery.of(c).viewInsets.bottom),
-          child: _FabSheet(
-            onCreate: (title, notes, date, prio) async {
-              await api.createTodo({'title': title,'notes': notes,'scheduledFor': date?.isEmpty == true ? null : date,'priority': prio});
-              Navigator.pop(c);
-              await _refreshAll();
-            },
-            onComplete: (id) async {
-              await api.updateTodo(id, {'completed': true});
-              Navigator.pop(c);
-              await _refreshAll();
-            },
-            onDelete: (id) async {
-              await api.deleteTodo(id);
-              Navigator.pop(c);
-              await _refreshAll();
-            },
-            onUpdate: (id, patch) async {
-              await api.updateTodo(id, patch);
-              Navigator.pop(c);
-              await _refreshAll();
-            },
-            todos: [...scheduled, ...backlog],
-            anchor: anchor,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Create task', style: TextStyle(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 12),
+                TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'Title')),
+                TextField(controller: notesCtrl, decoration: const InputDecoration(labelText: 'Notes')),
+                TextField(controller: dateCtrl, decoration: const InputDecoration(labelText: 'Scheduled (YYYY-MM-DD or empty)')),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  value: prio,
+                  decoration: const InputDecoration(labelText: 'Priority'),
+                  items: const [
+                    DropdownMenuItem(value: 'low', child: Text('low')),
+                    DropdownMenuItem(value: 'medium', child: Text('medium')),
+                    DropdownMenuItem(value: 'high', child: Text('high')),
+                  ],
+                  onChanged: (v) => prio = v ?? 'medium',
+                ),
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: FilledButton(
+                    onPressed: () async {
+                      final title = titleCtrl.text.trim();
+                      if (title.isEmpty) return;
+                      final sched = dateCtrl.text.trim();
+                      await api.createTodo({
+                        'title': title,
+                        'notes': notesCtrl.text,
+                        'scheduledFor': sched.isEmpty ? null : sched,
+                        'priority': prio,
+                      });
+                      Navigator.pop(c);
+                      await _refreshAll();
+                    },
+                    child: const Text('Create'),
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -499,93 +525,146 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
+    final w = MediaQuery.of(context).size.width;
+    final showAssistantText = w >= 900;
     final body = loading
         ? const Center(child: CircularProgressIndicator())
-        : Row(
+        : Column(
             children: [
-              // Sidebar
-               SizedBox(
-                 width: 220,
-                 child: sb.Sidebar(
-                   selectedKey: _smartListKey(selected),
-                   onSelect: (k) => setState(() => selected = _smartListFromKey(k)),
-                   showCompleted: showCompleted,
-                   onToggleShowCompleted: (v) {
-                     setState(() => showCompleted = v);
-                     _refreshAll();
-                   },
-                 ),
-               ),
-              const VerticalDivider(width: 1),
-              // Main content
-              Expanded(
-                child: Column(
+              // Unified dark-blue header spanning entire app width
+              Container(
+                color: const Color(0xFF0B3D91),
+                padding: const EdgeInsets.all(12),
+                child: Row(
                   children: [
-                    // Header: search-only
-                    Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: SizedBox(
-                        width: 340,
-                        child: TextField(
-                          controller: searchCtrl,
-                          decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Search'),
-                          onChanged: _onSearchChanged,
+                    // Reserve space visually aligned with left sidebar width
+                    const SizedBox(width: 220),
+                    const SizedBox(width: 1),
+                    // Search box (responsive, centered within available region)
+                    Expanded(
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(minWidth: 320, maxWidth: 560),
+                          child: TextField(
+                            controller: searchCtrl,
+                            decoration: InputDecoration(
+                              prefixIcon: const Icon(Icons.search),
+                              hintText: 'Search',
+                              filled: true,
+                              fillColor: Colors.white,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: BorderSide.none,
+                              ),
+                            ),
+                            onChanged: _onSearchChanged,
+                          ),
                         ),
                       ),
                     ),
-                    if (message != null)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(message!, style: const TextStyle(color: Colors.redAccent)),
-                        ),
-                      ),
-                    const Divider(height: 1),
-                    // Main lists + Assistant panel
-                    Expanded(
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                if (searchCtrl.text.trim().isNotEmpty) ...[
-                                  const Padding(
-                                    padding: EdgeInsets.all(8.0),
-                                    child: Text('Search results', style: TextStyle(fontWeight: FontWeight.w600)),
-                                  ),
-                                  const Divider(height: 1),
-                                  SizedBox(height: 240, child: _buildSimpleList(searchResults)),
-                                  const Divider(height: 1),
+                    // Push assistant zone to the far right so header split aligns with body split
+                    const Spacer(),
+                    // Header divider aligned with body split
+                    Container(width: 1, height: 36, color: Theme.of(context).colorScheme.outline),
+                    // Assistant header zone (right-aligned)
+                    SizedBox(
+                      width: 360,
+                      child: Center(
+                        child: showAssistantText
+                            ? Row(
+                                mainAxisSize: MainAxisSize.min,
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: const [
+                                  Icon(Icons.smart_toy_outlined, color: Colors.white, size: 18),
+                                  SizedBox(width: 6),
+                                  Text('Assistant', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.white)),
                                 ],
-                                 Expanded(child: Stack(children: [
-                                   _buildMainList(),
-                                   Positioned(
-                                     right: 16,
-                                     bottom: 16,
-                                     child: fab.FabActions(onPressed: _openFabSheet),
-                                   ),
-                                 ])),
-                              ],
+                              )
+                            : const Icon(Icons.smart_toy_outlined, color: Colors.white, size: 18),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              // Body below the unified header
+              Expanded(
+                child: Row(
+                  children: [
+                    // Sidebar
+                    SizedBox(
+                      width: 220,
+                      child: sb.Sidebar(
+                        selectedKey: _smartListKey(selected),
+                        onSelect: (k) => setState(() => selected = _smartListFromKey(k)),
+                        showCompleted: showCompleted,
+                        onToggleShowCompleted: (v) {
+                          setState(() => showCompleted = v);
+                          _refreshAll();
+                        },
+                      ),
+                    ),
+                    const VerticalDivider(width: 1),
+                    // Right region: message + main + assistant
+                    Expanded(
+                      child: Column(
+                        children: [
+                          if (message != null)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(message!, style: const TextStyle(color: Colors.redAccent)),
+                              ),
                             ),
-                          ),
-                          const VerticalDivider(width: 1),
-                          SizedBox(
-                            width: 360,
-                            child: AssistantPanel(
-                              transcript: assistantTranscript,
-                              operations: assistantOps,
-                              operationsChecked: assistantOpsChecked,
-                              sending: assistantSending,
-                              showDiff: assistantShowDiff,
-                              onToggleDiff: () => setState(() => assistantShowDiff = !assistantShowDiff),
-                              onToggleOperation: (i, v) => setState(() => assistantOpsChecked[i] = v),
-                              onApplySelected: _applyAssistantOps,
-                              onDiscard: () => setState(() { assistantOps = []; assistantOpsChecked = []; assistantShowDiff = false; }),
-                              inputController: assistantCtrl,
-                              onSend: _sendAssistantMessage,
-                              opLabel: (op) => _opLabel((op as AnnotatedOp).op),
+                          Expanded(
+                            child: Row(
+                              children: [
+                                // Main content
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      if (searchCtrl.text.trim().isNotEmpty) ...[
+                                        const Padding(
+                                          padding: EdgeInsets.all(8.0),
+                                          child: Text('Search results', style: TextStyle(fontWeight: FontWeight.w600)),
+                                        ),
+                                        const Divider(height: 1),
+                                        SizedBox(height: 240, child: _buildSimpleList(searchResults)),
+                                        const Divider(height: 1),
+                                      ],
+                                      Expanded(child: Stack(children: [
+                                        _buildMainList(),
+                                        Positioned(
+                                          right: 16,
+                                          bottom: 16,
+                                          child: fab.FabActions(onPressed: _openFabSheet),
+                                        ),
+                                      ])),
+                                    ],
+                                  ),
+                                ),
+                                const VerticalDivider(width: 1),
+                                // Assistant panel (without internal header)
+                                SizedBox(
+                                  width: 360,
+                                  child: AssistantPanel(
+                                    transcript: assistantTranscript,
+                                    operations: assistantOps,
+                                    operationsChecked: assistantOpsChecked,
+                                    sending: assistantSending,
+                                    showDiff: assistantShowDiff,
+                                    onToggleDiff: () => setState(() => assistantShowDiff = !assistantShowDiff),
+                                    onToggleOperation: (i, v) => setState(() => assistantOpsChecked[i] = v),
+                                    onApplySelected: _applyAssistantOps,
+                                    onDiscard: () => setState(() { assistantOps = []; assistantOpsChecked = []; assistantShowDiff = false; }),
+                                    inputController: assistantCtrl,
+                                    onSend: _sendAssistantMessage,
+                                    opLabel: (op) => _opLabel((op as AnnotatedOp).op),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
@@ -655,154 +734,4 @@ class _HomePageState extends State<HomePage> {
   }
 
   // Removed inline assistant panel; extracted to widgets/assistant_panel.dart
-}
-
-class _FabSheet extends StatefulWidget {
-  final Future<void> Function(String title, String notes, String? scheduledFor, String priority) onCreate;
-  final Future<void> Function(int id) onComplete;
-  final Future<void> Function(int id) onDelete;
-  final Future<void> Function(int id, Map<String, dynamic> patch) onUpdate;
-  final List<Todo> todos;
-  final String anchor;
-  const _FabSheet({
-    required this.onCreate,
-    required this.onComplete,
-    required this.onDelete,
-    required this.onUpdate,
-    required this.todos,
-    required this.anchor,
-  });
-
-  @override
-  State<_FabSheet> createState() => _FabSheetState();
-}
-
-class _FabSheetState extends State<_FabSheet> {
-  String action = 'create'; // create|update|complete|delete
-  int? selectedId;
-  final titleCtrl = TextEditingController();
-  final notesCtrl = TextEditingController();
-  final dateCtrl = TextEditingController();
-  String prio = 'medium';
-
-  @override
-  void initState() {
-    super.initState();
-    dateCtrl.text = widget.anchor;
-  }
-
-  @override
-  void dispose() {
-    titleCtrl.dispose();
-    notesCtrl.dispose();
-    dateCtrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(children: [
-            ChoiceChip(label: const Text('Create'), selected: action == 'create', onSelected: (_) => setState(() => action = 'create')),
-            const SizedBox(width: 8),
-            ChoiceChip(label: const Text('Update'), selected: action == 'update', onSelected: (_) => setState(() => action = 'update')),
-            const SizedBox(width: 8),
-            ChoiceChip(label: const Text('Complete'), selected: action == 'complete', onSelected: (_) => setState(() => action = 'complete')),
-            const SizedBox(width: 8),
-            ChoiceChip(label: const Text('Delete'), selected: action == 'delete', onSelected: (_) => setState(() => action = 'delete')),
-          ]),
-          const SizedBox(height: 12),
-          _selector(),
-          const SizedBox(height: 12),
-          if (action == 'create' || action == 'update') _editFields(),
-          const SizedBox(height: 12),
-          Align(
-            alignment: Alignment.centerRight,
-            child: FilledButton(
-              onPressed: _canSubmit() ? _onSubmit : null,
-              child: const Text('Submit'),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _selector() {
-    if (action == 'create') return const SizedBox.shrink();
-    return DropdownButton<int>(
-      value: selectedId,
-      hint: const Text('Select a task'),
-      items: widget.todos
-          .map((t) => DropdownMenuItem(value: t.id, child: Text('#${t.id} ${t.title} ${t.scheduledFor ?? ''}')))
-          .toList(),
-      onChanged: (v) => setState(() => selectedId = v),
-    );
-  }
-
-  Widget _editFields() {
-    return Column(
-      children: [
-        TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'Title'), onChanged: (_) => setState(() {})),
-        TextField(controller: notesCtrl, decoration: const InputDecoration(labelText: 'Notes'), onChanged: (_) => setState(() {})),
-        TextField(controller: dateCtrl, decoration: const InputDecoration(labelText: 'Scheduled (YYYY-MM-DD or empty)'), onChanged: (_) => setState(() {})),
-        const SizedBox(height: 8),
-        DropdownButtonFormField<String>(
-          value: prio,
-          decoration: const InputDecoration(labelText: 'Priority'),
-          items: const [
-            DropdownMenuItem(value: 'low', child: Text('low')),
-            DropdownMenuItem(value: 'medium', child: Text('medium')),
-            DropdownMenuItem(value: 'high', child: Text('high')),
-          ],
-          onChanged: (v) => setState(() => prio = v ?? 'medium'),
-        ),
-      ],
-    );
-  }
-
-  bool _canSubmit() {
-    if (action == 'create') {
-      return titleCtrl.text.trim().isNotEmpty;
-    }
-    if (action == 'update') {
-      if (selectedId == null) return false;
-      final hasAny = titleCtrl.text.isNotEmpty || notesCtrl.text.isNotEmpty || dateCtrl.text.trim().isNotEmpty || prio != 'medium';
-      return hasAny;
-    }
-    if (action == 'complete' || action == 'delete') {
-      return selectedId != null;
-    }
-    return false;
-  }
-
-  Future<void> _onSubmit() async {
-    if (action == 'create') {
-      final title = titleCtrl.text.trim();
-      if (title.isEmpty) return; // basic validation
-      // disable when no changes won't apply; always valid for create if title present
-      await widget.onCreate(title, notesCtrl.text, dateCtrl.text.trim(), prio);
-    } else if (action == 'update') {
-      if (selectedId == null) return;
-      final patch = <String, dynamic>{};
-      if (titleCtrl.text.isNotEmpty) patch['title'] = titleCtrl.text;
-      if (notesCtrl.text.isNotEmpty) patch['notes'] = notesCtrl.text;
-      final sched = dateCtrl.text.trim();
-      if (sched.isNotEmpty) patch['scheduledFor'] = sched;
-      if (prio.isNotEmpty) patch['priority'] = prio;
-      if (patch.isEmpty) return; // disable submit when no changes
-      await widget.onUpdate(selectedId!, patch);
-    } else if (action == 'complete') {
-      if (selectedId == null) return;
-      await widget.onComplete(selectedId!);
-    } else if (action == 'delete') {
-      if (selectedId == null) return;
-      await widget.onDelete(selectedId!);
-    }
-  }
 }

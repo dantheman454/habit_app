@@ -1,9 +1,10 @@
 import importlib.util
+import os
 
 
 def test_verification_phase_skips_verifier_call(monkeypatch):
-    # Load harness module directly by path
-    path = "/Users/dantheman/Desktop/habit_app/tests/test_models_tool_calling.py"
+    # Load harness module directly by repo-relative path
+    path = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")), "tests", "test_models_tool_calling.py")
     spec = importlib.util.spec_from_file_location("harness_module", path)
     tm = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
