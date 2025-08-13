@@ -162,7 +162,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   // Header state
   String anchor = ymd(DateTime.now());
-  View view = View.week;
+  View view = View.day;
   bool showCompleted = false;
   
   final TextEditingController searchCtrl = TextEditingController();
@@ -173,8 +173,10 @@ class _HomePageState extends State<HomePage> {
 
   // Data
   List<Todo> scheduled = [];
+  List<Todo> scheduledAllTime = [];
   List<Todo> backlog = [];
   List<Todo> searchResults = [];
+  Map<String, int> sidebarCounts = {};
 
   // LLM proposal panel (removed)
 
@@ -213,15 +215,32 @@ class _HomePageState extends State<HomePage> {
     try {
       final r = rangeForView(anchor, view);
       final scheduledRaw = await api.fetchScheduled(from: r.from, to: r.to, completed: showCompleted ? null : false);
+      final scheduledAllRaw = await api.fetchScheduledAllTime(completed: showCompleted ? null : false);
       final backlogRaw = await api.fetchBacklog();
       final sList = scheduledRaw.map((e) => Todo.fromJson(e as Map<String, dynamic>)).toList();
+      final sAllList = scheduledAllRaw.map((e) => Todo.fromJson(e as Map<String, dynamic>)).toList();
       var bList = backlogRaw.map((e) => Todo.fromJson(e as Map<String, dynamic>)).toList();
       if (!showCompleted) {
         bList = bList.where((t) => !t.completed).toList();
       }
+      final nowYmd = ymd(DateTime.now());
+      final todayCount = sList.where((t) => t.scheduledFor == nowYmd).length;
+      final scheduledCount = sList.length;
+      final backlogCount = bList.length;
+      final flaggedCount = [...sAllList, ...bList].where((t) => t.priority == 'high').length;
+      final allCount = sAllList.length + backlogCount;
+      final counts = <String, int>{
+        'today': todayCount,
+        'scheduled': scheduledCount,
+        'all': allCount,
+        'flagged': flaggedCount,
+        'backlog': backlogCount,
+      };
       setState(() {
         scheduled = sList;
+        scheduledAllTime = sAllList;
         backlog = bList;
+        sidebarCounts = counts;
         message = null;
       });
     } catch (e) {
@@ -488,7 +507,7 @@ class _HomePageState extends State<HomePage> {
       case SmartList.flagged:
         return [...scheduled, ...backlog].where((t) => t.priority == 'high').toList();
       case SmartList.all:
-        return [...scheduled, ...backlog];
+        return [...scheduledAllTime, ...backlog];
     }
   }
 
@@ -596,7 +615,27 @@ class _HomePageState extends State<HomePage> {
                       width: 220,
                       child: sb.Sidebar(
                         selectedKey: _smartListKey(selected),
-                        onSelect: (k) => setState(() => selected = _smartListFromKey(k)),
+                        onSelect: (k) async {
+                          final sl = _smartListFromKey(k);
+                          if (sl == SmartList.today) {
+                            setState(() {
+                              selected = sl;
+                              view = View.day;
+                              anchor = ymd(DateTime.now());
+                            });
+                            await _refreshAll();
+                          } else if (sl == SmartList.scheduled) {
+                            setState(() {
+                              selected = sl;
+                              view = View.week;
+                            });
+                            await _refreshAll();
+                          } else {
+                            setState(() {
+                              selected = sl;
+                            });
+                          }
+                        },
                         showCompleted: showCompleted,
                         onToggleShowCompleted: (v) {
                           setState(() => showCompleted = v);

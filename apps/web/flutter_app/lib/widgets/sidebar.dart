@@ -5,6 +5,7 @@ class Sidebar extends StatelessWidget {
   final void Function(String) onSelect;
   final bool showCompleted;
   final void Function(bool) onToggleShowCompleted;
+  final Map<String, int> counters;
 
   const Sidebar({
     super.key,
@@ -12,6 +13,7 @@ class Sidebar extends StatelessWidget {
     required this.onSelect,
     required this.showCompleted,
     required this.onToggleShowCompleted,
+    this.counters = const <String, int>{},
   });
 
   @override
@@ -21,11 +23,11 @@ class Sidebar extends StatelessWidget {
         Expanded(
           child: ListView(
             children: [
-              _tile('Today', 'today', Icons.today),
-              _tile('Scheduled', 'scheduled', Icons.calendar_month),
-              _tile('All', 'all', Icons.inbox),
-              _tile('Flagged', 'flagged', Icons.flag),
-              _tile('Backlog', 'backlog', Icons.list_alt),
+              _tile('Today', 'today', Icons.today, count: counters['today']),
+              _tile('Scheduled', 'scheduled', Icons.calendar_month, count: counters['scheduled']),
+              _tile('All', 'all', Icons.inbox, count: counters['all']),
+              _tile('Flagged', 'flagged', Icons.flag, count: counters['flagged']),
+              _tile('Backlog', 'backlog', Icons.list_alt, count: counters['backlog']),
             ],
           ),
         ),
@@ -44,14 +46,29 @@ class Sidebar extends StatelessWidget {
     );
   }
 
-  Widget _tile(String label, String key, IconData icon) {
+  Widget _tile(String label, String key, IconData icon, {int? count}) {
     final active = selectedKey == key;
     return ListTile(
       leading: Icon(icon, size: 20),
       title: Text(label),
+      trailing: (count == null)
+          ? null
+          : Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.black12,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(_formatCount(count)),
+            ),
       selected: active,
       onTap: () => onSelect(key),
     );
+  }
+
+  String _formatCount(int n) {
+    if (n > 99) return '99+';
+    return '$n';
   }
 }
 

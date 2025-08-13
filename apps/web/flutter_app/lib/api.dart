@@ -23,6 +23,13 @@ Future<List<dynamic>> fetchScheduled({required String from, required String to, 
   return (res.data['todos'] as List<dynamic>);
 }
 
+Future<List<dynamic>> fetchScheduledAllTime({bool? completed}) async {
+  final res = await api.get('/api/todos', queryParameters: {
+    if (completed != null) 'completed': completed.toString(),
+  });
+  return (res.data['todos'] as List<dynamic>);
+}
+
 Future<List<dynamic>> fetchBacklog({bool? completed}) async {
   final res = await api.get('/api/todos/backlog');
   final items = (res.data['todos'] as List<dynamic>);

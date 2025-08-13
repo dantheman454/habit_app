@@ -1,26 +1,25 @@
--Add in page for kaizen journal (today, current one is out of space)
+Keep in mind:
 -Have full functionality so I can get my actual todos and events in
--clean up web UI
-    *fix sidebar
-    *make LLM chat go all the way to the top
-    *clean up search results
-    *add in loading symbol for chat and make sure it is clean
--look at current LLM setup and update the prompts and query flow
-    *make sure it will just respond to a natural language query without making a tool call
-    *do two LLM calls; one to determine how to respond then the other to respond (plan response then respond)
-
 -Upload pics of whiteboards to get vision into this repo
 
+Actionable:
+-clean up web UI
+    *fix sidebar
+    *add in loading symbol for chat and make sure it is clean
+-fix search bar
+    *make it cleaner functionally and visually
+    *have it only show non-complete tasks (have it be based on the toggle in the bottom left)
 -get a todo list app up and running fully and soundly
     *add in time of day and repeating reminders
     *Look into using the thinking mode of the LLM in the best way. Make a router based on complexity? Classify different intents to then route to proper engine
     *add in todo imports from txt files each as a query to the LLM
     *then add in Habit tracking and chatting with thinking and non-thinking version of LLM
+-look at current LLM setup and update the prompts and query flow
+    *make sure it will just respond to a natural language query without making a tool call
+    *do two LLM calls; one to determine how to respond then the other to respond (plan response then respond)
 
-
-    
+ 
 
 
 Long term:
--fork VS Code?
 -ask mitchell if I could fine tune models on the dgx (figure out best way to do this)
