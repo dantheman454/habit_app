@@ -1,0 +1,223 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Model Comparison Report</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; color: #111; }
+      .container { max-width: 1200px; margin: 0 auto; }
+      h1 { margin: 0 0 4px; }
+      h2 { margin: 16px 0 8px; }
+      .meta { color: #666; margin-bottom: 16px; }
+      table { border-collapse: collapse; width: 100%; margin: 8px 0 16px; }
+      th, td { border: 1px solid #e5e7eb; padding: 6px 8px; text-align: left; }
+      th { background: #fafafa; }
+      .muted { color: #666; }
+      .callout { padding: 8px 10px; border: 1px solid #e5e7eb; border-radius: 6px; background: #fafafa; }
+      details { border: 1px solid #e5e7eb; border-radius: 6px; padding: 8px 10px; margin: 12px 0; background: #fff; }
+      details > summary { cursor: pointer; font-weight: 600; }
+      .grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+      @media (min-width: 900px) { .grid { grid-template-columns: 1fr 1fr; } }
+    </style>
+    <script>
+      // Optional helper to toggle all sections
+      function toggleAll(open) {
+        document.querySelectorAll('details').forEach(d => { d.open = open; });
+      }
+    </script>
+  </head>
+  <body>
+    <div class="container">
+      
+        <h1>Model Comparison Report</h1>
+        <div class="meta">Generated: now</div>
+
+        <div class="callout">
+          <strong>Models:</strong> m1
+        </div>
+
+        <details open>
+          <summary>Leaderboards</summary>
+          <table>
+            <tr><th>Category</th><th>Model</th></tr>
+            <tr><td>Best Task Score</td><td></td></tr>
+            <tr><td>Best Success Rate</td><td></td></tr>
+            <tr><td>Best Tool Accuracy</td><td></td></tr>
+            <tr><td>Fastest Response</td><td></td></tr>
+          </table>
+        </details>
+
+        
+        <details open>
+          <summary>Phase Leaderboards (E / V / X)</summary>
+          <div class="callout">Winners per phase by average score.</div>
+          <table>
+            <tr><th>Phase</th><th>Winner</th></tr>
+            
+            
+            
+            
+            <tr>
+              <td>Extraction</td>
+              <td>
+                
+                
+                  
+                  
+                    
+                    
+                  
+                
+                m1
+              </td>
+            </tr>
+            
+            
+            <tr>
+              <td>Verification</td>
+              <td>
+                
+                
+                  
+                  
+                    
+                    
+                  
+                
+                m1
+              </td>
+            </tr>
+            
+            
+            <tr>
+              <td>Execution</td>
+              <td>
+                
+                
+                  
+                  
+                    
+                    
+                  
+                
+                m1
+              </td>
+            </tr>
+            
+          </table>
+        </details>
+        
+
+        <details open>
+          <summary>Per-model Stats</summary>
+          <table>
+            <tr>
+              <th>Model</th>
+              <th>Success Rate</th>
+              <th>Tool Accuracy</th>
+              <th>Avg Time (s)</th>
+              <th>Tool Usage F1</th>
+              <th>Total Tests</th>
+            </tr>
+            
+            <tr>
+              <td>m1</td>
+              <td>100%</td>
+              <td>100%</td>
+              <td>1</td>
+              <td>100%</td>
+              <td>1</td>
+            </tr>
+            
+          </table>
+        </details>
+
+        
+
+        
+        
+        
+
+        
+
+        
+
+        
+        <details open>
+          <summary>Pipeline Leaderboards (Extraction / Verification / Execution)</summary>
+          
+          <div class="callout">
+            <strong>Pipeline Best-in-Class</strong>
+            <div class="muted">Majority-of-steps wins; tie-breaker: average rank across E/V/X.</div>
+            <table>
+              <tr><th>Winner</th><th>Details</th></tr>
+              <tr>
+                <td>m1</td>
+                <td>
+                  
+                    Computed from step leaderboards.
+                  
+                </td>
+              </tr>
+            </table>
+          </div>
+          
+          
+          <h3 style="margin: 8px 0 4px;">Extraction</h3>
+          <table>
+            <tr><th>Model</th><th>Tool P/R/F1</th><th>Order Adherence</th><th>Parameter Readiness</th></tr>
+            
+            <tr>
+              <td>m1</td>
+              <td>50.0%</td>
+              <td>50.0%</td>
+              <td>50.0%</td>
+            </tr>
+            
+          </table>
+          
+
+          
+          <h3 style="margin: 8px 0 4px;">Verification</h3>
+          <table>
+            <tr><th>Model</th><th>Acceptance F1</th><th>Hallucination P/R/F1</th></tr>
+            
+            <tr>
+              <td>m1</td>
+              <td>60.0%</td>
+              <td>70.0%</td>
+            </tr>
+            
+          </table>
+          
+
+          
+          <h3 style="margin: 8px 0 4px;">Execution (Vetted)</h3>
+          <table>
+            <tr><th>Model</th><th>Success Rate</th><th>Tool Accuracy</th><th>Tool Usage F1</th></tr>
+            
+            <tr>
+              <td>m1</td>
+              <td>80.0%</td>
+              <td>90.0%</td>
+              <td>100.0%</td>
+            </tr>
+            
+          </table>
+          
+        </details>
+        
+
+        
+
+        
+
+        
+
+        <div class="muted">No external assets. Inline CSS/JS only.</div>
+      
+    </div>
+  </body>
+  </html>
+
+

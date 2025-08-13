@@ -20,6 +20,7 @@ class TodoRow extends StatelessWidget {
   final VoidCallback onToggleCompleted;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final bool highlighted;
 
   const TodoRow({
     super.key,
@@ -27,6 +28,7 @@ class TodoRow extends StatelessWidget {
     required this.onToggleCompleted,
     required this.onEdit,
     required this.onDelete,
+    this.highlighted = false,
   });
 
   @override
@@ -34,9 +36,11 @@ class TodoRow extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.shade300),
+        border: Border.all(color: highlighted ? Theme.of(context).colorScheme.primary : Colors.grey.shade300, width: highlighted ? 2 : 1),
         borderRadius: BorderRadius.circular(6),
-        color: todo.completed ? Colors.grey.withOpacity(0.1) : null,
+        color: highlighted
+            ? Theme.of(context).colorScheme.primary.withOpacity(0.06)
+            : (todo.completed ? Colors.grey.withOpacity(0.1) : null),
       ),
       child: Row(
         children: [

@@ -22,7 +22,7 @@ class LlmOperationLike {
 String defaultOpLabel(LlmOperationLike op) {
   final parts = <String>[op.op];
   if (op.id != null) parts.add('#${op.id}');
-  if (op.title != null) parts.add('– ${op.title}');
+  if (op.title != null) parts.add('- ${op.title}');
   if (op.priority != null) parts.add('(prio ${op.priority})');
   if (op.scheduledFor != null) parts.add('@${op.scheduledFor}');
   if (op.completed != null) parts.add(op.completed! ? '[done]' : '[undone]');
@@ -172,7 +172,7 @@ class AssistantPanel extends StatelessWidget {
                 child: TextField(
                   controller: inputController,
                   decoration: InputDecoration(
-                    hintText: 'Message the assistant...',
+                    hintText: 'Message Mr. Assister...',
                     filled: true,
                     fillColor: Colors.white,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),

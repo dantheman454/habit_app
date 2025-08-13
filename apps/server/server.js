@@ -190,7 +190,15 @@ app.get('/api/todos/backlog', (_req, res) => {
 app.get('/api/todos/search', (req, res) => {
   const q = String(req.query.query || '').toLowerCase().trim();
   if (!q) return res.status(400).json({ error: 'invalid_query' });
-  const items = todos.filter(t => String(t.title || '').toLowerCase().includes(q) || String(t.notes || '').toLowerCase().includes(q));
+  let completedBool;
+  if (req.query.completed !== undefined) {
+    if (req.query.completed === 'true' || req.query.completed === true) completedBool = true;
+    else if (req.query.completed === 'false' || req.query.completed === false) completedBool = false;
+    else return res.status(400).json({ error: 'invalid_completed' });
+  }
+  let items = todos;
+  if (completedBool !== undefined) items = items.filter(t => t.completed === completedBool);
+  items = items.filter(t => String(t.title || '').toLowerCase().includes(q) || String(t.notes || '').toLowerCase().includes(q));
   res.json({ todos: items });
 });
 

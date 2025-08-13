@@ -37,8 +37,11 @@ Future<List<dynamic>> fetchBacklog({bool? completed}) async {
   return items.where((e) => (e as Map<String, dynamic>)['completed'] == completed).toList();
 }
 
-Future<List<dynamic>> searchTodos(String q) async {
-  final res = await api.get('/api/todos/search', queryParameters: {'query': q});
+Future<List<dynamic>> searchTodos(String q, { bool? completed, CancelToken? cancelToken }) async {
+  final res = await api.get('/api/todos/search', queryParameters: {
+    'query': q,
+    if (completed != null) 'completed': completed.toString(),
+  }, cancelToken: cancelToken);
   return (res.data['todos'] as List<dynamic>);
 }
 

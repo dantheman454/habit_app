@@ -5,6 +5,10 @@ import 'widgets/sidebar.dart' as sb;
 import 'widgets/todo_row.dart' as row;
 import 'widgets/fab_actions.dart' as fab;
 import 'api.dart' as api;
+import 'package:dio/dio.dart';
+import 'package:flutter/services.dart';
+import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 void main() {
   runApp(const App());
@@ -167,6 +171,16 @@ class _HomePageState extends State<HomePage> {
   
   final TextEditingController searchCtrl = TextEditingController();
   Timer? _searchDebounce;
+  CancelToken? _searchCancelToken;
+  final FocusNode _searchFocus = FocusNode();
+  final LayerLink _searchLink = LayerLink();
+  OverlayEntry? _searchOverlay;
+  int _searchHoverIndex = -1;
+  bool _searching = false;
+  int? _highlightedId;
+
+  // Map of row keys for ensureVisible
+  final Map<int, GlobalKey> _rowKeys = {};
 
   // Sidebar state
   SmartList selected = SmartList.today;
@@ -178,16 +192,12 @@ class _HomePageState extends State<HomePage> {
   List<Todo> searchResults = [];
   Map<String, int> sidebarCounts = {};
 
-  // LLM proposal panel (removed)
-
   bool loading = false;
   String? message;
   
-
-  // Assistant (chat) panel state
+    
   final TextEditingController assistantCtrl = TextEditingController();
   final List<Map<String, String>> assistantTranscript = [];
-  // Annotated operations with per-op errors
   List<AnnotatedOp> assistantOps = [];
   List<bool> assistantOpsChecked = [];
   bool assistantSending = false;
@@ -195,7 +205,7 @@ class _HomePageState extends State<HomePage> {
   // Assistant mode: 'chat' | 'plan' (server default remains 'plan' if omitted)
   String assistantMode = 'chat';
 
-  // Import UI removed; state no longer used
+ 
 
   @override
   void initState() {
@@ -209,6 +219,8 @@ class _HomePageState extends State<HomePage> {
     assistantCtrl.dispose();
     
     searchCtrl.dispose();
+    _searchFocus.dispose();
+    _removeSearchOverlay();
     super.dispose();
   }
 
@@ -253,24 +265,172 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _runSearch(String q) async {
-    if (q.trim().isEmpty) {
+    if (q.trim().length < 2) {
       setState(() => searchResults = []);
+      _removeSearchOverlay();
       return;
     }
     try {
-      final list = await api.searchTodos(q);
+      // Cancel any in-flight search
+      try { _searchCancelToken?.cancel('replaced'); } catch (_) {}
+      _searchCancelToken = CancelToken();
+      setState(() => _searching = true);
+      final list = await api.searchTodos(q, completed: showCompleted ? null : false, cancelToken: _searchCancelToken);
       final items = (list)
           .map((e) => Todo.fromJson(e as Map<String, dynamic>))
           .toList();
-      setState(() => searchResults = items);
+      setState(() {
+        searchResults = items;
+        _searching = false;
+      });
+      _showSearchOverlayIfNeeded();
     } catch (e) {
-      setState(() => message = 'Search failed: $e');
+      setState(() {
+        message = 'Search failed: $e';
+        _searching = false;
+      });
     }
   }
 
   void _onSearchChanged(String v) {
     _searchDebounce?.cancel();
     _searchDebounce = Timer(const Duration(milliseconds: 250), () => _runSearch(v));
+  }
+
+  void _showSearchOverlayIfNeeded() {
+    if (!_searchFocus.hasFocus || searchCtrl.text.trim().length < 2) {
+      _removeSearchOverlay();
+      return;
+    }
+    if (_searchOverlay != null) {
+      _searchOverlay!.markNeedsBuild();
+      return;
+    }
+    _searchOverlay = OverlayEntry(builder: (context) {
+      final theme = Theme.of(context);
+      final results = searchResults.take(7).toList();
+      return Positioned.fill(
+        child: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTap: _removeSearchOverlay,
+          child: Stack(children: [
+            CompositedTransformFollower(
+              link: _searchLink,
+              offset: const Offset(0, 44),
+              showWhenUnlinked: false,
+              child: Material(
+                color: Colors.transparent,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 560),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: BackdropFilter(
+                      filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                      child: Container(
+                        margin: const EdgeInsets.only(left: 0, right: 0),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.72),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: theme.colorScheme.outline.withOpacity(0.35)),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.08),
+                              blurRadius: 16,
+                              offset: const Offset(0, 8),
+                            ),
+                          ],
+                        ),
+                        child: (_searching && results.isEmpty)
+                            ? const Padding(
+                                padding: EdgeInsets.all(12),
+                                child: Center(child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))),
+                              )
+                            : ListView.separated(
+                                padding: const EdgeInsets.symmetric(vertical: 6),
+                                shrinkWrap: true,
+                                itemBuilder: (c, i) {
+                                  final t = results[i];
+                                  final selected = i == _searchHoverIndex;
+                                  return InkWell(
+                                    onTap: () => _selectSearchResult(t as Todo),
+                                    onHover: (h) => setState(() => _searchHoverIndex = h ? i : _searchHoverIndex),
+                                    child: Container(
+                                      color: selected ? theme.colorScheme.primary.withOpacity(0.08) : Colors.transparent,
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                      child: Row(
+                                        children: [
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text((t as Todo).title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                                                const SizedBox(height: 4),
+                                                Wrap(spacing: 6, runSpacing: 4, children: [
+                                                  _chip((t.scheduledFor ?? 'unscheduled')),
+                                                  _chip('prio ${t.priority}')
+                                                ]),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                },
+                                separatorBuilder: (_, __) => Divider(height: 1, color: theme.colorScheme.outline.withOpacity(0.2)),
+                                itemCount: results.length,
+                              ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            )
+          ]),
+        ),
+      );
+    });
+    Overlay.of(context, debugRequiredFor: widget).insert(_searchOverlay!);
+  }
+
+  void _removeSearchOverlay() {
+    try { _searchOverlay?.remove(); } catch (_) {}
+    _searchOverlay = null;
+    _searchHoverIndex = -1;
+  }
+
+  Widget _chip(String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade200,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: Text(text, style: const TextStyle(fontSize: 12, color: Colors.black87)),
+    );
+  }
+
+  Future<void> _selectSearchResult(Todo t) async {
+    _removeSearchOverlay();
+    _searchFocus.unfocus();
+    searchCtrl.clear();
+    setState(() { searchResults = []; _searchHoverIndex = -1; });
+    // Determine list membership
+    final isScheduled = t.scheduledFor != null;
+    final targetList = isScheduled ? SmartList.all : SmartList.all; // Ensure visibility regardless
+    if (selected != targetList) {
+      setState(() => selected = targetList);
+      await _refreshAll();
+      await Future.delayed(Duration.zero);
+    }
+    final key = _rowKeys[t.id];
+    if (key != null && key.currentContext != null) {
+      await Scrollable.ensureVisible(key.currentContext!, duration: const Duration(milliseconds: 250));
+      setState(() => _highlightedId = t.id);
+      await Future.delayed(const Duration(seconds: 1));
+      if (mounted && _highlightedId == t.id) setState(() => _highlightedId = null);
+    }
   }
 
   Future<void> _toggleCompleted(Todo t) async {
@@ -421,10 +581,6 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  // Quick entry removed
-
-  // Legacy propose/apply removed
-
   // ----- Assistant (chat) -----
   Future<void> _sendAssistantMessage() async {
     final text = assistantCtrl.text.trim();
@@ -557,7 +713,8 @@ class _HomePageState extends State<HomePage> {
               Container(
                 color: const Color(0xFF0B3D91),
                 padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 0),
-                child: IntrinsicHeight(
+                child: SizedBox(
+                  height: 56,
                   child: Row(
                     children: [
                       // Reserve space visually aligned with left sidebar width
@@ -569,19 +726,69 @@ class _HomePageState extends State<HomePage> {
                         child: Center(
                           child: ConstrainedBox(
                             constraints: const BoxConstraints(minWidth: 320, maxWidth: 560),
-                            child: TextField(
-                              controller: searchCtrl,
-                              decoration: InputDecoration(
-                                prefixIcon: const Icon(Icons.search),
-                                hintText: 'Search',
-                                filled: true,
-                                fillColor: Colors.white,
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                  borderSide: BorderSide.none,
+                            child: CompositedTransformTarget(
+                              link: _searchLink,
+                              child: Focus(
+                                focusNode: _searchFocus,
+                                onFocusChange: (f) {
+                                  if (!f) _removeSearchOverlay();
+                                  else _showSearchOverlayIfNeeded();
+                                },
+                                onKey: (node, event) {
+                                  if (!_searchFocus.hasFocus) return KeyEventResult.ignored;
+                                  if (event is! RawKeyDownEvent) return KeyEventResult.ignored;
+                                  final len = math.min(searchResults.length, 7);
+                                  if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+                                    setState(() { _searchHoverIndex = len == 0 ? -1 : (_searchHoverIndex + 1) % len; });
+                                    _showSearchOverlayIfNeeded();
+                                    return KeyEventResult.handled;
+                                  } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+                                    setState(() { _searchHoverIndex = len == 0 ? -1 : (_searchHoverIndex - 1 + len) % len; });
+                                    _showSearchOverlayIfNeeded();
+                                    return KeyEventResult.handled;
+                                  } else if (event.logicalKey == LogicalKeyboardKey.enter) {
+                                    final list = searchResults.take(7).toList();
+                                    if (list.isEmpty) return KeyEventResult.handled;
+                                    final idx = _searchHoverIndex >= 0 && _searchHoverIndex < list.length ? _searchHoverIndex : 0;
+                                    _selectSearchResult(list[idx] as Todo);
+                                    return KeyEventResult.handled;
+                                  }
+                                  return KeyEventResult.ignored;
+                                },
+                                child: TextField(
+                                  controller: searchCtrl,
+                                  decoration: InputDecoration(
+                                    prefixIcon: const Icon(Icons.search),
+                                    hintText: 'Search',
+                                    filled: true,
+                                    fillColor: Colors.white.withOpacity(0.9),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(24),
+                                      borderSide: BorderSide(color: Theme.of(context).colorScheme.outline.withOpacity(0.4)),
+                                    ),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(24),
+                                      borderSide: BorderSide(color: Theme.of(context).colorScheme.primary, width: 2),
+                                    ),
+                                    suffixIcon: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if (_searching) SizedBox(width: 16, height: 16, child: Padding(padding: EdgeInsets.all(8), child: CircularProgressIndicator(strokeWidth: 2))),
+                                        if (searchCtrl.text.isNotEmpty)
+                                          IconButton(
+                                            icon: const Icon(Icons.clear),
+                                            onPressed: () {
+                                              searchCtrl.clear();
+                                              setState(() { searchResults = []; _searchHoverIndex = -1; });
+                                              _removeSearchOverlay();
+                                            },
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                  onChanged: (v) { _onSearchChanged(v); _showSearchOverlayIfNeeded(); },
                                 ),
                               ),
-                              onChanged: _onSearchChanged,
                             ),
                           ),
                         ),
@@ -599,7 +806,7 @@ class _HomePageState extends State<HomePage> {
                                   children: const [
                                     Icon(Icons.smart_toy_outlined, color: Colors.white, size: 18),
                                     SizedBox(width: 6),
-                                    Text('Assistant', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.white)),
+                                    Text('Mr. Assister', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.white)),
                                   ],
                                 )
                               : const Icon(Icons.smart_toy_outlined, color: Colors.white, size: 18),
@@ -668,15 +875,6 @@ class _HomePageState extends State<HomePage> {
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      if (searchCtrl.text.trim().isNotEmpty) ...[
-                                        const Padding(
-                                          padding: EdgeInsets.all(8.0),
-                                          child: Text('Search results', style: TextStyle(fontWeight: FontWeight.w600)),
-                                        ),
-                                        const Divider(height: 1),
-                                        SizedBox(height: 240, child: _buildSimpleList(searchResults)),
-                                        const Divider(height: 1),
-                                      ],
                                       Expanded(child: Stack(children: [
                                         _buildMainList(),
                                         Positioned(
@@ -784,13 +982,16 @@ class _HomePageState extends State<HomePage> {
       priority: t.priority,
       completed: t.completed,
     );
-    return row.TodoRow(
-      todo: like,
-      onToggleCompleted: () => _toggleCompleted(t),
-      onEdit: () => _editTodo(t),
-      onDelete: () => _deleteTodo(t),
+    final key = _rowKeys.putIfAbsent(t.id, () => GlobalKey());
+    return KeyedSubtree(
+      key: key,
+      child: row.TodoRow(
+        todo: like,
+        onToggleCompleted: () => _toggleCompleted(t),
+        onEdit: () => _editTodo(t),
+        onDelete: () => _deleteTodo(t),
+        highlighted: _highlightedId == t.id,
+      ),
     );
   }
-
-  // Removed inline assistant panel; extracted to widgets/assistant_panel.dart
 }
