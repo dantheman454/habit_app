@@ -1,4 +1,5 @@
-MENTAL MODELS ARE THE GRAPHS I HAVE BEEN LOOKING FOR???
+-clean up web UI
+-look at current LLM setup and update the prompts and query flow
 
 -get a todo list app up and running fully and soundly
     *add in time of day and repeating reminders

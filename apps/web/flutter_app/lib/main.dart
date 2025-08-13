@@ -1,25 +1,16 @@
-// ignore: avoid_web_libraries_in_flutter
-import 'dart:html' as html;
 import 'package:flutter/material.dart';
-import 'package:dio/dio.dart';
+import 'dart:async';
+import 'widgets/assistant_panel.dart';
+import 'widgets/sidebar.dart' as sb;
+import 'widgets/todo_row.dart' as row;
+import 'widgets/fab_actions.dart' as fab;
+import 'api.dart' as api;
 
 void main() {
   runApp(const App());
 }
 
-// ----- Networking -----
-// Compute API base so it works in both modes:
-// - When served by Express (production): use the current origin
-// - When running via `flutter run -d chrome`: call the Node server on 127.0.0.1:3000
-String _computeApiBase() {
-  final origin = Uri.base.origin;
-  if (origin.contains('127.0.0.1:3000') || origin.contains('localhost:3000')) {
-    return origin;
-  }
-  return 'http://127.0.0.1:3000';
-}
-
-final Dio dio = Dio(BaseOptions(baseUrl: _computeApiBase()));
+// Networking moved to api.dart
 
 // ----- Models -----
 class Todo {
@@ -94,13 +85,6 @@ class LlmOperation {
       };
 }
 
-// ----- Utilities -----
-class _ImportItem {
-  _ImportItem({required this.text, required this.selected});
-  final String text;
-  bool selected;
-}
-
 String ymd(DateTime d) =>
     '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
@@ -154,7 +138,7 @@ enum View { day, week, month }
 
 enum SmartList { today, scheduled, all, flagged, backlog }
 
-enum EntryMode { direct, llm }
+ 
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -168,9 +152,9 @@ class _HomePageState extends State<HomePage> {
   String anchor = ymd(DateTime.now());
   View view = View.week;
   bool showCompleted = false;
-  EntryMode entryMode = EntryMode.llm;
-  final TextEditingController quickCtrl = TextEditingController();
+  
   final TextEditingController searchCtrl = TextEditingController();
+  Timer? _searchDebounce;
 
   // Sidebar state
   SmartList selected = SmartList.today;
@@ -180,19 +164,21 @@ class _HomePageState extends State<HomePage> {
   List<Todo> backlog = [];
   List<Todo> searchResults = [];
 
-  // LLM proposal panel
-  List<LlmOperation> proposed = [];
-  List<bool> proposedChecked = [];
+  // LLM proposal panel (removed)
 
   bool loading = false;
   String? message;
-  bool proposing = false;
+  
 
-  // Import (.txt) state
-  List<_ImportItem> importItems = [];
-  String importPriority = 'medium';
-  String importSchedule = 'anchor'; // 'anchor' or 'unscheduled'
-  bool importApplying = false;
+  // Assistant (chat) panel state
+  final TextEditingController assistantCtrl = TextEditingController();
+  final List<Map<String, String>> assistantTranscript = [];
+  List<LlmOperation> assistantOps = [];
+  List<bool> assistantOpsChecked = [];
+  bool assistantSending = false;
+  bool assistantShowDiff = false;
+
+  // Import UI removed; state no longer used
 
   @override
   void initState() {
@@ -200,24 +186,23 @@ class _HomePageState extends State<HomePage> {
     _refreshAll();
   }
 
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    assistantCtrl.dispose();
+    
+    searchCtrl.dispose();
+    super.dispose();
+  }
+
   Future<void> _refreshAll() async {
     setState(() => loading = true);
     try {
       final r = rangeForView(anchor, view);
-      final futures = <Future>[];
-      futures.add(dio.get('/api/todos', queryParameters: {
-        'from': r.from,
-        'to': r.to,
-        if (!showCompleted) 'completed': 'false',
-      }));
-      futures.add(dio.get('/api/todos/backlog'));
-      final rs = await Future.wait(futures);
-      final sList = (rs[0].data['todos'] as List<dynamic>)
-          .map((e) => Todo.fromJson(e as Map<String, dynamic>))
-          .toList();
-      var bList = (rs[1].data['todos'] as List<dynamic>)
-          .map((e) => Todo.fromJson(e as Map<String, dynamic>))
-          .toList();
+      final scheduledRaw = await api.fetchScheduled(from: r.from, to: r.to, completed: showCompleted ? null : false);
+      final backlogRaw = await api.fetchBacklog();
+      final sList = scheduledRaw.map((e) => Todo.fromJson(e as Map<String, dynamic>)).toList();
+      var bList = backlogRaw.map((e) => Todo.fromJson(e as Map<String, dynamic>)).toList();
       if (!showCompleted) {
         bList = bList.where((t) => !t.completed).toList();
       }
@@ -239,8 +224,8 @@ class _HomePageState extends State<HomePage> {
       return;
     }
     try {
-      final res = await dio.get('/api/todos/search', queryParameters: {'query': q});
-      final items = (res.data['todos'] as List<dynamic>)
+      final list = await api.searchTodos(q);
+      final items = (list)
           .map((e) => Todo.fromJson(e as Map<String, dynamic>))
           .toList();
       setState(() => searchResults = items);
@@ -249,9 +234,14 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  void _onSearchChanged(String v) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 250), () => _runSearch(v));
+  }
+
   Future<void> _toggleCompleted(Todo t) async {
     try {
-      await dio.patch('/api/todos/${t.id}', data: {'completed': !t.completed});
+      await api.updateTodo(t.id, {'completed': !t.completed});
       await _refreshAll();
     } catch (e) {
       setState(() => message = 'Toggle failed: $e');
@@ -272,11 +262,47 @@ class _HomePageState extends State<HomePage> {
     );
     if (ok != true) return;
     try {
-      await dio.delete('/api/todos/${t.id}');
+      await api.deleteTodo(t.id);
       await _refreshAll();
     } catch (e) {
       setState(() => message = 'Delete failed: $e');
     }
+  }
+
+  Future<void> _openFabSheet() async {
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (c) {
+        return Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(c).viewInsets.bottom),
+          child: _FabSheet(
+            onCreate: (title, notes, date, prio) async {
+              await api.createTodo({'title': title,'notes': notes,'scheduledFor': date?.isEmpty == true ? null : date,'priority': prio});
+              Navigator.pop(c);
+              await _refreshAll();
+            },
+            onComplete: (id) async {
+              await api.updateTodo(id, {'completed': true});
+              Navigator.pop(c);
+              await _refreshAll();
+            },
+            onDelete: (id) async {
+              await api.deleteTodo(id);
+              Navigator.pop(c);
+              await _refreshAll();
+            },
+            onUpdate: (id, patch) async {
+              await api.updateTodo(id, patch);
+              Navigator.pop(c);
+              await _refreshAll();
+            },
+            todos: [...scheduled, ...backlog],
+            anchor: anchor,
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _editTodo(Todo t) async {
@@ -328,68 +354,65 @@ class _HomePageState extends State<HomePage> {
 
     if (patch.isEmpty) return;
     try {
-      await dio.patch('/api/todos/${t.id}', data: patch);
+      await api.updateTodo(t.id, patch);
       await _refreshAll();
     } catch (e) {
       setState(() => message = 'Edit failed: $e');
     }
   }
 
-  Future<void> _quickSubmit() async {
-    final text = quickCtrl.text.trim();
-    if (text.isEmpty) return;
+  // Quick entry removed
 
-    if (entryMode == EntryMode.direct) {
-      try {
-        await dio.post('/api/todos', data: {
-          'title': text,
-          'notes': '',
-          'scheduledFor': anchor, // default to anchor/today
-          'priority': 'medium',
-        });
-        quickCtrl.clear();
-        await _refreshAll();
-      } catch (e) {
-        setState(() => message = 'Create failed: $e');
-      }
-    } else {
-      // LLM propose with in-button spinner
-      setState(() => proposing = true);
-      try {
-        final res = await dio.post('/api/llm/propose', data: {'instruction': text});
-        final ops = (res.data['operations'] as List<dynamic>)
-            .map((e) => LlmOperation.fromJson(e as Map<String, dynamic>))
-            .toList();
-        setState(() {
-          proposed = ops;
-          proposedChecked = List<bool>.filled(ops.length, true);
-          message = null;
-        });
-      } catch (e) {
-        setState(() => message = 'Propose failed: $e');
-      } finally {
-        setState(() => proposing = false);
-      }
+  // Legacy propose/apply removed
+
+  // ----- Assistant (chat) -----
+  Future<void> _sendAssistantMessage() async {
+    final text = assistantCtrl.text.trim();
+    if (text.isEmpty) return;
+    setState(() {
+      assistantTranscript.add({'role': 'user', 'text': text});
+      assistantSending = true;
+    });
+    try {
+      final res = await api.assistantMessage(text);
+      final reply = (res['text'] as String?) ?? '';
+      final opsRaw = res['operations'] as List<dynamic>?;
+      final ops = opsRaw == null
+          ? <LlmOperation>[]
+          : opsRaw.map((e) => LlmOperation.fromJson(e as Map<String, dynamic>)).toList();
+      setState(() {
+        assistantTranscript.add({'role': 'assistant', 'text': reply});
+        assistantOps = ops;
+        assistantOpsChecked = List<bool>.filled(ops.length, true);
+        assistantShowDiff = false;
+      });
+      assistantCtrl.clear();
+    } catch (e) {
+      setState(() {
+        assistantTranscript.add({'role': 'assistant', 'text': 'Sorry, I could not process that. (${e.toString()})'});
+      });
+    } finally {
+      setState(() => assistantSending = false);
     }
   }
 
-  Future<void> _applySelectedOps() async {
+  Future<void> _applyAssistantOps() async {
     try {
       final selectedOps = <Map<String, dynamic>>[];
-      for (var i = 0; i < proposed.length; i++) {
-        if (proposedChecked[i]) selectedOps.add(proposed[i].toJson());
+      for (var i = 0; i < assistantOps.length; i++) {
+        if (assistantOpsChecked[i]) selectedOps.add(assistantOps[i].toJson());
       }
       if (selectedOps.isEmpty) {
         setState(() => message = 'No operations selected.');
         return;
       }
-      final res = await dio.post('/api/llm/apply', data: {'operations': selectedOps});
-      final summary = res.data['summary'];
-    setState(() {
+      final res = await api.applyOperations(selectedOps);
+      final summary = res['summary'];
+      setState(() {
         message = 'Applied: c=${summary['created']}, u=${summary['updated']}, d=${summary['deleted']}, done=${summary['completed']}';
-        proposed = [];
-        proposedChecked = [];
-        quickCtrl.clear();
+        assistantOps = [];
+        assistantOpsChecked = [];
+        assistantShowDiff = false;
       });
       await _refreshAll();
     } catch (e) {
@@ -397,28 +420,7 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Widget _priorityBadge(String p) {
-    Color bg;
-    Color fg;
-    switch (p) {
-      case 'high':
-        bg = const Color(0xFFFFC9C9);
-        fg = const Color(0xFF7D1414);
-        break;
-      case 'low':
-        bg = const Color(0xFFD3F9D8);
-        fg = const Color(0xFF205B2A);
-        break;
-      default:
-        bg = const Color(0xFFFFE8CC);
-        fg = const Color(0xFF9C3B00);
-    }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(999)),
-      child: Text(p, style: TextStyle(color: fg, fontSize: 12)),
-    );
-  }
+  
 
   Map<String, List<Todo>> _groupByDate(List<Todo> items) {
     final map = <String, List<Todo>>{};
@@ -446,6 +448,37 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  String _smartListKey(SmartList sl) {
+    switch (sl) {
+      case SmartList.today:
+        return 'today';
+      case SmartList.scheduled:
+        return 'scheduled';
+      case SmartList.all:
+        return 'all';
+      case SmartList.flagged:
+        return 'flagged';
+      case SmartList.backlog:
+        return 'backlog';
+    }
+  }
+
+  SmartList _smartListFromKey(String k) {
+    switch (k) {
+      case 'today':
+        return SmartList.today;
+      case 'scheduled':
+        return SmartList.scheduled;
+      case 'all':
+        return SmartList.all;
+      case 'flagged':
+        return SmartList.flagged;
+      case 'backlog':
+      default:
+        return SmartList.backlog;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final body = loading
@@ -453,129 +486,33 @@ class _HomePageState extends State<HomePage> {
         : Row(
             children: [
               // Sidebar
-              SizedBox(
-                width: 220,
-                child: ListView(
-                  children: [
-                    _sidebarTile('Today', SmartList.today, Icons.today),
-                    _sidebarTile('Scheduled', SmartList.scheduled, Icons.calendar_month),
-                    _sidebarTile('All', SmartList.all, Icons.inbox),
-                    _sidebarTile('Flagged', SmartList.flagged, Icons.flag),
-                    _sidebarTile('Backlog', SmartList.backlog, Icons.list_alt),
-                  ],
-                ),
-              ),
+               SizedBox(
+                 width: 220,
+                 child: sb.Sidebar(
+                   selectedKey: _smartListKey(selected),
+                   onSelect: (k) => setState(() => selected = _smartListFromKey(k)),
+                   showCompleted: showCompleted,
+                   onToggleShowCompleted: (v) {
+                     setState(() => showCompleted = v);
+                     _refreshAll();
+                   },
+                 ),
+               ),
               const VerticalDivider(width: 1),
               // Main content
               Expanded(
                 child: Column(
                   children: [
-                    // Header controls
+                    // Header: search-only
                     Padding(
                       padding: const EdgeInsets.all(12),
-                      child: Wrap(
-                        spacing: 12,
-                        runSpacing: 8,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          // Anchor date
-                          Row(mainAxisSize: MainAxisSize.min, children: [
-                            const Text('Anchor'),
-                            const SizedBox(width: 6),
-                            SizedBox(
-                              width: 156,
-                              child: TextField(
-                                controller: TextEditingController(text: anchor),
-                                decoration: const InputDecoration(isDense: true, hintText: 'YYYY-MM-DD'),
-                                onSubmitted: (v) {
-                                  if (RegExp(r'^\d{4}-\d{2}-\d{2}').hasMatch(v)) {
-                                    setState(() => anchor = v);
-                                    _refreshAll();
-                                  }
-                                },
-                              ),
-                            ),
-                          ]),
-                          // View select
-                          DropdownButton<View>(
-                            value: view,
-                            items: const [
-                              DropdownMenuItem(value: View.day, child: Text('Day')),
-                              DropdownMenuItem(value: View.week, child: Text('Week')),
-                              DropdownMenuItem(value: View.month, child: Text('Month')),
-                            ],
-                            onChanged: (v) {
-                              if (v != null) setState(() => view = v);
-                              _refreshAll();
-                            },
-                          ),
-                          // Show completed
-                          Row(mainAxisSize: MainAxisSize.min, children: [
-                            const Text('Show completed'),
-                            Switch(
-                              value: showCompleted,
-                              onChanged: (v) {
-                                setState(() => showCompleted = v);
-                                _refreshAll();
-                              },
-                            ),
-                          ]),
-                          // Search
-                          SizedBox(
-                            width: 220,
-                            child: TextField(
-                              controller: searchCtrl,
-                              decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Search'),
-                              onChanged: (v) => _runSearch(v),
-                            ),
-                          ),
-                          // Quick entry + mode + button + import
-                          SizedBox(
-                            width: 320,
-                            child: TextField(
-                              controller: quickCtrl,
-                              decoration: const InputDecoration(hintText: 'Quick entry'),
-                              onSubmitted: (_) => _quickSubmit(),
-                            ),
-                          ),
-                          DropdownButton<EntryMode>(
-                            value: entryMode,
-                            items: const [
-                              DropdownMenuItem(value: EntryMode.llm, child: Text('LLM')),
-                              DropdownMenuItem(value: EntryMode.direct, child: Text('Direct')),
-                            ],
-                            onChanged: (v) => setState(() => entryMode = v ?? EntryMode.llm),
-                          ),
-                          FilledButton(
-                            onPressed: proposing ? null : _quickSubmit,
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (entryMode == EntryMode.llm && proposing) ...[
-                                  SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      valueColor: AlwaysStoppedAnimation(
-                                        Theme.of(context).colorScheme.onPrimary,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  const Text('Proposing…'),
-                                ] else ...[
-                                  Text(entryMode == EntryMode.direct ? 'Add' : 'Propose'),
-                                ],
-                              ],
-                            ),
-                          ),
-                          OutlinedButton.icon(
-                            onPressed: importApplying ? null : _onImportTxt,
-                            icon: const Icon(Icons.file_download),
-                            label: const Text('Import'),
-                          ),
-                        ],
+                      child: SizedBox(
+                        width: 340,
+                        child: TextField(
+                          controller: searchCtrl,
+                          decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Search'),
+                          onChanged: _onSearchChanged,
+                        ),
                       ),
                     ),
                     if (message != null)
@@ -587,62 +524,52 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ),
                     const Divider(height: 1),
-                    // Proposal panel
-                    if (proposed.isNotEmpty)
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.4),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('Proposed operations', style: TextStyle(fontWeight: FontWeight.w600)),
-                            const SizedBox(height: 8),
-                            ...List.generate(proposed.length, (i) {
-                              final op = proposed[i];
-                              return Row(
-                                children: [
-                                  Checkbox(
-                                    value: proposedChecked[i],
-                                    onChanged: (v) => setState(() => proposedChecked[i] = v ?? true),
-                                  ),
-                                  Expanded(child: Text(_opLabel(op))),
-                                ],
-                              );
-                            }),
-                            const SizedBox(height: 8),
-                            Wrap(spacing: 8, children: [
-                              FilledButton(onPressed: _applySelectedOps, child: const Text('Apply Selected')),
-                              TextButton(
-                                onPressed: () => setState(() {
-                                  proposed = [];
-                                  proposedChecked = [];
-                                }),
-                                child: const Text('Discard'),
-                              ),
-                            ]),
-                          ],
-                        ),
-                      ),
-                    // Main lists
+                    // Main lists + Assistant panel
                     Expanded(
                       child: Row(
                         children: [
-                          Expanded(child: _buildMainList()),
-                          if (searchCtrl.text.trim().isNotEmpty)
-                            SizedBox(
-                              width: 360,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (searchCtrl.text.trim().isNotEmpty) ...[
                                   const Padding(
                                     padding: EdgeInsets.all(8.0),
                                     child: Text('Search results', style: TextStyle(fontWeight: FontWeight.w600)),
                                   ),
                                   const Divider(height: 1),
-                                  Expanded(child: _buildSimpleList(searchResults)),
+                                  SizedBox(height: 240, child: _buildSimpleList(searchResults)),
+                                  const Divider(height: 1),
                                 ],
-                              ),
+                                 Expanded(child: Stack(children: [
+                                   _buildMainList(),
+                                   Positioned(
+                                     right: 16,
+                                     bottom: 16,
+                                     child: fab.FabActions(onPressed: _openFabSheet),
+                                   ),
+                                 ])),
+                              ],
                             ),
+                          ),
+                          const VerticalDivider(width: 1),
+                          SizedBox(
+                            width: 360,
+                            child: AssistantPanel(
+                              transcript: assistantTranscript,
+                              operations: assistantOps,
+                              operationsChecked: assistantOpsChecked,
+                              sending: assistantSending,
+                              showDiff: assistantShowDiff,
+                              onToggleDiff: () => setState(() => assistantShowDiff = !assistantShowDiff),
+                              onToggleOperation: (i, v) => setState(() => assistantOpsChecked[i] = v),
+                              onApplySelected: _applyAssistantOps,
+                              onDiscard: () => setState(() { assistantOps = []; assistantOpsChecked = []; assistantShowDiff = false; }),
+                              inputController: assistantCtrl,
+                              onSend: _sendAssistantMessage,
+                              opLabel: (op) => _opLabel(op as LlmOperation),
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -665,146 +592,7 @@ class _HomePageState extends State<HomePage> {
     return parts.join(' ');
   }
 
-  // ----- Import (web) -----
-  Future<void> _onImportTxt() async {
-    try {
-      final input = html.FileUploadInputElement();
-      input.accept = '.txt';
-      input.click();
-      await input.onChange.first;
-      if (input.files == null || input.files!.isEmpty) return;
-      final file = input.files!.first;
-      final reader = html.FileReader();
-      reader.readAsText(file);
-      await reader.onLoad.first;
-      final text = reader.result?.toString() ?? '';
-      final lines = text.split(RegExp(r'\r?\n')).map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
-      // Deduplicate exact lines within this import as requested
-      final seen = <String>{};
-      final unique = <String>[];
-      for (final l in lines) { if (seen.add(l)) unique.add(l); }
-      importItems = unique.map((t) => _ImportItem(text: t, selected: true)).toList();
-      importPriority = 'medium';
-      importSchedule = 'anchor';
-      await _showImportDialog();
-    } catch (e) {
-      setState(() => message = 'Import failed: $e');
-    }
-  }
-
-  Future<void> _showImportDialog() async {
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (c) {
-        return StatefulBuilder(builder: (c, setStateDialog) {
-          return AlertDialog(
-            title: const Text('Import tasks from .txt'),
-            content: SizedBox(
-              width: 520,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(children: [
-                    const Text('Schedule:'),
-                    const SizedBox(width: 8),
-                    DropdownButton<String>(
-                      value: importSchedule,
-                      items: const [
-                        DropdownMenuItem(value: 'anchor', child: Text('Anchor date')),
-                        DropdownMenuItem(value: 'unscheduled', child: Text('Unscheduled (Backlog)')),
-                      ],
-                      onChanged: (v) => setStateDialog(() => importSchedule = v ?? 'anchor'),
-                    ),
-                    const SizedBox(width: 16),
-                    const Text('Priority:'),
-                    const SizedBox(width: 8),
-                    DropdownButton<String>(
-                      value: importPriority,
-                      items: const [
-                        DropdownMenuItem(value: 'low', child: Text('low')),
-                        DropdownMenuItem(value: 'medium', child: Text('medium')),
-                        DropdownMenuItem(value: 'high', child: Text('high')),
-                      ],
-                      onChanged: (v) => setStateDialog(() => importPriority = v ?? 'medium'),
-                    ),
-                  ]),
-                  const SizedBox(height: 8),
-                  Container(
-                    constraints: const BoxConstraints(maxHeight: 360),
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: importItems.length,
-                      itemBuilder: (_, i) {
-                        final it = importItems[i];
-                        return StatefulBuilder(builder: (context, setStateRow) {
-                          return CheckboxListTile(
-                            value: it.selected,
-                            onChanged: (v) {
-                              setStateRow(() => it.selected = v ?? true);
-                            },
-                            title: Text(_truncate(it.text, 120)),
-                          );
-                        });
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(c), child: const Text('Cancel')),
-              FilledButton(
-                onPressed: importApplying ? null : () async {
-                  await _applyImport(setStateDialog);
-                },
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  if (importApplying) ...[
-                    const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
-                    const SizedBox(width: 8),
-                  ],
-                  const Text('Import Selected'),
-                ]),
-              ),
-            ],
-          );
-        });
-      },
-    );
-  }
-
-  Future<void> _applyImport(void Function(void Function()) setStateDialog) async {
-    try {
-      setStateDialog(() => importApplying = true);
-      final selected = importItems.where((x) => x.selected).toList();
-      if (selected.isEmpty) {
-        setStateDialog(() => importApplying = false);
-        return;
-      }
-      final ops = <Map<String, dynamic>>[];
-      final sched = importSchedule == 'anchor' ? anchor : null;
-      for (final it in selected) {
-        ops.add({
-          'op': 'create',
-          'title': it.text,
-          'scheduledFor': sched,
-          'priority': importPriority,
-        });
-      }
-      final res = await dio.post('/api/llm/apply', data: {'operations': ops});
-      final summary = res.data['summary'];
-      setState(() {
-        message = 'Imported: c=${summary['created']}';
-      });
-      Navigator.of(context).pop();
-      await _refreshAll();
-    } catch (e) {
-      setStateDialog(() => importApplying = false);
-      setState(() => message = 'Import failed: $e');
-    }
-  }
-
-  String _truncate(String s, int max) => s.length <= max ? s : '${s.substring(0, max - 1)}…';
+  // Import UI removed
 
   Widget _buildMainList() {
     final items = _currentList();
@@ -833,60 +621,170 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildRow(Todo t) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.shade300),
-        borderRadius: BorderRadius.circular(6),
-        color: t.completed ? Colors.grey.withOpacity(0.1) : null,
-      ),
-      child: Row(
+    final like = row.TodoLike(
+      id: t.id,
+      title: t.title,
+      notes: t.notes,
+      priority: t.priority,
+      completed: t.completed,
+    );
+    return row.TodoRow(
+      todo: like,
+      onToggleCompleted: () => _toggleCompleted(t),
+      onEdit: () => _editTodo(t),
+      onDelete: () => _deleteTodo(t),
+    );
+  }
+
+  // Removed inline assistant panel; extracted to widgets/assistant_panel.dart
+}
+
+class _FabSheet extends StatefulWidget {
+  final Future<void> Function(String title, String notes, String? scheduledFor, String priority) onCreate;
+  final Future<void> Function(int id) onComplete;
+  final Future<void> Function(int id) onDelete;
+  final Future<void> Function(int id, Map<String, dynamic> patch) onUpdate;
+  final List<Todo> todos;
+  final String anchor;
+  const _FabSheet({
+    required this.onCreate,
+    required this.onComplete,
+    required this.onDelete,
+    required this.onUpdate,
+    required this.todos,
+    required this.anchor,
+  });
+
+  @override
+  State<_FabSheet> createState() => _FabSheetState();
+}
+
+class _FabSheetState extends State<_FabSheet> {
+  String action = 'create'; // create|update|complete|delete
+  int? selectedId;
+  final titleCtrl = TextEditingController();
+  final notesCtrl = TextEditingController();
+  final dateCtrl = TextEditingController();
+  String prio = 'medium';
+
+  @override
+  void initState() {
+    super.initState();
+    dateCtrl.text = widget.anchor;
+  }
+
+  @override
+  void dispose() {
+    titleCtrl.dispose();
+    notesCtrl.dispose();
+    dateCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Checkbox(value: t.completed, onChanged: (_) => _toggleCompleted(t)),
-          const SizedBox(width: 6),
-          Expanded(
-        child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(children: [
-                  _priorityBadge(t.priority),
-                  const SizedBox(width: 6),
-                  Flexible(
-                    child: Text(
-                      t.title,
-                      style: TextStyle(
-                        decoration: t.completed ? TextDecoration.lineThrough : null,
-                      ),
-                    ),
-                  ),
-                ]),
-                if ((t.notes).isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Text(t.notes, style: TextStyle(color: Colors.grey.shade700, fontSize: 12)),
-            ),
-          ],
-        ),
-      ),
-          const SizedBox(width: 8),
-          Wrap(spacing: 6, children: [
-            OutlinedButton(onPressed: () => _editTodo(t), child: const Text('Edit')),
-            OutlinedButton(onPressed: () => _deleteTodo(t), child: const Text('Delete')),
+          Row(children: [
+            ChoiceChip(label: const Text('Create'), selected: action == 'create', onSelected: (_) => setState(() => action = 'create')),
+            const SizedBox(width: 8),
+            ChoiceChip(label: const Text('Update'), selected: action == 'update', onSelected: (_) => setState(() => action = 'update')),
+            const SizedBox(width: 8),
+            ChoiceChip(label: const Text('Complete'), selected: action == 'complete', onSelected: (_) => setState(() => action = 'complete')),
+            const SizedBox(width: 8),
+            ChoiceChip(label: const Text('Delete'), selected: action == 'delete', onSelected: (_) => setState(() => action = 'delete')),
           ]),
+          const SizedBox(height: 12),
+          _selector(),
+          const SizedBox(height: 12),
+          if (action == 'create' || action == 'update') _editFields(),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton(
+              onPressed: _canSubmit() ? _onSubmit : null,
+              child: const Text('Submit'),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _sidebarTile(String label, SmartList sl, IconData icon) {
-    final active = selected == sl;
-    return ListTile(
-      leading: Icon(icon, size: 20),
-      title: Text(label),
-      selected: active,
-      onTap: () {
-        setState(() => selected = sl);
-      },
+  Widget _selector() {
+    if (action == 'create') return const SizedBox.shrink();
+    return DropdownButton<int>(
+      value: selectedId,
+      hint: const Text('Select a task'),
+      items: widget.todos
+          .map((t) => DropdownMenuItem(value: t.id, child: Text('#${t.id} ${t.title} ${t.scheduledFor ?? ''}')))
+          .toList(),
+      onChanged: (v) => setState(() => selectedId = v),
     );
+  }
+
+  Widget _editFields() {
+    return Column(
+      children: [
+        TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'Title'), onChanged: (_) => setState(() {})),
+        TextField(controller: notesCtrl, decoration: const InputDecoration(labelText: 'Notes'), onChanged: (_) => setState(() {})),
+        TextField(controller: dateCtrl, decoration: const InputDecoration(labelText: 'Scheduled (YYYY-MM-DD or empty)'), onChanged: (_) => setState(() {})),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          value: prio,
+          decoration: const InputDecoration(labelText: 'Priority'),
+          items: const [
+            DropdownMenuItem(value: 'low', child: Text('low')),
+            DropdownMenuItem(value: 'medium', child: Text('medium')),
+            DropdownMenuItem(value: 'high', child: Text('high')),
+          ],
+          onChanged: (v) => setState(() => prio = v ?? 'medium'),
+        ),
+      ],
+    );
+  }
+
+  bool _canSubmit() {
+    if (action == 'create') {
+      return titleCtrl.text.trim().isNotEmpty;
+    }
+    if (action == 'update') {
+      if (selectedId == null) return false;
+      final hasAny = titleCtrl.text.isNotEmpty || notesCtrl.text.isNotEmpty || dateCtrl.text.trim().isNotEmpty || prio != 'medium';
+      return hasAny;
+    }
+    if (action == 'complete' || action == 'delete') {
+      return selectedId != null;
+    }
+    return false;
+  }
+
+  Future<void> _onSubmit() async {
+    if (action == 'create') {
+      final title = titleCtrl.text.trim();
+      if (title.isEmpty) return; // basic validation
+      // disable when no changes won't apply; always valid for create if title present
+      await widget.onCreate(title, notesCtrl.text, dateCtrl.text.trim(), prio);
+    } else if (action == 'update') {
+      if (selectedId == null) return;
+      final patch = <String, dynamic>{};
+      if (titleCtrl.text.isNotEmpty) patch['title'] = titleCtrl.text;
+      if (notesCtrl.text.isNotEmpty) patch['notes'] = notesCtrl.text;
+      final sched = dateCtrl.text.trim();
+      if (sched.isNotEmpty) patch['scheduledFor'] = sched;
+      if (prio.isNotEmpty) patch['priority'] = prio;
+      if (patch.isEmpty) return; // disable submit when no changes
+      await widget.onUpdate(selectedId!, patch);
+    } else if (action == 'complete') {
+      if (selectedId == null) return;
+      await widget.onComplete(selectedId!);
+    } else if (action == 'delete') {
+      if (selectedId == null) return;
+      await widget.onDelete(selectedId!);
+    }
   }
 }

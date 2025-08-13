@@ -98,11 +98,26 @@ app.disable('x-powered-by');
 app.use(cors());
 app.use(express.json({ limit: '256kb' }));
 
-// Static assets (Flutter Web build)
-app.use(express.static(STATIC_DIR));
+// Static assets (Flutter Web build) are mounted AFTER API routes below
 
 // Health
 app.get('/health', (_req, res) => { res.json({ ok: true }); });
+
+// Debug: list routes (temporary)
+app.get('/__routes', (_req, res) => {
+  try {
+    const routes = [];
+    app._router.stack.forEach((m) => {
+      if (m.route && m.route.path) {
+        const methods = Object.keys(m.route.methods).filter(Boolean);
+        routes.push({ path: m.route.path, methods });
+      }
+    });
+    res.json({ routes });
+  } catch (e) {
+    res.status(500).json({ error: String(e && e.message ? e.message : e) });
+  }
+});
 
 // --- CRUD Endpoints ---
 // Create
@@ -324,60 +339,7 @@ function buildProposalPrompt({ instruction, todosSnapshot }) {
   return `${system}\n\n${user}`;
 }
 
-app.post('/api/llm/propose', async (req, res) => {
-  try {
-    const { instruction } = req.body || {};
-    if (typeof instruction !== 'string' || instruction.trim() === '') {
-      return res.status(400).json({ error: 'invalid_instruction' });
-    }
-    const prompt = buildProposalPrompt({ instruction: instruction.trim(), todosSnapshot: todos });
-    const raw = await runOllamaPrompt(prompt);
-    let parsed;
-    const tryParse = (text) => { try { return JSON.parse(text); } catch { return null; } };
-    parsed = tryParse(raw);
-    // Try code fence removal
-    if (!parsed && /```/.test(raw)) {
-      const inner = raw.replace(/```json|```/g, '').trim();
-      parsed = tryParse(inner);
-    }
-    // Try extracting first JSON object by brace matching
-    if (!parsed) {
-      const s = raw;
-      const start = s.indexOf('{');
-      if (start !== -1) {
-        let depth = 0; let end = -1;
-        for (let i = start; i < s.length; i++) {
-          const ch = s[i];
-          if (ch === '{') depth++;
-          else if (ch === '}') { depth--; if (depth === 0) { end = i; break; } }
-        }
-        if (end !== -1) parsed = tryParse(s.slice(start, end + 1));
-      }
-    }
-    if (!parsed) return res.status(502).json({ error: 'non_json_response' });
-
-    // Coerce operations from several possible shapes safely
-    let ops = [];
-    if (Array.isArray(parsed)) ops = parsed;
-    else if (Array.isArray(parsed.operations)) ops = parsed.operations;
-    else if (Array.isArray(parsed.actions)) ops = parsed.actions;
-    if (!ops.length && parsed && typeof parsed === 'object') ops = [parsed];
-    ops = ops.filter(o => o && typeof o === 'object').map(o => {
-      const m = { ...o };
-      if (!m.op && typeof m.action === 'string') m.op = m.action;
-      if (!m.op && typeof m.type === 'string') m.op = m.type;
-      return inferOperationShape(m);
-    }).filter(Boolean);
-
-    const validation = validateProposal({ operations: ops });
-    if (validation.errors.length) {
-      return res.status(400).json({ error: 'invalid_operations', detail: validation });
-    }
-    res.json({ operations: ops });
-  } catch (e) {
-    res.status(502).json({ error: 'upstream_failure', detail: String(e && e.message ? e.message : e) });
-  }
-});
+// /api/llm/propose removed — superseded by /api/assistant/message two-call pipeline
 
 const AUDIT_FILE = path.join(DATA_DIR, 'audit.jsonl');
 function appendAudit(entry) {
@@ -433,6 +395,127 @@ app.post('/api/llm/apply', async (req, res) => {
   });
   res.json({ results, summary: { created, updated, deleted, completed } });
 });
+
+// --- Assistant chat (two-call pipeline) ---
+function buildConversationalSummaryPrompt({ instruction, operations, todosSnapshot }) {
+  const today = new Date();
+  const todayYmd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const compactOps = operations.map((op) => {
+    const parts = [];
+    parts.push(op.op);
+    if (Number.isFinite(op.id)) parts.push(`#${op.id}`);
+    if (op.title) parts.push(`“${String(op.title).slice(0, 60)}”`);
+    if (op.scheduledFor !== undefined) parts.push(`@${op.scheduledFor === null ? 'unscheduled' : op.scheduledFor}`);
+    if (op.priority) parts.push(`prio:${op.priority}`);
+    if (typeof op.completed === 'boolean') parts.push(op.completed ? '[done]' : '[undone]');
+    return `- ${parts.join(' ')}`;
+  }).join('\n');
+  const system = `You are a helpful assistant for a todo app. Reply ultra-briefly (prefer 1 sentence; max 2). No markdown, no lists, no JSON.`;
+  const context = `Today: ${todayYmd}\nProposed operations (count: ${operations.length}):\n${compactOps}`;
+  const user = `User instruction:\n${instruction}`;
+  const task = `Summarize the plan in plain English grounded in the proposed operations above. If there are no valid operations, briefly explain and suggest what to clarify.`;
+  return `${system}\n\n${context}\n\n${user}\n\n${task}`;
+}
+
+function buildDeterministicSummaryText(operations) {
+  if (!Array.isArray(operations) || operations.length === 0) return 'No actionable changes detected.';
+  let created = 0, updated = 0, deleted = 0, completed = 0;
+  const createdTitles = [];
+  const dates = new Set();
+  for (const op of operations) {
+    if (op.op === 'create') { created++; if (op.title) createdTitles.push(op.title); if (op.scheduledFor) dates.add(op.scheduledFor); }
+    else if (op.op === 'update') { updated++; if (op.scheduledFor) dates.add(op.scheduledFor); }
+    else if (op.op === 'delete') { deleted++; }
+    else if (op.op === 'complete') { completed++; }
+  }
+  const parts = [];
+  if (created) parts.push(`creating ${created} task${created === 1 ? '' : 's'}`);
+  if (updated) parts.push(`updating ${updated}`);
+  if (deleted) parts.push(`deleting ${deleted}`);
+  if (completed) parts.push(`completing ${completed}`);
+  let s = parts.length ? `${parts.join(', ')}.` : 'No actionable changes detected.';
+  if (createdTitles.length) {
+    const preview = createdTitles.slice(0, 2).join(', ');
+    s = `${s} (${preview}${createdTitles.length > 2 ? ', …' : ''})`;
+  }
+  if (dates.size) s = `${s} Target: ${Array.from(dates).slice(0, 2).join(', ')}.`;
+  return s.trim();
+}
+
+app.post('/api/assistant/message', async (req, res) => {
+  try {
+    const { message } = req.body || {};
+    if (typeof message !== 'string' || message.trim() === '') {
+      return res.status(400).json({ error: 'invalid_message' });
+    }
+
+    // Call 1 — generate operations (reuse robust proposal pipeline)
+    const prompt1 = buildProposalPrompt({ instruction: message.trim(), todosSnapshot: todos });
+    const raw1 = await runOllamaPrompt(prompt1);
+    const tryParse = (text) => { try { return JSON.parse(text); } catch { return null; } };
+    let parsed1 = tryParse(raw1);
+    if (!parsed1 && /```/.test(raw1)) {
+      const inner = raw1.replace(/```json|```/g, '').trim();
+      parsed1 = tryParse(inner);
+    }
+    if (!parsed1) {
+      // Try extracting first JSON object
+      const s = raw1;
+      const start = s.indexOf('{');
+      if (start !== -1) {
+        let depth = 0; let end = -1;
+        for (let i = start; i < s.length; i++) {
+          const ch = s[i];
+          if (ch === '{') depth++;
+          else if (ch === '}') { depth--; if (depth === 0) { end = i; break; } }
+        }
+        if (end !== -1) parsed1 = tryParse(s.slice(start, end + 1));
+      }
+    }
+    let ops = [];
+    if (Array.isArray(parsed1)) ops = parsed1;
+    else if (parsed1 && Array.isArray(parsed1.operations)) ops = parsed1.operations;
+    else if (parsed1 && Array.isArray(parsed1.actions)) ops = parsed1.actions;
+    if (!ops.length && parsed1 && typeof parsed1 === 'object') ops = [parsed1];
+    ops = ops.filter(o => o && typeof o === 'object').map(o => {
+      const m = { ...o };
+      if (!m.op && typeof m.action === 'string') m.op = m.action;
+      if (!m.op && typeof m.type === 'string') m.op = m.type;
+      return inferOperationShape(m);
+    }).filter(Boolean);
+
+    const validation = validateProposal({ operations: ops });
+    if (validation.errors.length) {
+      // Keep only valid operations for UX; include detail for debugging
+      ops = validation.results.filter(r => r.errors.length === 0).map(r => r.op);
+    }
+
+    // Call 2 — conversational summary
+    let text;
+    let usedFallback = false;
+    try {
+      const prompt2 = buildConversationalSummaryPrompt({ instruction: message.trim(), operations: ops, todosSnapshot: todos });
+      const raw2 = await runOllamaPrompt(prompt2);
+      // Extract a clean one- or two-sentence plain text
+      text = String(raw2 || '').replace(/```[\s\S]*?```/g, '').trim();
+      text = text.replace(/[\r\n]+/g, ' ').trim();
+      if (!text) throw new Error('empty_text');
+    } catch (e) {
+      usedFallback = true;
+      text = buildDeterministicSummaryText(ops);
+      appendAudit({ action: 'assistant_message', conversational_fallback: true, error: String(e && e.message ? e.message : e) });
+    }
+
+    const body = { text };
+    if (ops.length) body.operations = ops;
+    res.json(body);
+  } catch (err) {
+    res.status(502).json({ error: 'assistant_failure', detail: String(err && err.message ? err.message : err) });
+  }
+});
+
+// Mount static assets last so API routes are matched first
+app.use(express.static(STATIC_DIR));
 
 // Error handler
 // eslint-disable-next-line no-unused-vars
