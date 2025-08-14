@@ -4,14 +4,18 @@ class TodoLike {
   final int id;
   final String title;
   final String notes;
+  final String? timeOfDay;
   final String priority;
   final bool completed;
+  final bool overdue;
   const TodoLike({
     required this.id,
     required this.title,
     required this.notes,
+    this.timeOfDay,
     required this.priority,
     required this.completed,
+    this.overdue = false,
   });
 }
 
@@ -61,6 +65,23 @@ class TodoRow extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (todo.timeOfDay != null) ...[
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEEF2FF),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        '${todo.timeOfDay}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: todo.overdue ? Colors.red : null,
+                        ),
+                      ),
+                    ),
+                  ],
                 ]),
                 if (todo.notes.isNotEmpty)
                   Padding(

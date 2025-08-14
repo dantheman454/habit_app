@@ -14,11 +14,12 @@ String _computeApiBase() {
 
 final Dio api = Dio(BaseOptions(baseUrl: _computeApiBase()));
 
-Future<List<dynamic>> fetchScheduled({required String from, required String to, bool? completed}) async {
+Future<List<dynamic>> fetchScheduled({required String from, required String to, bool? completed, bool expand = true}) async {
   final res = await api.get('/api/todos', queryParameters: {
     'from': from,
     'to': to,
     if (completed != null) 'completed': completed.toString(),
+    if (expand) 'expand': 'true',
   });
   return (res.data['todos'] as List<dynamic>);
 }
@@ -52,6 +53,14 @@ Future<Map<String, dynamic>> createTodo(Map<String, dynamic> data) async {
 
 Future<Map<String, dynamic>> updateTodo(int id, Map<String, dynamic> patch) async {
   final res = await api.patch('/api/todos/$id', data: patch);
+  return Map<String, dynamic>.from(res.data['todo'] as Map);
+}
+
+Future<Map<String, dynamic>> updateOccurrence(int id, String occurrenceDate, bool completed) async {
+  final res = await api.patch('/api/todos/$id/occurrence', data: {
+    'occurrenceDate': occurrenceDate,
+    'completed': completed,
+  });
   return Map<String, dynamic>.from(res.data['todo'] as Map);
 }
 

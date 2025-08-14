@@ -28,7 +28,8 @@ function loadTodos() {
   try {
     if (fs.existsSync(TODOS_FILE)) {
       const s = fs.readFileSync(TODOS_FILE, 'utf8');
-      return JSON.parse(s);
+      const arr = JSON.parse(s);
+      return Array.isArray(arr) ? arr : [];
     }
   } catch (e) { console.error('loadTodos error:', e); }
   return [];
@@ -56,21 +57,57 @@ function saveNextId(nextId) {
   catch (e) { console.error('saveNextId error:', e); }
 }
 
+// --- Normalization helpers (forward-compatible defaults) ---
+function endOfCurrentYearYmd() {
+  try {
+    const now = new Date();
+    return `${now.getFullYear()}-12-31`;
+  } catch { return '2099-12-31'; }
+}
+
+function normalizeTodo(todo) {
+  try {
+    const t = { ...todo };
+    if (t.timeOfDay === undefined) t.timeOfDay = null; // null = all-day
+    if (!t || typeof t.recurrence !== 'object') {
+      t.recurrence = { type: 'none', until: endOfCurrentYearYmd() };
+    } else {
+      if (!t.recurrence.type) t.recurrence.type = 'none';
+      if (t.recurrence.until === undefined) t.recurrence.until = endOfCurrentYearYmd();
+    }
+    if (t.recurrence.type !== 'none') {
+      if (!Array.isArray(t.completedDates)) t.completedDates = [];
+    }
+    if (typeof t.completed !== 'boolean') t.completed = false;
+    return t;
+  } catch {
+    return todo;
+  }
+}
+
 let todos = loadTodos();
+// One-time write-back migration: normalize loaded records and persist once
+try {
+  const normalized = Array.isArray(todos) ? todos.map(normalizeTodo) : [];
+  todos = normalized;
+  saveTodos(todos);
+} catch {}
 let nextId = loadNextId();
 
-function createTodo({ title, notes = '', scheduledFor = null, priority = 'medium' }) {
+function createTodo({ title, notes = '', scheduledFor = null, priority = 'medium', timeOfDay = null, recurrence = undefined }) {
   const now = new Date().toISOString();
-  const todo = {
+  const todo = normalizeTodo({
     id: nextId++,
     title,
     notes,
     scheduledFor,
     priority,
+    timeOfDay,
+    recurrence,
     completed: false,
     createdAt: now,
     updatedAt: now,
-  };
+  });
   saveNextId(nextId);
   return todo;
 }
@@ -90,6 +127,85 @@ function parseYMD(s) {
 
 function isYmdString(value) {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function isValidTimeOfDay(value) {
+  if (value === null || value === undefined) return true;
+  if (typeof value !== 'string') return false;
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+}
+
+function isValidRecurrence(rec) {
+  if (rec === null || rec === undefined) return true;
+  if (typeof rec !== 'object') return false;
+  const type = rec.type;
+  const allowed = ['none', 'daily', 'weekdays', 'weekly', 'every_n_days'];
+  if (!allowed.includes(String(type))) return false;
+  if (type === 'every_n_days') {
+    const n = rec.intervalDays;
+    if (!Number.isInteger(n) || n < 1) return false;
+  }
+  if (!(rec.until === null || rec.until === undefined || isYmdString(rec.until))) return false;
+  return true;
+}
+
+function ymd(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+
+function addDays(d, n) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n); }
+
+function daysBetween(a, b) {
+  const ms = (new Date(b.getFullYear(), b.getMonth(), b.getDate())) - (new Date(a.getFullYear(), a.getMonth(), a.getDate()));
+  return Math.round(ms / (24*60*60*1000));
+}
+
+function matchesRule(dateObj, anchorDateObj, recurrence) {
+  const type = recurrence?.type || 'none';
+  if (type === 'none') return false;
+  if (type === 'daily') return true;
+  if (type === 'weekdays') {
+    const wd = dateObj.getDay(); // 0=Sun..6=Sat
+    return wd >= 1 && wd <= 5;
+  }
+  if (type === 'weekly') {
+    return dateObj.getDay() === anchorDateObj.getDay();
+  }
+  if (type === 'every_n_days') {
+    const step = Number(recurrence.intervalDays) || 1;
+    const diff = daysBetween(anchorDateObj, dateObj);
+    return diff >= 0 && diff % step === 0;
+  }
+  return false;
+}
+
+function expandOccurrences(todo, fromDate, toDate) {
+  const occurrences = [];
+  const anchor = todo.scheduledFor ? parseYMD(todo.scheduledFor) : null;
+  if (!anchor) return occurrences;
+  const untilYmd = todo.recurrence?.until ?? undefined; // null = no cap
+  const untilDate = (untilYmd && isYmdString(untilYmd)) ? parseYMD(untilYmd) : null;
+  const start = new Date(Math.max(fromDate.getTime(), anchor.getTime()));
+  const inclusiveEnd = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate() + 1);
+  for (let d = new Date(start); d < inclusiveEnd; d = addDays(d, 1)) {
+    if (untilDate && d > untilDate) break;
+    if (matchesRule(d, anchor, todo.recurrence)) {
+      const dateStr = ymd(d);
+      const occCompleted = Array.isArray(todo.completedDates) && todo.completedDates.includes(dateStr);
+      occurrences.push({
+        id: todo.id,
+        masterId: todo.id,
+        title: todo.title,
+        notes: todo.notes,
+        scheduledFor: dateStr,
+        timeOfDay: todo.timeOfDay,
+        priority: todo.priority,
+        completed: !!occCompleted,
+        recurrence: todo.recurrence,
+        createdAt: todo.createdAt,
+        updatedAt: todo.updatedAt,
+      });
+    }
+  }
+  return occurrences;
 }
 
 // --- Server ---
@@ -122,9 +238,13 @@ app.get('/__routes', (_req, res) => {
 // --- CRUD Endpoints ---
 // Create
 app.post('/api/todos', (req, res) => {
-  const { title, notes, scheduledFor, priority } = req.body || {};
+  const { title, notes, scheduledFor, priority, timeOfDay, recurrence } = req.body || {};
   if (typeof title !== 'string' || title.trim() === '') {
     return res.status(400).json({ error: 'invalid_title' });
+  }
+  // Strict: require recurrence object on create
+  if (!(recurrence && typeof recurrence === 'object' && typeof recurrence.type === 'string')) {
+    return res.status(400).json({ error: 'missing_recurrence' });
   }
   if (notes !== undefined && typeof notes !== 'string') {
     return res.status(400).json({ error: 'invalid_notes' });
@@ -135,8 +255,19 @@ app.post('/api/todos', (req, res) => {
   if (priority !== undefined && !['low', 'medium', 'high'].includes(String(priority))) {
     return res.status(400).json({ error: 'invalid_priority' });
   }
+  if (!isValidTimeOfDay(timeOfDay === '' ? null : timeOfDay)) {
+    return res.status(400).json({ error: 'invalid_timeOfDay' });
+  }
+  if (!isValidRecurrence(recurrence)) {
+    return res.status(400).json({ error: 'invalid_recurrence' });
+  }
+  if (recurrence && recurrence.type && recurrence.type !== 'none') {
+    if (!(scheduledFor !== null && isYmdString(scheduledFor))) {
+      return res.status(400).json({ error: 'missing_anchor_for_recurrence' });
+    }
+  }
 
-  const todo = createTodo({ title: title.trim(), notes: notes || '', scheduledFor: scheduledFor ?? null, priority: priority || 'medium' });
+  const todo = createTodo({ title: title.trim(), notes: notes || '', scheduledFor: scheduledFor ?? null, priority: priority || 'medium', timeOfDay: (timeOfDay === '' ? null : timeOfDay) ?? null, recurrence: recurrence });
   todos.push(todo);
   saveTodos(todos);
   res.json({ todo });
@@ -144,7 +275,7 @@ app.post('/api/todos', (req, res) => {
 
 // List (scheduled only within range)
 app.get('/api/todos', (req, res) => {
-  const { from, to, priority, completed } = req.query;
+  const { from, to, priority, completed, expand } = req.query;
   if (from !== undefined && !isYmdString(from)) return res.status(400).json({ error: 'invalid_from' });
   if (to !== undefined && !isYmdString(to)) return res.status(400).json({ error: 'invalid_to' });
   if (priority !== undefined && !['low', 'medium', 'high'].includes(String(priority))) {
@@ -164,20 +295,39 @@ app.get('/api/todos', (req, res) => {
   if (priority) items = items.filter(t => String(t.priority).toLowerCase() === String(priority).toLowerCase());
   if (completedBool !== undefined) items = items.filter(t => t.completed === completedBool);
 
-  if (fromDate || toDate) {
-    items = items.filter(t => {
-      if (!t.scheduledFor) return false;
-      const td = parseYMD(t.scheduledFor);
-      if (!td) return false;
-      if (fromDate && td < fromDate) return false;
-      if (toDate) {
-        const inclusiveEnd = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate() + 1);
-        if (td >= inclusiveEnd) return false;
-      }
-      return true;
-    });
+  const doExpand = ((String(expand).toLowerCase() === 'true' || expand === true) || true) && fromDate && toDate;
+  if (!doExpand) {
+    if (fromDate || toDate) {
+      items = items.filter(t => {
+        if (!t.scheduledFor) return false;
+        const td = parseYMD(t.scheduledFor);
+        if (!td) return false;
+        if (fromDate && td < fromDate) return false;
+        if (toDate) {
+          const inclusiveEnd = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate() + 1);
+          if (td >= inclusiveEnd) return false;
+        }
+        return true;
+      });
+    }
+    return res.json({ todos: items });
   }
-  res.json({ todos: items });
+
+  // Expand repeating tasks into per-day occurrences within [from,to]
+  const expanded = [];
+  for (const t of items) {
+    const isRepeating = (t.recurrence && t.recurrence.type && t.recurrence.type !== 'none');
+    if (!isRepeating) {
+      // include single item if within range
+      const td = t.scheduledFor ? parseYMD(t.scheduledFor) : null;
+      if (td && (!fromDate || td >= fromDate) && (!toDate || td < new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate() + 1))) {
+        expanded.push(t);
+      }
+    } else {
+      expanded.push(...expandOccurrences(t, fromDate, toDate));
+    }
+  }
+  res.json({ todos: expanded });
 });
 
 // Backlog (unscheduled only)
@@ -215,7 +365,7 @@ app.get('/api/todos/:id', (req, res) => {
 app.patch('/api/todos/:id', (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
-  const { title, notes, scheduledFor, priority, completed } = req.body || {};
+  const { title, notes, scheduledFor, priority, completed, timeOfDay, recurrence } = req.body || {};
   if (title !== undefined && typeof title !== 'string') return res.status(400).json({ error: 'invalid_title' });
   if (notes !== undefined && typeof notes !== 'string') return res.status(400).json({ error: 'invalid_notes' });
   if (!(scheduledFor === undefined || scheduledFor === null || isYmdString(scheduledFor))) {
@@ -227,6 +377,22 @@ app.patch('/api/todos/:id', (req, res) => {
   if (completed !== undefined && typeof completed !== 'boolean') {
     return res.status(400).json({ error: 'invalid_completed' });
   }
+  if (timeOfDay !== undefined && !isValidTimeOfDay(timeOfDay === '' ? null : timeOfDay)) {
+    return res.status(400).json({ error: 'invalid_timeOfDay' });
+  }
+  if (recurrence !== undefined && !isValidRecurrence(recurrence)) {
+    return res.status(400).json({ error: 'invalid_recurrence' });
+  }
+  // Strict: require recurrence object to be present on update as a policy
+  if (!(recurrence && typeof recurrence === 'object' && typeof recurrence.type === 'string')) {
+    return res.status(400).json({ error: 'missing_recurrence' });
+  }
+  if (recurrence && recurrence.type && recurrence.type !== 'none') {
+    const anchor = (scheduledFor !== undefined) ? scheduledFor : (findTodoById(id)?.scheduledFor ?? null);
+    if (!(anchor !== null && isYmdString(anchor))) {
+      return res.status(400).json({ error: 'missing_anchor_for_recurrence' });
+    }
+  }
 
   const t = findTodoById(id);
   if (!t) return res.status(404).json({ error: 'not_found' });
@@ -236,7 +402,45 @@ app.patch('/api/todos/:id', (req, res) => {
   if (scheduledFor !== undefined) t.scheduledFor = scheduledFor;
   if (priority !== undefined) t.priority = priority;
   if (completed !== undefined) t.completed = completed;
+  if (timeOfDay !== undefined) t.timeOfDay = (timeOfDay === '' ? null : timeOfDay);
+  if (recurrence !== undefined) {
+    const prevType = t.recurrence?.type || 'none';
+    t.recurrence = { ...t.recurrence, ...recurrence };
+    // Normalize defaults: until default only if undefined
+    if (t.recurrence.until === undefined) t.recurrence.until = endOfCurrentYearYmd();
+    if (prevType !== 'none' && t.recurrence.type === 'none') {
+      // moving repeating -> none: clear completedDates
+      t.completedDates = [];
+    } else if (t.recurrence.type !== 'none') {
+      if (!Array.isArray(t.completedDates)) t.completedDates = [];
+    }
+  }
   t.updatedAt = now;
+  saveTodos(todos);
+  res.json({ todo: t });
+});
+
+// Occurrence completion for repeating tasks
+app.patch('/api/todos/:id/occurrence', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
+  const { occurrenceDate, completed } = req.body || {};
+  if (!isYmdString(occurrenceDate)) return res.status(400).json({ error: 'invalid_occurrenceDate' });
+  if (completed !== undefined && typeof completed !== 'boolean') return res.status(400).json({ error: 'invalid_completed' });
+  const t = findTodoById(id);
+  if (!t) return res.status(404).json({ error: 'not_found' });
+  if (!(t.recurrence && t.recurrence.type && t.recurrence.type !== 'none')) {
+    return res.status(400).json({ error: 'not_repeating' });
+  }
+  if (!Array.isArray(t.completedDates)) t.completedDates = [];
+  const idx = t.completedDates.indexOf(occurrenceDate);
+  const shouldComplete = (completed === undefined) ? true : !!completed;
+  if (shouldComplete) {
+    if (idx === -1) t.completedDates.push(occurrenceDate);
+  } else {
+    if (idx !== -1) t.completedDates.splice(idx, 1);
+  }
+  t.updatedAt = new Date().toISOString();
   saveTodos(todos);
   res.json({ todo: t });
 });
@@ -261,12 +465,39 @@ function validateOperation(op) {
   const errors = [];
   if (!op || typeof op !== 'object') return ['invalid_operation_object'];
   const kind = op.op;
-  if (!['create', 'update', 'delete', 'complete'].includes(kind)) errors.push('invalid_op');
+  if (!['create', 'update', 'delete', 'complete', 'complete_occurrence'].includes(kind)) errors.push('invalid_op');
   if (op.priority !== undefined && !['low','medium','high'].includes(String(op.priority))) errors.push('invalid_priority');
   if (op.scheduledFor !== undefined && !(op.scheduledFor === null || isYmdString(op.scheduledFor))) errors.push('invalid_scheduledFor');
-  if ((kind === 'update' || kind === 'delete' || kind === 'complete')) {
+  if (op.timeOfDay !== undefined && !isValidTimeOfDay(op.timeOfDay === '' ? null : op.timeOfDay)) errors.push('invalid_timeOfDay');
+  if (op.recurrence !== undefined && !isValidRecurrence(op.recurrence)) errors.push('invalid_recurrence');
+  // Strict: require recurrence on create/update
+  if (kind === 'create' || kind === 'update') {
+    if (!(op.recurrence && typeof op.recurrence === 'object' && 'type' in op.recurrence)) {
+      errors.push('missing_recurrence');
+    }
+  }
+  if ((kind === 'update' || kind === 'delete' || kind === 'complete' || kind === 'complete_occurrence')) {
     if (!(Number.isFinite(op.id))) errors.push('missing_or_invalid_id');
     else if (!findTodoById(op.id)) errors.push('id_not_found');
+  }
+  if (kind === 'complete_occurrence') {
+    if (!isYmdString(op.occurrenceDate)) errors.push('invalid_occurrenceDate');
+    if (op.completed !== undefined && typeof op.completed !== 'boolean') errors.push('invalid_completed');
+  }
+  // Strict: if op targets a repeating task, forbid master complete and require anchor when recurrence changes
+  if (kind === 'complete') {
+    const t = Number.isFinite(op.id) ? findTodoById(op.id) : null;
+    if (t && t.recurrence && t.recurrence.type && t.recurrence.type !== 'none') {
+      errors.push('use_complete_occurrence_for_repeating');
+    }
+  }
+  if (kind === 'create' || kind === 'update') {
+    const type = op.recurrence && op.recurrence.type;
+    if (type && type !== 'none') {
+      // Anchor required for repeating tasks
+      const anchor = op.scheduledFor;
+      if (!(anchor && isYmdString(anchor))) errors.push('missing_anchor_for_recurrence');
+    }
   }
   return errors;
 }
@@ -378,8 +609,11 @@ function buildProposalPrompt({ instruction, todosSnapshot, transcript }) {
   const today = new Date();
   const todayYmd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const system = `You are an assistant for a todo app. Output ONLY a single JSON object with key "operations" as an array. No prose.\n` +
-    `Each operation MUST include field "op" which is one of: "create", "update", "delete", "complete".\n` +
-    `Allowed fields: op, id (int for update/delete/complete), title, notes, scheduledFor (YYYY-MM-DD or null), priority (low|medium|high), completed (bool).\n` +
+    `Each operation MUST include field "op" which is one of: "create", "update", "delete", "complete", "complete_occurrence".\n` +
+    `Allowed fields: op, id (int for update/delete/complete/complete_occurrence), title, notes, scheduledFor (YYYY-MM-DD or null), priority (low|medium|high), completed (bool), timeOfDay (HH:MM or null), recurrence (object with keys: type, intervalDays, until [YYYY-MM-DD or null]).\n` +
+    `For EVERY create or update you MUST include a "recurrence" object. Use {"type":"none"} for non-repeating tasks.\n` +
+    `For repeating tasks (recurrence.type != none), an anchor scheduledFor is REQUIRED.\n` +
+    `For complete_occurrence, include: id (masterId), occurrenceDate (YYYY-MM-DD), and optional completed (bool).\n` +
     `If the user's instruction does not specify a date for a create operation, DEFAULT scheduledFor to TODAY (${todayYmd}).\n` +
     `Today's date is ${todayYmd}. Do NOT invent invalid IDs. Prefer fewer changes over hallucination.\n` +
     `You may reason internally, but the final output MUST be a single JSON object exactly as specified. Do not include your reasoning or any prose.`;
@@ -404,7 +638,7 @@ app.post('/api/llm/apply', async (req, res) => {
   const { operations } = req.body || {};
   const validation = validateProposal({ operations });
   if (validation.errors.length) {
-    return res.status(400).json({ error: 'invalid_operations', detail: validation });
+    return res.status(400).json({ error: 'invalid_operations', detail: validation, message: 'Some operations were invalid. The assistant may be attempting unsupported or inconsistent changes.' });
   }
   const results = [];
   let created = 0, updated = 0, deleted = 0, completed = 0;
@@ -412,7 +646,7 @@ app.post('/api/llm/apply', async (req, res) => {
     for (const op of operations) {
       try {
         if (op.op === 'create') {
-          const t = createTodo({ title: String(op.title || '').trim(), notes: op.notes || '', scheduledFor: op.scheduledFor ?? null, priority: op.priority || 'medium' });
+          const t = createTodo({ title: String(op.title || '').trim(), notes: op.notes || '', scheduledFor: op.scheduledFor ?? null, priority: op.priority || 'medium', timeOfDay: (op.timeOfDay === '' ? null : op.timeOfDay) ?? null, recurrence: op.recurrence });
           todos.push(t); saveTodos(todos); results.push({ ok: true, op, todo: t }); created++;
           appendAudit({ action: 'create', op, result: 'ok', id: t.id });
         } else if (op.op === 'update') {
@@ -423,6 +657,17 @@ app.post('/api/llm/apply', async (req, res) => {
           if (op.scheduledFor !== undefined) t.scheduledFor = op.scheduledFor;
           if (op.priority !== undefined) t.priority = op.priority;
           if (op.completed !== undefined) t.completed = !!op.completed;
+          if (op.timeOfDay !== undefined) t.timeOfDay = (op.timeOfDay === '' ? null : op.timeOfDay);
+          if (op.recurrence !== undefined) {
+            const prevType = t.recurrence?.type || 'none';
+            t.recurrence = { ...t.recurrence, ...op.recurrence };
+            if (t.recurrence.until === undefined) t.recurrence.until = endOfCurrentYearYmd();
+            if (prevType !== 'none' && t.recurrence.type === 'none') {
+              t.completedDates = [];
+            } else if (t.recurrence.type !== 'none') {
+              if (!Array.isArray(t.completedDates)) t.completedDates = [];
+            }
+          }
           t.updatedAt = now; saveTodos(todos); results.push({ ok: true, op, todo: t }); updated++;
           appendAudit({ action: 'update', op, result: 'ok', id: t.id });
         } else if (op.op === 'delete') {
@@ -434,6 +679,16 @@ app.post('/api/llm/apply', async (req, res) => {
           t.completed = op.completed === undefined ? true : !!op.completed; t.updatedAt = new Date().toISOString();
           saveTodos(todos); results.push({ ok: true, op, todo: t }); completed++;
           appendAudit({ action: 'complete', op, result: 'ok', id: t.id });
+        } else if (op.op === 'complete_occurrence') {
+          const t = findTodoById(op.id); if (!t) throw new Error('not_found');
+          if (!(t.recurrence && t.recurrence.type && t.recurrence.type !== 'none')) throw new Error('not_repeating');
+          if (!Array.isArray(t.completedDates)) t.completedDates = [];
+          const idx = t.completedDates.indexOf(op.occurrenceDate);
+          const shouldComplete = (op.completed === undefined) ? true : !!op.completed;
+          if (shouldComplete) { if (idx === -1) t.completedDates.push(op.occurrenceDate); }
+          else { if (idx !== -1) t.completedDates.splice(idx, 1); }
+          t.updatedAt = new Date().toISOString(); saveTodos(todos); results.push({ ok: true, op, todo: t }); completed++;
+          appendAudit({ action: 'complete_occurrence', op, result: 'ok', id: t.id });
         } else {
           results.push({ ok: false, op, error: 'invalid_op' });
           appendAudit({ action: 'invalid', op, result: 'invalid' });
@@ -578,8 +833,11 @@ app.post('/api/assistant/message', async (req, res) => {
       appendAudit({ action: 'assistant_understanding', results: annotatedAll, summary });
     } catch {}
     if (validation.errors.length) {
-      // Keep only valid operations for UX; include detail for debugging
+      // Keep only valid operations for UX; include detail and warning for the user
       ops = validation.results.filter(r => r.errors.length === 0).map(r => r.op);
+      const invalidCount = validation.results.filter(r => r.errors.length > 0).length;
+      const warn = `Filtered out ${invalidCount} invalid operation(s); the assistant may have proposed unsupported or inconsistent changes.`;
+      appendAudit({ action: 'assistant_warning', warning: warn });
     }
 
     // Call 2 — conversational summary
@@ -592,7 +850,8 @@ app.post('/api/assistant/message', async (req, res) => {
       let s2 = stripGraniteTags(String(raw2 || ''));
       s2 = s2.replace(/```[\s\S]*?```/g, '').trim();
       s2 = s2.replace(/[\r\n]+/g, ' ').trim();
-      text = s2;
+      const invalidCount = validation.results.filter(r => r.errors.length > 0).length;
+      text = invalidCount > 0 ? `${s2} (Note: filtered ${invalidCount} invalid operation${invalidCount === 1 ? '' : 's'}.)` : s2;
       if (!text) throw new Error('empty_text');
     } catch (e) {
       usedFallback = true;

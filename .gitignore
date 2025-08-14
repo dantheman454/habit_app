@@ -3,8 +3,6 @@ node_modules/
 __pycache__/
 *.pyc
 
-# Persistent data storage
-data/
 
 # Results and logs (comment out if you want to track results)
 results/detailed_test_logs_*.json

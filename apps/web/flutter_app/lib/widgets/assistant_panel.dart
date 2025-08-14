@@ -172,7 +172,7 @@ class AssistantPanel extends StatelessWidget {
                 child: TextField(
                   controller: inputController,
                   decoration: InputDecoration(
-                    hintText: 'Message Mr. Assister...',
+                    hintText: 'Ask Away...',
                     filled: true,
                     fillColor: Colors.white,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),

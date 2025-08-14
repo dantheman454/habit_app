@@ -22,8 +22,11 @@ class Todo {
   String title;
   String notes;
   String? scheduledFor; // YYYY-MM-DD or null
+  String? timeOfDay; // HH:MM or null
   String priority; // low|medium|high
   bool completed;
+  Map<String, dynamic>? recurrence; // {type,...}
+  int? masterId; // present on expanded occurrences
   final String createdAt;
   String updatedAt;
 
@@ -32,8 +35,11 @@ class Todo {
     required this.title,
     required this.notes,
     required this.scheduledFor,
+    required this.timeOfDay,
     required this.priority,
     required this.completed,
+    required this.recurrence,
+    required this.masterId,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -43,8 +49,11 @@ class Todo {
         title: j['title'] as String? ?? '',
         notes: j['notes'] as String? ?? '',
         scheduledFor: j['scheduledFor'] as String?,
+        timeOfDay: j['timeOfDay'] as String?,
         priority: j['priority'] as String? ?? 'medium',
         completed: j['completed'] as bool? ?? false,
+        recurrence: j['recurrence'] as Map<String, dynamic>?,
+        masterId: j['masterId'] as int?,
         createdAt: j['createdAt'] as String? ?? '',
         updatedAt: j['updatedAt'] as String? ?? '',
       );
@@ -58,6 +67,8 @@ class LlmOperation {
   final String? scheduledFor;
   final String? priority;
   final bool? completed;
+  final String? timeOfDay; // HH:MM or null
+  final Map<String, dynamic>? recurrence; // {type, intervalDays, until}
   LlmOperation({
     required this.op,
     this.id,
@@ -66,6 +77,8 @@ class LlmOperation {
     this.scheduledFor,
     this.priority,
     this.completed,
+    this.timeOfDay,
+    this.recurrence,
   });
   factory LlmOperation.fromJson(Map<String, dynamic> j) => LlmOperation(
         op: j['op'] as String,
@@ -77,6 +90,10 @@ class LlmOperation {
         scheduledFor: j['scheduledFor'] as String?,
         priority: j['priority'] as String?,
         completed: j['completed'] as bool?,
+        timeOfDay: j['timeOfDay'] as String?,
+        recurrence: j['recurrence'] == null
+            ? null
+            : Map<String, dynamic>.from(j['recurrence'] as Map),
       );
   Map<String, dynamic> toJson() => {
         'op': op,
@@ -86,6 +103,8 @@ class LlmOperation {
         if (scheduledFor != null) 'scheduledFor': scheduledFor,
         if (priority != null) 'priority': priority,
         if (completed != null) 'completed': completed,
+        if (timeOfDay != null) 'timeOfDay': timeOfDay,
+        if (recurrence != null) 'recurrence': recurrence,
       };
 }
 
@@ -228,7 +247,7 @@ class _HomePageState extends State<HomePage> {
     setState(() => loading = true);
     try {
       final r = rangeForView(anchor, view);
-      final scheduledRaw = await api.fetchScheduled(from: r.from, to: r.to, completed: showCompleted ? null : false);
+      final scheduledRaw = await api.fetchScheduled(from: r.from, to: r.to, completed: showCompleted ? null : false, expand: true);
       final scheduledAllRaw = await api.fetchScheduledAllTime(completed: showCompleted ? null : false);
       final backlogRaw = await api.fetchBacklog();
       final sList = scheduledRaw.map((e) => Todo.fromJson(e as Map<String, dynamic>)).toList();
@@ -435,7 +454,11 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _toggleCompleted(Todo t) async {
     try {
-      await api.updateTodo(t.id, {'completed': !t.completed});
+      if (t.masterId != null && t.scheduledFor != null) {
+        await api.updateOccurrence(t.masterId!, t.scheduledFor!, !t.completed);
+      } else {
+        await api.updateTodo(t.id, {'completed': !t.completed});
+      }
       await _refreshAll();
     } catch (e) {
       setState(() => message = 'Toggle failed: $e');
@@ -467,25 +490,125 @@ class _HomePageState extends State<HomePage> {
     final titleCtrl = TextEditingController();
     final notesCtrl = TextEditingController();
     final dateCtrl = TextEditingController(text: anchor);
+    final timeCtrl = TextEditingController();
+    final intervalCtrl = TextEditingController(text: '1');
     String prio = 'medium';
+    String recurType = 'none'; // none|daily|weekdays|weekly|every_n_days
 
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       builder: (c) {
-        return Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.of(c).viewInsets.bottom),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
+        return StatefulBuilder(builder: (c, setModalState) {
+          return Padding(
+            padding: EdgeInsets.only(bottom: MediaQuery.of(c).viewInsets.bottom),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Create task', style: TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 12),
+                  TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'Title')),
+                  TextField(controller: notesCtrl, decoration: const InputDecoration(labelText: 'Notes')),
+                  TextField(controller: dateCtrl, decoration: const InputDecoration(labelText: 'Scheduled (YYYY-MM-DD or empty)')),
+                  TextField(controller: timeCtrl, decoration: const InputDecoration(labelText: 'Time (HH:MM or empty)')),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    value: prio,
+                    decoration: const InputDecoration(labelText: 'Priority'),
+                    items: const [
+                      DropdownMenuItem(value: 'low', child: Text('low')),
+                      DropdownMenuItem(value: 'medium', child: Text('medium')),
+                      DropdownMenuItem(value: 'high', child: Text('high')),
+                    ],
+                    onChanged: (v) => setModalState(() => prio = v ?? 'medium'),
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    value: recurType,
+                    decoration: const InputDecoration(labelText: 'Recurrence'),
+                    items: const [
+                      DropdownMenuItem(value: 'none', child: Text('None')),
+                      DropdownMenuItem(value: 'daily', child: Text('Daily')),
+                      DropdownMenuItem(value: 'weekdays', child: Text('Weekdays (Mon–Fri)')),
+                      DropdownMenuItem(value: 'weekly', child: Text('Weekly (by anchor)')),
+                      DropdownMenuItem(value: 'every_n_days', child: Text('Every N days')),
+                    ],
+                    onChanged: (v) => setModalState(() => recurType = v ?? 'none'),
+                  ),
+                  if (recurType == 'every_n_days')
+                    TextField(controller: intervalCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Every N days (>=1)')),
+                  if (recurType == 'weekly' && dateCtrl.text.trim().isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Text('Repeats every weekday of anchor ${dateCtrl.text.trim()}', style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                    ),
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: FilledButton(
+                      onPressed: () async {
+                        final title = titleCtrl.text.trim();
+                        if (title.isEmpty) return;
+                        final sched = dateCtrl.text.trim();
+                        final time = timeCtrl.text.trim();
+                        final data = <String, dynamic>{
+                          'title': title,
+                          'notes': notesCtrl.text,
+                          'scheduledFor': sched.isEmpty ? null : sched,
+                          'priority': prio,
+                        };
+                        if (time.isNotEmpty) data['timeOfDay'] = time;
+                        if (recurType == 'none') {
+                          data['recurrence'] = {'type': 'none'};
+                        } else {
+                          final rec = <String, dynamic>{'type': recurType};
+                          if (recurType == 'every_n_days') {
+                            final n = int.tryParse(intervalCtrl.text.trim());
+                            if (n != null && n >= 1) rec['intervalDays'] = n;
+                          }
+                          data['recurrence'] = rec;
+                        }
+                        await api.createTodo(data);
+                        Navigator.pop(c);
+                        await _refreshAll();
+                      },
+                      child: const Text('Create'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        });
+      },
+    );
+  }
+
+  Future<void> _editTodo(Todo t) async {
+    final titleCtrl = TextEditingController(text: t.title);
+    final notesCtrl = TextEditingController(text: t.notes);
+    final dateCtrl = TextEditingController(text: t.scheduledFor ?? '');
+    final timeCtrl = TextEditingController(text: t.timeOfDay ?? '');
+    final intervalCtrl = TextEditingController(text: (t.recurrence != null && t.recurrence!['intervalDays'] != null) ? '${t.recurrence!['intervalDays']}' : '1');
+    String prio = t.priority;
+    String recurType = (t.recurrence != null && t.recurrence!['type'] is String) ? (t.recurrence!['type'] as String) : 'none';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => StatefulBuilder(builder: (c, setDlgState) {
+        return AlertDialog(
+          title: const Text('Edit todo'),
+          content: SizedBox(
+            width: 420,
             child: Column(
               mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Create task', style: TextStyle(fontWeight: FontWeight.w600)),
-                const SizedBox(height: 12),
                 TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'Title')),
                 TextField(controller: notesCtrl, decoration: const InputDecoration(labelText: 'Notes')),
                 TextField(controller: dateCtrl, decoration: const InputDecoration(labelText: 'Scheduled (YYYY-MM-DD or empty)')),
+                TextField(controller: timeCtrl, decoration: const InputDecoration(labelText: 'Time (HH:MM or empty)')),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
                   value: prio,
@@ -495,72 +618,37 @@ class _HomePageState extends State<HomePage> {
                     DropdownMenuItem(value: 'medium', child: Text('medium')),
                     DropdownMenuItem(value: 'high', child: Text('high')),
                   ],
-                  onChanged: (v) => prio = v ?? 'medium',
+                  onChanged: (v) => setDlgState(() => prio = v ?? 'medium'),
                 ),
-                const SizedBox(height: 12),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: FilledButton(
-                    onPressed: () async {
-                      final title = titleCtrl.text.trim();
-                      if (title.isEmpty) return;
-                      final sched = dateCtrl.text.trim();
-                      await api.createTodo({
-                        'title': title,
-                        'notes': notesCtrl.text,
-                        'scheduledFor': sched.isEmpty ? null : sched,
-                        'priority': prio,
-                      });
-                      Navigator.pop(c);
-                      await _refreshAll();
-                    },
-                    child: const Text('Create'),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  value: recurType,
+                  decoration: const InputDecoration(labelText: 'Recurrence'),
+                  items: const [
+                    DropdownMenuItem(value: 'none', child: Text('None')),
+                    DropdownMenuItem(value: 'daily', child: Text('Daily')),
+                    DropdownMenuItem(value: 'weekdays', child: Text('Weekdays (Mon–Fri)')),
+                    DropdownMenuItem(value: 'weekly', child: Text('Weekly (by anchor)')),
+                    DropdownMenuItem(value: 'every_n_days', child: Text('Every N days')),
+                  ],
+                  onChanged: (v) => setDlgState(() => recurType = v ?? 'none'),
+                ),
+                if (recurType == 'every_n_days')
+                  TextField(controller: intervalCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Every N days (>=1)')),
+                if (recurType == 'weekly' && dateCtrl.text.trim().isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text('Repeats every weekday of anchor ${dateCtrl.text.trim()}', style: const TextStyle(fontSize: 12, color: Colors.black54)),
                   ),
-                ),
               ],
             ),
           ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Save')),
+          ],
         );
-      },
-    );
-  }
-
-  Future<void> _editTodo(Todo t) async {
-    final titleCtrl = TextEditingController(text: t.title);
-    final notesCtrl = TextEditingController(text: t.notes);
-    final dateCtrl = TextEditingController(text: t.scheduledFor ?? '');
-    String prio = t.priority;
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (c) => AlertDialog(
-        title: const Text('Edit todo'),
-        content: SizedBox(
-          width: 420,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'Title')),
-              TextField(controller: notesCtrl, decoration: const InputDecoration(labelText: 'Notes')),
-              TextField(controller: dateCtrl, decoration: const InputDecoration(labelText: 'Scheduled (YYYY-MM-DD or empty)')),
-              const SizedBox(height: 8),
-              DropdownButtonFormField<String>(
-                value: prio,
-                decoration: const InputDecoration(labelText: 'Priority'),
-                items: const [
-                  DropdownMenuItem(value: 'low', child: Text('low')),
-                  DropdownMenuItem(value: 'medium', child: Text('medium')),
-                  DropdownMenuItem(value: 'high', child: Text('high')),
-                ],
-                onChanged: (v) => prio = v ?? 'medium',
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Save')),
-        ],
-      ),
+      }),
     );
     if (ok != true) return;
 
@@ -571,6 +659,23 @@ class _HomePageState extends State<HomePage> {
     final normalized = sched.isEmpty ? null : sched;
     if (normalized != (t.scheduledFor ?? '')) patch['scheduledFor'] = normalized;
     if (prio != t.priority) patch['priority'] = prio;
+    final time = timeCtrl.text.trim();
+    if ((time.isEmpty ? null : time) != (t.timeOfDay)) patch['timeOfDay'] = time.isEmpty ? null : time;
+    // Recurrence
+    final existingType = (t.recurrence != null && t.recurrence!['type'] is String) ? (t.recurrence!['type'] as String) : 'none';
+    final existingN = (t.recurrence != null && t.recurrence!['intervalDays'] is int) ? (t.recurrence!['intervalDays'] as int) : null;
+    if (recurType != existingType) {
+      patch['recurrence'] = {'type': recurType};
+      if (recurType == 'every_n_days') {
+        final n = int.tryParse(intervalCtrl.text.trim());
+        if (n != null && n >= 1) (patch['recurrence'] as Map<String, dynamic>)['intervalDays'] = n;
+      }
+    } else if (recurType == 'every_n_days') {
+      final n = int.tryParse(intervalCtrl.text.trim());
+      if (n != null && n >= 1 && n != existingN) {
+        patch['recurrence'] = {'type': recurType, 'intervalDays': n};
+      }
+    }
 
     if (patch.isEmpty) return;
     try {
@@ -652,6 +757,17 @@ class _HomePageState extends State<HomePage> {
     }
     final sorted = Map.fromEntries(map.entries.toList()
       ..sort((a, b) => a.key.compareTo(b.key)));
+    // Sort within each date by timeOfDay ascending, nulls first
+    for (final e in sorted.entries) {
+      e.value.sort((a, b) {
+        final at = a.timeOfDay ?? '';
+        final bt = b.timeOfDay ?? '';
+        if (at.isEmpty && bt.isEmpty) return 0;
+        if (at.isEmpty) return -1;
+        if (bt.isEmpty) return 1;
+        return at.compareTo(bt);
+      });
+    }
     return sorted;
   }
 
@@ -975,14 +1091,34 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildRow(Todo t) {
+    // Determine overdue: only in Today context, timed tasks, not completed, and time < now
+    bool isOverdue = false;
+    try {
+      if (!t.completed && t.scheduledFor != null && t.timeOfDay != null) {
+        final today = ymd(DateTime.now());
+        if (selected == SmartList.today && t.scheduledFor == today) {
+          final parts = (t.timeOfDay ?? '').split(':');
+          if (parts.length == 2) {
+            final now = DateTime.now();
+            final hh = int.tryParse(parts[0]) ?? 0;
+            final mm = int.tryParse(parts[1]) ?? 0;
+            final when = DateTime(now.year, now.month, now.day, hh, mm);
+            isOverdue = now.isAfter(when);
+          }
+        }
+      }
+    } catch (_) {}
     final like = row.TodoLike(
       id: t.id,
       title: t.title,
       notes: t.notes,
+      timeOfDay: t.timeOfDay,
       priority: t.priority,
       completed: t.completed,
+      overdue: isOverdue,
     );
-    final key = _rowKeys.putIfAbsent(t.id, () => GlobalKey());
+    final keyId = t.masterId != null && t.scheduledFor != null ? Object.hashAll([t.masterId, t.scheduledFor]) : t.id;
+    final key = _rowKeys.putIfAbsent(keyId, () => GlobalKey());
     return KeyedSubtree(
       key: key,
       child: row.TodoRow(
