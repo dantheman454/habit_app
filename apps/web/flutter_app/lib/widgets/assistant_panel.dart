@@ -94,6 +94,7 @@ class AssistantPanel extends StatelessWidget {
               if (onModeChanged != null && mode != null)
                 SegmentedButton<String>(
                   segments: const [
+                    ButtonSegment(value: 'auto', label: Text('Auto')),
                     ButtonSegment(value: 'chat', label: Text('Chat')),
                     ButtonSegment(value: 'plan', label: Text('Plan')),
                   ],

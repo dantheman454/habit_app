@@ -9,6 +9,7 @@ import path from 'path';
 import fs from 'fs';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
+import * as todosIndex from './todos_index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -19,6 +20,80 @@ const DATA_DIR = path.join(REPO_ROOT, 'data');
 const TODOS_FILE = path.join(DATA_DIR, 'todos.json');
 const COUNTER_FILE = path.join(DATA_DIR, 'counter.json');
 const STATIC_DIR = process.env.STATIC_DIR || path.join(REPO_ROOT, 'apps', 'web', 'flutter_app', 'build', 'web');
+
+// --- Timezone (fixed semantics) ---
+const TIMEZONE = process.env.TZ_NAME || 'America/New_York';
+const AUTO_MODE_ENABLED = String(process.env.ASSISTANT_AUTO_MODE_ENABLED || 'true').toLowerCase() !== 'false';
+
+function ymdInTimeZone(date, tz) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz,
+      year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(date);
+    const map = Object.fromEntries(parts.map(p => [p.type, p.value]));
+    return `${map.year}-${map.month}-${map.day}`;
+  } catch {
+    // Fallback to local
+    const d = date;
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+}
+
+// Compute Monday–Sunday week range anchored to today in the given timezone
+function weekRangeFromToday(tz) {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(now);
+  const map = Object.fromEntries(parts.map(p => [p.type, p.value]));
+  const y = parseInt(map.year, 10);
+  const m = parseInt(map.month, 10);
+  const d = parseInt(map.day, 10);
+  const today = new Date(y, m - 1, d);
+  const jsWeekday = today.getDay(); // 0=Sun..6=Sat
+  const daysFromMonday = (jsWeekday + 6) % 7; // Mon->0, Sun->6
+  const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - daysFromMonday);
+  const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
+  const ymd = (dt) => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+  return { fromYmd: ymd(monday), toYmd: ymd(sunday) };
+}
+
+// Build compact router snapshots for this week and backlog sample
+function buildRouterSnapshots() {
+  const { fromYmd, toYmd } = weekRangeFromToday(TIMEZONE);
+  const weekItems = todosIndex.filterByWhere({
+    scheduled_range: { from: fromYmd, to: toYmd },
+    completed: false,
+  });
+  const backlogAll = todosIndex.filterByWhere({ completed: false });
+  const backlogSample = backlogAll.filter(t => t.scheduledFor === null).slice(0, 40);
+  const compact = (t) => ({ id: t.id, title: t.title, scheduledFor: t.scheduledFor, priority: t.priority });
+  return {
+    week: { from: fromYmd, to: toYmd, items: weekItems.map(compact) },
+    backlog: backlogSample.map(compact),
+  };
+}
+
+// Rank top clarify candidates from snapshots by fuzzy title tokens
+function topClarifyCandidates(instruction, snapshot, limit = 5) {
+  const tokens = String(instruction || '').toLowerCase().split(/[^a-z0-9]+/g).filter(Boolean);
+  const all = [...(snapshot.week?.items || []), ...(snapshot.backlog || [])];
+  const score = (item) => {
+    const title = String(item.title || '').toLowerCase();
+    let s = 0;
+    for (const t of tokens) if (title.includes(t)) s += 1;
+    if (item.priority === 'high') s += 0.25;
+    return s;
+  };
+  return all
+    .map(i => ({ i, s: score(i) }))
+    .filter(x => x.s > 0)
+    .sort((a, b) => b.s - a.s)
+    .slice(0, limit)
+    .map(x => x.i);
+}
 
 // Ensure data dir exists
 try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch {}
@@ -93,6 +168,9 @@ try {
   saveTodos(todos);
 } catch {}
 let nextId = loadNextId();
+
+// Initialize retrieval index
+try { todosIndex.init(todos); todosIndex.setTimeZone(TIMEZONE); } catch {}
 
 function createTodo({ title, notes = '', scheduledFor = null, priority = 'medium', timeOfDay = null, recurrence = undefined }) {
   const now = new Date().toISOString();
@@ -270,6 +348,7 @@ app.post('/api/todos', (req, res) => {
   const todo = createTodo({ title: title.trim(), notes: notes || '', scheduledFor: scheduledFor ?? null, priority: priority || 'medium', timeOfDay: (timeOfDay === '' ? null : timeOfDay) ?? null, recurrence: recurrence });
   todos.push(todo);
   saveTodos(todos);
+  try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {}
   res.json({ todo });
 });
 
@@ -417,6 +496,7 @@ app.patch('/api/todos/:id', (req, res) => {
   }
   t.updatedAt = now;
   saveTodos(todos);
+  try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {}
   res.json({ todo: t });
 });
 
@@ -442,6 +522,7 @@ app.patch('/api/todos/:id/occurrence', (req, res) => {
   }
   t.updatedAt = new Date().toISOString();
   saveTodos(todos);
+  try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {}
   res.json({ todo: t });
 });
 
@@ -453,19 +534,42 @@ app.delete('/api/todos/:id', (req, res) => {
   if (idx === -1) return res.status(404).json({ error: 'not_found' });
   todos.splice(idx, 1);
   saveTodos(todos);
+  try { todosIndex.refresh(todos); } catch {}
   res.json({ ok: true });
 });
 
 // --- LLM proposal-and-verify (Ollama) ---
 const OLLAMA_MODEL = 'granite3.3:8b';
 const OLLAMA_TEMPERATURE = 0.1;
-const GLOBAL_TIMEOUT_SECS = 120;
+const GLOBAL_TIMEOUT_SECS = parseInt(process.env.OLLAMA_TIMEOUT_SECS || '300', 10);
+
+function validateWhere(where) {
+  const errors = [];
+  if (!where || typeof where !== 'object') return ['invalid_where_object'];
+  const w = where;
+  if (w.ids !== undefined && !Array.isArray(w.ids)) errors.push('invalid_where_ids');
+  if (w.title_contains !== undefined && typeof w.title_contains !== 'string') errors.push('invalid_where_title_contains');
+  if (w.overdue !== undefined && typeof w.overdue !== 'boolean') errors.push('invalid_where_overdue');
+  if (w.scheduled_range !== undefined) {
+    if (typeof w.scheduled_range !== 'object') errors.push('invalid_where_scheduled_range');
+    else {
+      const r = w.scheduled_range;
+      if (r.from !== undefined && !(r.from === null || isYmdString(r.from))) errors.push('invalid_where_scheduled_range_from');
+      if (r.to !== undefined && !(r.to === null || isYmdString(r.to))) errors.push('invalid_where_scheduled_range_to');
+    }
+  }
+  if (w.priority !== undefined && !['low','medium','high'].includes(String(w.priority))) errors.push('invalid_where_priority');
+  if (w.completed !== undefined && typeof w.completed !== 'boolean') errors.push('invalid_where_completed');
+  if (w.repeating !== undefined && typeof w.repeating !== 'boolean') errors.push('invalid_where_repeating');
+  return errors;
+}
 
 function validateOperation(op) {
   const errors = [];
   if (!op || typeof op !== 'object') return ['invalid_operation_object'];
   const kind = op.op;
-  if (!['create', 'update', 'delete', 'complete', 'complete_occurrence'].includes(kind)) errors.push('invalid_op');
+  const allowedKinds = ['create', 'update', 'delete', 'complete', 'complete_occurrence', 'bulk_update', 'bulk_complete', 'bulk_delete'];
+  if (!allowedKinds.includes(kind)) errors.push('invalid_op');
   if (op.priority !== undefined && !['low','medium','high'].includes(String(op.priority))) errors.push('invalid_priority');
   if (op.scheduledFor !== undefined && !(op.scheduledFor === null || isYmdString(op.scheduledFor))) errors.push('invalid_scheduledFor');
   if (op.timeOfDay !== undefined && !isValidTimeOfDay(op.timeOfDay === '' ? null : op.timeOfDay)) errors.push('invalid_timeOfDay');
@@ -498,6 +602,25 @@ function validateOperation(op) {
       const anchor = op.scheduledFor;
       if (!(anchor && isYmdString(anchor))) errors.push('missing_anchor_for_recurrence');
     }
+  }
+  // Bulk ops validation
+  if (kind === 'bulk_update') {
+    const wErrors = validateWhere(op.where);
+    if (wErrors.length) errors.push(...wErrors);
+    if (!(op.set && typeof op.set === 'object')) errors.push('missing_set');
+    // Validate provided set fields shape (but not values beyond basic types)
+    const s = op.set || {};
+    if (s.priority !== undefined && !['low','medium','high'].includes(String(s.priority))) errors.push('invalid_set_priority');
+    if (s.scheduledFor !== undefined && !(s.scheduledFor === null || isYmdString(s.scheduledFor))) errors.push('invalid_set_scheduledFor');
+    if (s.timeOfDay !== undefined && !isValidTimeOfDay(s.timeOfDay === '' ? null : s.timeOfDay)) errors.push('invalid_set_timeOfDay');
+    if (s.recurrence !== undefined && !isValidRecurrence(s.recurrence)) errors.push('invalid_set_recurrence');
+  } else if (kind === 'bulk_complete') {
+    const wErrors = validateWhere(op.where);
+    if (wErrors.length) errors.push(...wErrors);
+    if (op.completed !== undefined && typeof op.completed !== 'boolean') errors.push('invalid_completed');
+  } else if (kind === 'bulk_delete') {
+    const wErrors = validateWhere(op.where);
+    if (wErrors.length) errors.push(...wErrors);
   }
   return errors;
 }
@@ -605,22 +728,113 @@ function stripGraniteTags(text) {
   } catch { return String(text); }
 }
 
+function buildSchemaV2Excerpt() {
+  return [
+    'Schema v2:',
+    '- create/update/delete/complete/complete_occurrence (existing)',
+    '- bulk_update: { op: "bulk_update", where: { ids?, title_contains?, overdue?, scheduled_range?{from?,to?}, priority?, completed?, repeating? }, set: { title?, notes?, scheduledFor?, timeOfDay?, priority?, completed?, recurrence? }, reason? }',
+    '- bulk_complete: { op: "bulk_complete", where: { ... }, completed: true|false, reason? }',
+    '- bulk_delete: { op: "bulk_delete", where: { ... }, reason? }',
+    'Strict rules:',
+    '- For create/update, include a recurrence object. Use {"type":"none"} if non-repeating.',
+    '- For repeating tasks, an anchor scheduledFor is REQUIRED on create/update.',
+    '- For repeating tasks, do not use complete. Use complete_occurrence with occurrenceDate.',
+    '- Prefer bulk_* when many items match a simple filter; otherwise target by id.'
+  ].join('\n');
+}
+
+function buildRepairPrompt({ instruction, originalOps, errors, transcript }) {
+  const schema = buildSchemaV2Excerpt();
+  const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
+  const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
+  const payload = { originalOps, errors };
+  return (
+    'You proposed operations for a todo app, but some failed validation. Fix them.\n' +
+    'Return JSON only with the corrected "operations" array. Do not include explanations.\n\n' +
+    `Transcript (last 3):\n${convo}\n` +
+    `Original instruction: ${instruction}\n` +
+    `Schema reminder: ${schema}\n` +
+    'Inputs (JSON):\n' +
+    JSON.stringify(payload, null, 2) +
+    '\nOutput: {"operations": [...]} (JSON only)'
+  );
+}
+
+function buildRouterPrompt({ instruction, transcript, clarify }) {
+  const today = new Date();
+  const todayYmd = ymdInTimeZone(today, TIMEZONE);
+  const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
+  const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
+  const system = `You are an intent router for a todo assistant. Output JSON only with fields:\n` +
+    `decision: one of [\"chat\", \"plan\", \"clarify\"],\n` +
+    `category: one of [\"habit\", \"goal\", \"task\", \"event\"],\n` +
+    `entities: object, missing: array, confidence: number 0..1, question: string (required when decision=clarify).\n` +
+    `If the instruction is ambiguous about time/date or target, choose clarify and ask ONE short question. No prose.\n` +
+    `If the user asks to change all items in a clear scope (e.g., \"all today\", \"all of them\", \"everything this week\"), prefer plan.\n` +
+    `If a prior clarify question is present, interpret short answers like \"all of them\", \"yes\", \"all today\" as resolving that question and prefer plan.\n` +
+    `Use the Context section below (this week Mon–Sun anchored to today, backlog sample, completed=false).`;
+  const prior = clarify && clarify.question ? `\nPrior clarify question: ${clarify.question}` : '';
+  const snapshots = buildRouterSnapshots();
+  const contextJson = JSON.stringify(snapshots);
+  const user = `Today: ${todayYmd} (${TIMEZONE})\nTranscript (last 3):\n${convo}${prior}\nContext (this week, Mon–Sun, master-level, backlog sample, completed=false):\n${contextJson}\nUser: ${instruction}`;
+  return `${system}\n\n${user}`;
+}
+
+async function runRouter({ instruction, transcript, clarify }) {
+  try {
+    const prompt = buildRouterPrompt({ instruction, transcript, clarify });
+    const raw = await runOllamaWithThinkingIfGranite({ userContent: prompt });
+    const body = extractResponseBody(raw);
+    const tryParse = (text) => { try { return JSON.parse(text); } catch { return null; } };
+    let parsed = tryParse(body);
+    if (!parsed && /```/.test(body)) {
+      parsed = tryParse(body.replace(/```json|```/g, '').trim());
+    }
+    if (parsed && typeof parsed === 'object') {
+      const result = {
+        decision: String(parsed.decision || 'plan').toLowerCase(),
+        category: parsed.category,
+        entities: parsed.entities,
+        missing: parsed.missing,
+        confidence: Number(parsed.confidence || 0),
+        question: parsed.question,
+      };
+      if (result.decision === 'clarify') {
+        try {
+          const snapshots = buildRouterSnapshots();
+          const cands = topClarifyCandidates(instruction, snapshots, 5);
+          if (cands.length) {
+            const bullets = cands
+              .map(c => `#${c.id} “${String(c.title).slice(0, 40)}”${c.scheduledFor ? ` @${c.scheduledFor}` : ''}`)
+              .join('; ');
+            const q = result.question && String(result.question).trim().length > 0
+              ? result.question
+              : 'Which item do you mean?';
+            result.question = `${q} Options: ${bullets}.`;
+          }
+        } catch {}
+      }
+      return result;
+    }
+  } catch {}
+  return { decision: 'plan', confidence: 0 };
+}
+
 function buildProposalPrompt({ instruction, todosSnapshot, transcript }) {
   const today = new Date();
-  const todayYmd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const todayYmd = ymdInTimeZone(today, TIMEZONE);
   const system = `You are an assistant for a todo app. Output ONLY a single JSON object with key "operations" as an array. No prose.\n` +
     `Each operation MUST include field "op" which is one of: "create", "update", "delete", "complete", "complete_occurrence".\n` +
     `Allowed fields: op, id (int for update/delete/complete/complete_occurrence), title, notes, scheduledFor (YYYY-MM-DD or null), priority (low|medium|high), completed (bool), timeOfDay (HH:MM or null), recurrence (object with keys: type, intervalDays, until [YYYY-MM-DD or null]).\n` +
     `For EVERY create or update you MUST include a "recurrence" object. Use {"type":"none"} for non-repeating tasks.\n` +
     `For repeating tasks (recurrence.type != none), an anchor scheduledFor is REQUIRED.\n` +
     `For complete_occurrence, include: id (masterId), occurrenceDate (YYYY-MM-DD), and optional completed (bool).\n` +
-    `If the user's instruction does not specify a date for a create operation, DEFAULT scheduledFor to TODAY (${todayYmd}).\n` +
     `Today's date is ${todayYmd}. Do NOT invent invalid IDs. Prefer fewer changes over hallucination.\n` +
     `You may reason internally, but the final output MUST be a single JSON object exactly as specified. Do not include your reasoning or any prose.`;
   const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
   const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
   const context = JSON.stringify({ todos: todosSnapshot }, null, 2);
-  const user = `Conversation (last 3 turns):\n${convo}\n\nInstruction:\n${instruction}\n\nContext:\n${context}\n\nRespond with JSON ONLY that matches this exact example format:\n{\n  "operations": [\n    {"op": "create", "title": "Buy milk", "scheduledFor": "${todayYmd}", "priority": "high"}\n  ]\n}`;
+  const user = `Conversation (last 3 turns):\n${convo}\n\nTimezone: ${TIMEZONE}\nInstruction:\n${instruction}\n\nContext:\n${context}\n\nRespond with JSON ONLY that matches this exact example format:\n{\n  "operations": [\n    {"op": "create", "title": "Buy milk", "scheduledFor": "${todayYmd}", "priority": "high"}\n  ]\n}`;
   return `${system}\n\n${user}`;
 }
 
@@ -647,7 +861,7 @@ app.post('/api/llm/apply', async (req, res) => {
       try {
         if (op.op === 'create') {
           const t = createTodo({ title: String(op.title || '').trim(), notes: op.notes || '', scheduledFor: op.scheduledFor ?? null, priority: op.priority || 'medium', timeOfDay: (op.timeOfDay === '' ? null : op.timeOfDay) ?? null, recurrence: op.recurrence });
-          todos.push(t); saveTodos(todos); results.push({ ok: true, op, todo: t }); created++;
+          todos.push(t); saveTodos(todos); try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {} ; results.push({ ok: true, op, todo: t }); created++;
           appendAudit({ action: 'create', op, result: 'ok', id: t.id });
         } else if (op.op === 'update') {
           const t = findTodoById(op.id); if (!t) throw new Error('not_found');
@@ -668,16 +882,16 @@ app.post('/api/llm/apply', async (req, res) => {
               if (!Array.isArray(t.completedDates)) t.completedDates = [];
             }
           }
-          t.updatedAt = now; saveTodos(todos); results.push({ ok: true, op, todo: t }); updated++;
+          t.updatedAt = now; saveTodos(todos); try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {} ; results.push({ ok: true, op, todo: t }); updated++;
           appendAudit({ action: 'update', op, result: 'ok', id: t.id });
         } else if (op.op === 'delete') {
           const idx = todos.findIndex(t => t.id === op.id); if (idx === -1) throw new Error('not_found');
-          const removed = todos.splice(idx, 1)[0]; saveTodos(todos); results.push({ ok: true, op }); deleted++;
+          const removed = todos.splice(idx, 1)[0]; saveTodos(todos); try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {} ; results.push({ ok: true, op }); deleted++;
           appendAudit({ action: 'delete', op, result: 'ok', id: removed?.id });
         } else if (op.op === 'complete') {
           const t = findTodoById(op.id); if (!t) throw new Error('not_found');
           t.completed = op.completed === undefined ? true : !!op.completed; t.updatedAt = new Date().toISOString();
-          saveTodos(todos); results.push({ ok: true, op, todo: t }); completed++;
+          saveTodos(todos); try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {} ; results.push({ ok: true, op, todo: t }); completed++;
           appendAudit({ action: 'complete', op, result: 'ok', id: t.id });
         } else if (op.op === 'complete_occurrence') {
           const t = findTodoById(op.id); if (!t) throw new Error('not_found');
@@ -687,8 +901,59 @@ app.post('/api/llm/apply', async (req, res) => {
           const shouldComplete = (op.completed === undefined) ? true : !!op.completed;
           if (shouldComplete) { if (idx === -1) t.completedDates.push(op.occurrenceDate); }
           else { if (idx !== -1) t.completedDates.splice(idx, 1); }
-          t.updatedAt = new Date().toISOString(); saveTodos(todos); results.push({ ok: true, op, todo: t }); completed++;
+          t.updatedAt = new Date().toISOString(); saveTodos(todos); try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {} ; results.push({ ok: true, op, todo: t }); completed++;
           appendAudit({ action: 'complete_occurrence', op, result: 'ok', id: t.id });
+        } else if (op.op === 'bulk_update') {
+          // Expand where to concrete ids, then apply updates item-wise
+          const targets = todosIndex.filterByWhere(op.where || {});
+          const set = op.set || {};
+          for (const t of targets) {
+            const tt = findTodoById(t.id); if (!tt) continue;
+            const now2 = new Date().toISOString();
+            if (set.title !== undefined) tt.title = set.title;
+            if (set.notes !== undefined) tt.notes = set.notes;
+            if (set.scheduledFor !== undefined) tt.scheduledFor = set.scheduledFor;
+            if (set.priority !== undefined) tt.priority = set.priority;
+            if (set.completed !== undefined) tt.completed = !!set.completed;
+            if (set.timeOfDay !== undefined) tt.timeOfDay = (set.timeOfDay === '' ? null : set.timeOfDay);
+            if (set.recurrence !== undefined) {
+              const prevType = tt.recurrence?.type || 'none';
+              tt.recurrence = { ...tt.recurrence, ...set.recurrence };
+              if (tt.recurrence.until === undefined) tt.recurrence.until = endOfCurrentYearYmd();
+              if (prevType !== 'none' && tt.recurrence.type === 'none') {
+                tt.completedDates = [];
+              } else if (tt.recurrence.type !== 'none') {
+                if (!Array.isArray(tt.completedDates)) tt.completedDates = [];
+              }
+            }
+            tt.updatedAt = now2;
+          }
+          saveTodos(todos); try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {}
+          results.push({ ok: true, op, count: targets.length, expandedIds: targets.map(t => t.id) });
+          updated += targets.length;
+          appendAudit({ action: 'bulk_update', op, result: 'ok', expandedIds: targets.map(t => t.id) });
+        } else if (op.op === 'bulk_complete') {
+          const targets = todosIndex.filterByWhere(op.where || {});
+          const shouldComplete = (op.completed === undefined) ? true : !!op.completed;
+          for (const t of targets) {
+            const tt = findTodoById(t.id); if (!tt) continue;
+            tt.completed = shouldComplete; tt.updatedAt = new Date().toISOString();
+          }
+          saveTodos(todos); try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {}
+          results.push({ ok: true, op, count: targets.length, expandedIds: targets.map(t => t.id) });
+          completed += targets.length;
+          appendAudit({ action: 'bulk_complete', op, result: 'ok', expandedIds: targets.map(t => t.id) });
+        } else if (op.op === 'bulk_delete') {
+          const targets = todosIndex.filterByWhere(op.where || {});
+          const ids = new Set(targets.map(t => t.id));
+          let removedCount = 0;
+          for (let i = todos.length - 1; i >= 0; i--) {
+            if (ids.has(todos[i].id)) { todos.splice(i, 1); removedCount++; }
+          }
+          saveTodos(todos); try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {}
+          results.push({ ok: true, op, count: removedCount, expandedIds: Array.from(ids) });
+          deleted += removedCount;
+          appendAudit({ action: 'bulk_delete', op, result: 'ok', expandedIds: Array.from(ids) });
         } else {
           results.push({ ok: false, op, error: 'invalid_op' });
           appendAudit({ action: 'invalid', op, result: 'invalid' });
@@ -705,7 +970,7 @@ app.post('/api/llm/apply', async (req, res) => {
 // --- Assistant chat (two-call pipeline) ---
 function buildConversationalSummaryPrompt({ instruction, operations, todosSnapshot, transcript }) {
   const today = new Date();
-  const todayYmd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const todayYmd = ymdInTimeZone(today, TIMEZONE);
   const compactOps = operations.map((op) => {
     const parts = [];
     parts.push(op.op);
@@ -719,7 +984,7 @@ function buildConversationalSummaryPrompt({ instruction, operations, todosSnapsh
   const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
   const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
   const system = `You are a helpful assistant for a todo app. Keep answers concise and clear. Prefer 1–3 short sentences; allow a short paragraph when needed. No markdown, no lists, no JSON.`;
-  const context = `Conversation (last 3 turns):\n${convo}\n\nToday: ${todayYmd}\nProposed operations (count: ${operations.length}):\n${compactOps}`;
+  const context = `Conversation (last 3 turns):\n${convo}\n\nToday: ${todayYmd} (${TIMEZONE})\nProposed operations (count: ${operations.length}):\n${compactOps}`;
   const user = `User instruction:\n${instruction}`;
   const task = `Summarize the plan in plain English grounded in the proposed operations above. If there are no valid operations, briefly explain and suggest what to clarify.`;
   return `${system}\n\n${context}\n\n${user}\n\n${task}`;
@@ -753,11 +1018,11 @@ function buildDeterministicSummaryText(operations) {
 // Lightweight chat-only prompt (no operations)
 function buildChatPrompt({ instruction, transcript }) {
   const today = new Date();
-  const todayYmd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const todayYmd = ymdInTimeZone(today, TIMEZONE);
   const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
   const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
   const system = `You are a helpful assistant for a todo app. Keep answers concise and clear. Prefer 1–3 short sentences; allow a short paragraph when needed. No markdown, no lists.`;
-  const context = `Conversation (last 3 turns):\n${convo}\n\nToday: ${todayYmd}`;
+  const context = `Conversation (last 3 turns):\n${convo}\n\nToday: ${todayYmd} (${TIMEZONE})`;
   const user = `User message:\n${instruction}`;
   const task = `Respond helpfully and concretely. Do not output JSON.`;
   return `${system}\n\n${context}\n\n${user}\n\n${task}`;
@@ -770,6 +1035,28 @@ app.post('/api/assistant/message', async (req, res) => {
       return res.status(400).json({ error: 'invalid_message' });
     }
     const mode = String((options && options.mode) || 'plan').toLowerCase();
+
+    // Router branch for auto mode
+    if (mode === 'auto' && AUTO_MODE_ENABLED) {
+      const route = await runRouter({ instruction: message.trim(), transcript, clarify: options && options.clarify });
+      try { appendAudit({ action: 'router_decision', mode: 'post', decision: route.decision, confidence: route.confidence, question: route.question || null }); } catch {}
+      if (route.decision === 'clarify' && route.question) {
+        return res.json({ requiresClarification: true, question: route.question });
+      } else if (route.decision === 'chat') {
+        try {
+          const prompt = buildChatPrompt({ instruction: message.trim(), transcript });
+          const raw = await runOllamaWithThinkingIfGranite({ userContent: prompt });
+          let s = stripGraniteTags(String(raw || ''));
+          s = s.replace(/```[\s\S]*?```/g, '').trim();
+          s = s.replace(/[\r\n]+/g, ' ').trim();
+          const text = s || 'Okay.';
+          return res.json({ text, operations: [] });
+        } catch (e) {
+          return res.status(502).json({ error: 'assistant_failure', detail: String(e && e.message ? e.message : e) });
+        }
+      }
+      // else fall through to plan path
+    }
 
     // Chat-only mode: single LLM call, no operations
     if (mode === 'chat') {
@@ -787,7 +1074,21 @@ app.post('/api/assistant/message', async (req, res) => {
     }
 
     // Call 1 — generate operations (reuse robust proposal pipeline)
-    const prompt1 = buildProposalPrompt({ instruction: message.trim(), todosSnapshot: todos, transcript });
+    const topK = todosIndex.searchByQuery('', { k: 40 });
+    const aggregates = todosIndex.getAggregates();
+    let prompt1 = buildProposalPrompt({ instruction: message.trim(), todosSnapshot: { topK, aggregates }, transcript });
+    // Early SSE headers to keep connection alive during longer model calls
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    if (typeof res.flushHeaders === 'function') res.flushHeaders();
+    const send = (event, data) => { res.write(`event: ${event}\n`); res.write(`data: ${data}\n\n`); };
+    send('summary', JSON.stringify({ text: 'Planning…' }));
+    // Heartbeat every 10s
+    const heartbeat = setInterval(() => {
+      try { send('heartbeat', JSON.stringify({ ts: new Date().toISOString() })); } catch {}
+    }, 10000);
+    res.on('close', () => { try { clearInterval(heartbeat); } catch {} });
     const raw1 = await runOllamaWithThinkingIfGranite({ userContent: prompt1 });
     const raw1MaybeResponse = extractResponseBody(raw1);
     const tryParse = (text) => { try { return JSON.parse(text); } catch { return null; } };
@@ -822,8 +1123,8 @@ app.post('/api/assistant/message', async (req, res) => {
       return inferOperationShape(m);
     }).filter(Boolean);
 
-    const validation = validateProposal({ operations: ops });
-    const annotatedAll = validation.results.map(r => ({ op: r.op, errors: r.errors }));
+    let validation = validateProposal({ operations: ops });
+    let annotatedAll = validation.results.map(r => ({ op: r.op, errors: r.errors }));
     // Audit the model's understanding (internal-only)
     try {
       const summary = {
@@ -833,11 +1134,32 @@ app.post('/api/assistant/message', async (req, res) => {
       appendAudit({ action: 'assistant_understanding', results: annotatedAll, summary });
     } catch {}
     if (validation.errors.length) {
-      // Keep only valid operations for UX; include detail and warning for the user
-      ops = validation.results.filter(r => r.errors.length === 0).map(r => r.op);
-      const invalidCount = validation.results.filter(r => r.errors.length > 0).length;
-      const warn = `Filtered out ${invalidCount} invalid operation(s); the assistant may have proposed unsupported or inconsistent changes.`;
-      appendAudit({ action: 'assistant_warning', warning: warn });
+      try { appendAudit({ action: 'repair_attempted', mode: 'post', invalid_ops: validation.results.filter(r => r.errors.length > 0).length }); } catch {}
+      // Single repair attempt
+      try {
+        const repairPrompt = buildRepairPrompt({ instruction: message.trim(), originalOps: ops, errors: validation.results, transcript });
+        const rawRepair = await runOllamaWithThinkingIfGranite({ userContent: repairPrompt });
+        const body = extractResponseBody(rawRepair);
+        const tryParse = (text) => { try { return JSON.parse(text); } catch { return null; } };
+        let parsedR = tryParse(body);
+        if (!parsedR && /```/.test(body)) parsedR = tryParse(body.replace(/```json|```/g, '').trim());
+        const repairedOps = (parsedR && Array.isArray(parsedR.operations)) ? parsedR.operations : [];
+        const shaped = repairedOps.filter(o => o && typeof o === 'object').map(o => inferOperationShape(o)).filter(Boolean);
+        const reValidation = validateProposal({ operations: shaped });
+        if (!reValidation.errors.length) {
+          ops = shaped;
+          validation = reValidation;
+          annotatedAll = reValidation.results.map(r => ({ op: r.op, errors: r.errors }));
+          try { appendAudit({ action: 'repair_success', mode: 'post', repaired_ops: shaped.length }); } catch {}
+        } else {
+          // fallback to valid-only from first pass
+          try { appendAudit({ action: 'repair_failed', mode: 'post', remaining_invalid: reValidation.results.filter(r => r.errors.length > 0).length }); } catch {}
+          ops = validation.results.filter(r => r.errors.length === 0).map(r => r.op);
+        }
+      } catch {
+        ops = validation.results.filter(r => r.errors.length === 0).map(r => r.op);
+        try { appendAudit({ action: 'repair_error', mode: 'post' }); } catch {}
+      }
     }
 
     // Call 2 — conversational summary
@@ -902,8 +1224,59 @@ app.get('/api/assistant/message/stream', async (req, res) => {
       }
     }
 
+    if (mode === 'auto' && AUTO_MODE_ENABLED) {
+      const clarify = (() => { try { return JSON.parse(String(req.query.clarify || 'null')); } catch { return null; } })();
+      const route = await runRouter({ instruction: message.trim(), transcript, clarify });
+      try { appendAudit({ action: 'router_decision', mode: 'sse', decision: route.decision, confidence: route.confidence, question: route.question || null }); } catch {}
+      if (route.decision === 'clarify' && route.question) {
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        if (typeof res.flushHeaders === 'function') res.flushHeaders();
+        const send = (event, data) => { res.write(`event: ${event}\n`); res.write(`data: ${data}\n\n`); };
+        send('clarify', JSON.stringify({ question: route.question }));
+        send('done', 'true');
+        return res.end();
+      } else if (route.decision === 'chat') {
+        try {
+          const prompt = buildChatPrompt({ instruction: message.trim(), transcript });
+          const raw = await runOllamaWithThinkingIfGranite({ userContent: prompt });
+          let s = stripGraniteTags(String(raw || ''));
+          s = s.replace(/```[\s\S]*?```/g, '').trim();
+          s = s.replace(/[\r\n]+/g, ' ').trim();
+          const text = s || 'Okay.';
+          res.setHeader('Content-Type', 'text/event-stream');
+          res.setHeader('Cache-Control', 'no-cache');
+          res.setHeader('Connection', 'keep-alive');
+          if (typeof res.flushHeaders === 'function') res.flushHeaders();
+          const send = (event, data) => { res.write(`event: ${event}\n`); res.write(`data: ${data}\n\n`); };
+          send('summary', JSON.stringify({ text }));
+          send('result', JSON.stringify({ text, operations: [] }));
+          send('done', 'true');
+          return res.end();
+        } catch (e) {
+          try { return res.status(502).json({ error: 'assistant_failure', detail: String(e && e.message ? e.message : e) }); } catch {}
+        }
+      }
+      // else fall through to plan path; plan branch will set SSE headers below
+    }
+
+    // Establish SSE for plan path
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    if (typeof res.flushHeaders === 'function') res.flushHeaders();
+    const send = (event, data) => { res.write(`event: ${event}\n`); res.write(`data: ${data}\n\n`); };
+    send('summary', JSON.stringify({ text: 'Planning…' }));
+    const heartbeat = setInterval(() => {
+      try { send('heartbeat', JSON.stringify({ ts: new Date().toISOString() })); } catch {}
+    }, 10000);
+    res.on('close', () => { try { clearInterval(heartbeat); } catch {} });
+
     // Call 1 — generate operations
-    const prompt1 = buildProposalPrompt({ instruction: message.trim(), todosSnapshot: todos, transcript });
+    const topK = todosIndex.searchByQuery('', { k: 40 });
+    const aggregates = todosIndex.getAggregates();
+    const prompt1 = buildProposalPrompt({ instruction: message.trim(), todosSnapshot: { topK, aggregates }, transcript });
     const raw1 = await runOllamaWithThinkingIfGranite({ userContent: prompt1 });
     const raw1MaybeResponse = extractResponseBody(raw1);
     const tryParse = (text) => { try { return JSON.parse(text); } catch { return null; } };
@@ -937,8 +1310,8 @@ app.get('/api/assistant/message/stream', async (req, res) => {
       return inferOperationShape(m);
     }).filter(Boolean);
 
-    const validation = validateProposal({ operations: ops });
-    const annotatedAll = validation.results.map(r => ({ op: r.op, errors: r.errors }));
+    let validation = validateProposal({ operations: ops });
+    let annotatedAll = validation.results.map(r => ({ op: r.op, errors: r.errors }));
     try {
       const summary = {
         valid: validation.results.filter(r => r.errors.length === 0).length,
@@ -946,7 +1319,31 @@ app.get('/api/assistant/message/stream', async (req, res) => {
       };
       appendAudit({ action: 'assistant_understanding', results: annotatedAll, summary });
     } catch {}
-    const validOps = validation.results.filter(r => r.errors.length === 0).map(r => r.op);
+    let validOps = validation.results.filter(r => r.errors.length === 0).map(r => r.op);
+    if (validation.errors.length) {
+      try { appendAudit({ action: 'repair_attempted', mode: 'sse', invalid_ops: validation.results.filter(r => r.errors.length > 0).length }); } catch {}
+      try {
+        const repairPrompt = buildRepairPrompt({ instruction: message.trim(), originalOps: ops, errors: validation.results, transcript });
+        const rawRepair = await runOllamaWithThinkingIfGranite({ userContent: repairPrompt });
+        const body = extractResponseBody(rawRepair);
+        const tryParse = (text) => { try { return JSON.parse(text); } catch { return null; } };
+        let parsedR = tryParse(body);
+        if (!parsedR && /```/.test(body)) parsedR = tryParse(body.replace(/```json|```/g, '').trim());
+        const repairedOps = (parsedR && Array.isArray(parsedR.operations)) ? parsedR.operations : [];
+        const shaped = repairedOps.filter(o => o && typeof o === 'object').map(o => inferOperationShape(o)).filter(Boolean);
+        const reValidation = validateProposal({ operations: shaped });
+        if (!reValidation.errors.length) {
+          validOps = shaped;
+          validation = reValidation;
+          annotatedAll = reValidation.results.map(r => ({ op: r.op, errors: r.errors }));
+          try { appendAudit({ action: 'repair_success', mode: 'sse', repaired_ops: shaped.length }); } catch {}
+        } else {
+          try { appendAudit({ action: 'repair_failed', mode: 'sse', remaining_invalid: reValidation.results.filter(r => r.errors.length > 0).length }); } catch {}
+        }
+      } catch {
+        try { appendAudit({ action: 'repair_error', mode: 'sse' }); } catch {}
+      }
+    }
 
     // Call 2 — conversational summary
     let text;
@@ -963,15 +1360,11 @@ app.get('/api/assistant/message/stream', async (req, res) => {
       appendAudit({ action: 'assistant_message', conversational_fallback: true, error: String(e && e.message ? e.message : e) });
     }
 
-    // Stream SSE
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    if (typeof res.flushHeaders === 'function') res.flushHeaders();
-    const send = (event, data) => { res.write(`event: ${event}\n`); res.write(`data: ${data}\n\n`); };
+    // Stream SSE (headers already set)
     send('summary', JSON.stringify({ text }));
     send('result', JSON.stringify({ text, operations: annotatedAll }));
     send('done', 'true');
+    try { clearInterval(heartbeat); } catch {}
     return res.end();
   } catch (err) {
     try { res.status(502).json({ error: 'assistant_failure', detail: String(err && err.message ? err.message : err) }); } catch {}

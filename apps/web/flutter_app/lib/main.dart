@@ -69,6 +69,11 @@ class LlmOperation {
   final bool? completed;
   final String? timeOfDay; // HH:MM or null
   final Map<String, dynamic>? recurrence; // {type, intervalDays, until}
+  // Bulk operations support
+  final Map<String, dynamic>? where; // for bulk_* filters
+  final Map<String, dynamic>? setFields; // for bulk_update set payload (serialized as 'set')
+  // Occurrence completion support
+  final String? occurrenceDate; // YYYY-MM-DD for complete_occurrence
   LlmOperation({
     required this.op,
     this.id,
@@ -79,6 +84,9 @@ class LlmOperation {
     this.completed,
     this.timeOfDay,
     this.recurrence,
+    this.where,
+    this.setFields,
+    this.occurrenceDate,
   });
   factory LlmOperation.fromJson(Map<String, dynamic> j) => LlmOperation(
         op: j['op'] as String,
@@ -94,6 +102,9 @@ class LlmOperation {
         recurrence: j['recurrence'] == null
             ? null
             : Map<String, dynamic>.from(j['recurrence'] as Map),
+        where: j['where'] == null ? null : Map<String, dynamic>.from(j['where'] as Map),
+        setFields: j['set'] == null ? null : Map<String, dynamic>.from(j['set'] as Map),
+        occurrenceDate: j['occurrenceDate'] as String?,
       );
   Map<String, dynamic> toJson() => {
         'op': op,
@@ -105,6 +116,9 @@ class LlmOperation {
         if (completed != null) 'completed': completed,
         if (timeOfDay != null) 'timeOfDay': timeOfDay,
         if (recurrence != null) 'recurrence': recurrence,
+        if (where != null) 'where': where,
+        if (setFields != null) 'set': setFields,
+        if (occurrenceDate != null) 'occurrenceDate': occurrenceDate,
       };
 }
 
@@ -221,8 +235,10 @@ class _HomePageState extends State<HomePage> {
   List<bool> assistantOpsChecked = [];
   bool assistantSending = false;
   bool assistantShowDiff = false;
-  // Assistant mode: 'chat' | 'plan' (server default remains 'plan' if omitted)
-  String assistantMode = 'chat';
+  // Assistant mode: 'auto' | 'chat' | 'plan' (server default remains 'plan' if omitted)
+  String assistantMode = 'auto';
+  int? assistantStreamingIndex;
+  String? _pendingClarifyQuestion;
 
  
 
@@ -696,25 +712,79 @@ class _HomePageState extends State<HomePage> {
     });
     // Clear input immediately for snappier UX while preserving `text` captured above
     assistantCtrl.clear();
+    // Insert a placeholder assistant bubble that we will update with streamed summary
+    setState(() {
+      assistantTranscript.add({'role': 'assistant', 'text': ''});
+      assistantStreamingIndex = assistantTranscript.length - 1;
+    });
     try {
       // Send last 3 turns and request streaming summary (server will fall back to JSON if not SSE)
       final recent = assistantTranscript.length <= 3 ? assistantTranscript : assistantTranscript.sublist(assistantTranscript.length - 3);
-      final res = await api.assistantMessage(text, transcript: recent, streamSummary: true, mode: assistantMode);
+      final res = await api.assistantMessage(
+        text,
+        transcript: recent,
+        streamSummary: true,
+        mode: assistantMode,
+        onSummary: (s) {
+          // Update placeholder bubble with latest streamed text
+          if (!mounted) return;
+          setState(() {
+            if (assistantStreamingIndex != null &&
+                assistantStreamingIndex! >= 0 &&
+                assistantStreamingIndex! < assistantTranscript.length) {
+              assistantTranscript[assistantStreamingIndex!] = {'role': 'assistant', 'text': s};
+            }
+          });
+        },
+        onClarify: (q) {
+          if (!mounted) return;
+          setState(() {
+            // Replace placeholder with clarify question if emitted
+            if (assistantStreamingIndex != null &&
+                assistantStreamingIndex! >= 0 &&
+                assistantStreamingIndex! < assistantTranscript.length) {
+              assistantTranscript[assistantStreamingIndex!] = {'role': 'assistant', 'text': q};
+            } else {
+              assistantTranscript.add({'role': 'assistant', 'text': q});
+            }
+            _pendingClarifyQuestion = q;
+          });
+        },
+        priorClarifyQuestion: _pendingClarifyQuestion,
+      );
       final reply = (res['text'] as String?) ?? '';
       final opsRaw = res['operations'] as List<dynamic>?;
       final ops = opsRaw == null
           ? <AnnotatedOp>[]
           : opsRaw.map((e) => AnnotatedOp.fromJson(e as Map<String, dynamic>)).toList();
       setState(() {
-        assistantTranscript.add({'role': 'assistant', 'text': reply});
+        if (reply.trim().isNotEmpty) {
+          if (assistantStreamingIndex != null &&
+              assistantStreamingIndex! >= 0 &&
+              assistantStreamingIndex! < assistantTranscript.length) {
+            assistantTranscript[assistantStreamingIndex!] = {'role': 'assistant', 'text': reply};
+          } else {
+            assistantTranscript.add({'role': 'assistant', 'text': reply});
+          }
+        }
+        assistantStreamingIndex = null;
         assistantOps = ops;
         // Auto-check only valid ops
         assistantOpsChecked = List<bool>.generate(ops.length, (i) => ops[i].errors.isEmpty);
         assistantShowDiff = false;
+        _pendingClarifyQuestion = null;
       });
     } catch (e) {
       setState(() {
-        assistantTranscript.add({'role': 'assistant', 'text': 'Sorry, I could not process that. (${e.toString()})'});
+        final errText = 'Sorry, I could not process that. (${e.toString()})';
+        if (assistantStreamingIndex != null &&
+            assistantStreamingIndex! >= 0 &&
+            assistantStreamingIndex! < assistantTranscript.length) {
+          assistantTranscript[assistantStreamingIndex!] = {'role': 'assistant', 'text': errText};
+        } else {
+          assistantTranscript.add({'role': 'assistant', 'text': errText});
+        }
+        assistantStreamingIndex = null;
       });
     } finally {
       setState(() => assistantSending = false);

@@ -68,26 +68,50 @@ Future<void> deleteTodo(int id) async {
   await api.delete('/api/todos/$id');
 }
 
-Future<Map<String, dynamic>> assistantMessage(String message, {List<Map<String, String>> transcript = const [], bool streamSummary = false, String mode = 'plan'}) async {
+Future<Map<String, dynamic>> assistantMessage(String message, {List<Map<String, String>> transcript = const [], bool streamSummary = false, String mode = 'plan', void Function(String text)? onSummary, void Function(String question)? onClarify, String? priorClarifyQuestion}) async {
   if (!streamSummary) {
     final res = await api.post('/api/assistant/message', data: {
       'message': message,
       'transcript': transcript,
-      'options': {'streamSummary': false, 'mode': mode},
+      'options': {'streamSummary': false, 'mode': mode, if (priorClarifyQuestion != null) 'clarify': {'question': priorClarifyQuestion}},
     });
-    return Map<String, dynamic>.from(res.data as Map);
+    final map = Map<String, dynamic>.from(res.data as Map);
+    if (onClarify != null && map['requiresClarification'] == true && map['question'] is String) {
+      onClarify(map['question'] as String);
+    }
+    return map;
   }
   // Flutter Web: use EventSource against GET streaming endpoint
   final uri = Uri.parse('${api.options.baseUrl}/api/assistant/message/stream').replace(queryParameters: {
     'message': message,
     'transcript': transcript.isEmpty ? '[]' : jsonEncode(transcript),
     'mode': mode,
+    if (priorClarifyQuestion != null) 'clarify': jsonEncode({'question': priorClarifyQuestion}),
   }).toString();
 
   final completer = Completer<Map<String, dynamic>>();
   try {
     final es = html.EventSource(uri);
     Map<String, dynamic>? result;
+    // Future clarify listener (no-op until server emits it)
+    es.addEventListener('clarify', (event) {
+      try {
+        final data = (event as html.MessageEvent).data as String;
+        final obj = jsonDecode(data) as Map<String, dynamic>;
+        final q = (obj['question'] as String?) ?? '';
+        if (onClarify != null && q.isNotEmpty) onClarify(q);
+      } catch (_) {}
+    });
+    es.addEventListener('summary', (event) {
+      try {
+        final data = (event as html.MessageEvent).data as String;
+        final obj = jsonDecode(data) as Map<String, dynamic>;
+        final text = (obj['text'] as String?) ?? '';
+        if (onSummary != null && text.isNotEmpty) {
+          onSummary(text);
+        }
+      } catch (_) {}
+    });
     es.addEventListener('result', (event) {
       try {
         final data = (event as html.MessageEvent).data as String;
@@ -98,9 +122,21 @@ Future<Map<String, dynamic>> assistantMessage(String message, {List<Map<String, 
       es.close();
       completer.complete(result ?? {'text': '', 'operations': []});
     });
-    es.addEventListener('error', (_) {
+    es.addEventListener('error', (_) async {
       try { es.close(); } catch (_) {}
-      if (!completer.isCompleted) completer.completeError(Exception('sse_error'));
+      if (!completer.isCompleted) {
+        try {
+          // Fallback to non-streaming POST on SSE error
+          final res = await api.post('/api/assistant/message', data: {
+            'message': message,
+            'transcript': transcript,
+            'options': {'streamSummary': false, 'mode': mode, if (priorClarifyQuestion != null) 'clarify': {'question': priorClarifyQuestion}},
+          });
+          completer.complete(Map<String, dynamic>.from(res.data as Map));
+        } catch (e) {
+          completer.completeError(Exception('sse_error'));
+        }
+      }
     });
   } catch (_) {
     // Fallback to non-streaming on any error
