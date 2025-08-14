@@ -55,6 +55,11 @@ class AssistantPanel extends StatelessWidget {
   final String? progressStage;
   // Helper for date quick-selects
   final String? todayYmd;
+  // Selected clarify state for UI reflection
+  final Set<int>? selectedClarifyIds;
+  final String? selectedClarifyDate;
+  final String? selectedClarifyPriority;
+  
 
   const AssistantPanel({
     super.key,
@@ -80,6 +85,9 @@ class AssistantPanel extends StatelessWidget {
     this.onSelectClarifyPriority,
     this.progressStage,
     this.todayYmd,
+    this.selectedClarifyIds,
+    this.selectedClarifyDate,
+    this.selectedClarifyPriority
   });
 
   @override
@@ -108,18 +116,6 @@ class AssistantPanel extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
           child: Row(
             children: [
-              if (onModeChanged != null && mode != null)
-                SegmentedButton<String>(
-                  segments: const [
-                    ButtonSegment(value: 'auto', label: Text('Auto')),
-                    ButtonSegment(value: 'chat', label: Text('Chat')),
-                    ButtonSegment(value: 'plan', label: Text('Plan')),
-                  ],
-                  selected: <String>{mode!},
-                  onSelectionChanged: (s) {
-                    if (s.isNotEmpty) onModeChanged!(s.first);
-                  },
-                ),
               const Spacer(),
               if (onClearChat != null)
                 TextButton.icon(
@@ -335,7 +331,7 @@ class AssistantPanel extends StatelessWidget {
                 for (final o in clarifyOptions)
                   FilterChip(
                     label: Text('#${o['id']} ${o['title']}${o['scheduledFor'] == null ? '' : ' @${o['scheduledFor']}'}'),
-                    selected: false,
+                    selected: (selectedClarifyIds ?? const <int>{}).contains(o['id'] as int),
                     onSelected: (_) => onToggleClarifyId?.call((o['id'] as int)),
                   )
               ],
@@ -345,24 +341,24 @@ class AssistantPanel extends StatelessWidget {
             OutlinedButton.icon(
               icon: const Icon(Icons.today, size: 16),
               onPressed: () => onSelectClarifyDate?.call(todayYmd),
-              label: const Text('Today'),
+              label: Text('Today${(selectedClarifyDate != null && selectedClarifyDate == todayYmd) ? ' ✓' : ''}'),
             ),
             OutlinedButton.icon(
               icon: const Icon(Icons.calendar_today, size: 16),
               onPressed: () => onSelectClarifyDate?.call(null),
-              label: const Text('Unscheduled'),
+              label: Text('Unscheduled${(selectedClarifyDate == null) ? ' ✓' : ''}'),
             ),
             OutlinedButton(
               onPressed: () => onSelectClarifyPriority?.call('high'),
-              child: const Text('prio: high'),
+              child: Text('prio: high${(selectedClarifyPriority == 'high') ? ' ✓' : ''}'),
             ),
             OutlinedButton(
               onPressed: () => onSelectClarifyPriority?.call('medium'),
-              child: const Text('prio: medium'),
+              child: Text('prio: medium${(selectedClarifyPriority == 'medium') ? ' ✓' : ''}'),
             ),
             OutlinedButton(
               onPressed: () => onSelectClarifyPriority?.call('low'),
-              child: const Text('prio: low'),
+              child: Text('prio: low${(selectedClarifyPriority == 'low') ? ' ✓' : ''}'),
             ),
           ]),
         ],

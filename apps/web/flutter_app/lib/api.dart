@@ -197,4 +197,9 @@ Future<Map<String, dynamic>> applyOperations(List<Map<String, dynamic>> ops) asy
   return Map<String, dynamic>.from(res.data as Map);
 }
 
+Future<Map<String, dynamic>> dryRunOperations(List<Map<String, dynamic>> ops) async {
+  final res = await api.post('/api/llm/dryrun', data: {'operations': ops});
+  return Map<String, dynamic>.from(res.data as Map);
+}
+
 

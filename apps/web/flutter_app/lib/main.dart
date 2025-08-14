@@ -812,9 +812,22 @@ class _HomePageState extends State<HomePage> {
           }
         }
         assistantStreamingIndex = null;
+        // Preserve any user selections made during streaming by reconciling with the final ops
+        final prior = assistantOps;
+        final priorChecked = assistantOpsChecked;
         assistantOps = ops;
-        // Auto-check only valid ops
-        assistantOpsChecked = List<bool>.generate(ops.length, (i) => ops[i].errors.isEmpty);
+        String kOp(dynamic x) {
+          try {
+            final m = (x is AnnotatedOp) ? x.op : AnnotatedOp.fromJson(Map<String, dynamic>.from(x as Map<String, dynamic>)).op;
+            final id = m.id == null ? '' : '#${m.id}';
+            return '${m.op}$id';
+          } catch (_) { return ''; }
+        }
+        final prevMap = <String, bool>{};
+        for (var i = 0; i < prior.length; i++) {
+          prevMap[kOp(prior[i])] = (i < priorChecked.length ? priorChecked[i] : true);
+        }
+        assistantOpsChecked = List<bool>.generate(assistantOps.length, (i) => prevMap[kOp(assistantOps[i])] ?? assistantOps[i].errors.isEmpty);
         assistantShowDiff = false;
         _pendingClarifyQuestion = null;
         _pendingClarifyOptions = const [];
@@ -851,6 +864,38 @@ class _HomePageState extends State<HomePage> {
       if (selectedOps.isEmpty) {
         setState(() => message = 'No operations selected.');
         return;
+      }
+      // Dry-run before apply to surface warnings
+      try {
+        final preview = await api.dryRunOperations(selectedOps);
+        final warnings = (preview['warnings'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? const <String>[];
+        if (warnings.isNotEmpty) {
+          final ok = await showDialog<bool>(
+            context: context,
+            builder: (c) => AlertDialog(
+              title: const Text('Review changes'),
+              content: SizedBox(
+                width: 440,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Warnings:'),
+                    const SizedBox(height: 6),
+                    ...warnings.map((w) => Padding(padding: const EdgeInsets.only(bottom: 4), child: Text('• $w'))),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
+                FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Apply anyway')),
+              ],
+            ),
+          );
+          if (ok != true) return;
+        }
+      } catch (_) {
+        // Ignore dry-run failures; continue to apply
       }
       final res = await api.applyOperations(selectedOps);
       final summary = res['summary'];
@@ -1164,6 +1209,9 @@ class _HomePageState extends State<HomePage> {
                                      onSelectClarifyPriority: (p) => setState(() { _clarifySelectedPriority = p; }),
                                      progressStage: _progressStage,
                                      todayYmd: ymd(DateTime.now()),
+                                      selectedClarifyIds: _clarifySelectedIds,
+                                      selectedClarifyDate: _clarifySelectedDate,
+                                      selectedClarifyPriority: _clarifySelectedPriority,
                                   ),
                                 ),
                               ],

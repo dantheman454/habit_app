@@ -728,6 +728,31 @@ function runOllamaWithThinkingIfGranite({ userContent }) {
   return runOllamaPrompt(userContent);
 }
 
+// Attempt HTTP JSON-biased generation via Ollama; falls back to CLI on error at call sites
+async function tryRunOllamaJsonFormat({ userContent }) {
+  const base = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
+  const url = `${base}/api/generate`;
+  const payload = { model: OLLAMA_MODEL, prompt: userContent, format: 'json', stream: false };
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw new Error(`ollama_http_${res.status}`);
+  const obj = await res.json();
+  const text = String(obj && (obj.response ?? obj.text) || '');
+  if (!text) throw new Error('ollama_http_empty');
+  return text;
+}
+
+async function runOllamaForJsonPreferred({ userContent }) {
+  try {
+    return await tryRunOllamaJsonFormat({ userContent });
+  } catch {
+    return await runOllamaWithThinkingIfGranite({ userContent });
+  }
+}
+
 // If Granite returns <think>...</think><response>...</response>,
 // extract the inner of <response> first, then proceed with JSON parsing.
 function extractResponseBody(text) {
@@ -804,7 +829,7 @@ function buildRouterPrompt({ instruction, transcript, clarify }) {
 async function runRouter({ instruction, transcript, clarify }) {
   try {
     const prompt = buildRouterPrompt({ instruction, transcript, clarify });
-    const raw = await runOllamaWithThinkingIfGranite({ userContent: prompt });
+    const raw = await runOllamaForJsonPreferred({ userContent: prompt });
     const body = extractResponseBody(raw);
     const tryParse = (text) => { try { return JSON.parse(text); } catch { return null; } };
     let parsed = tryParse(body);
@@ -1120,10 +1145,20 @@ app.post('/api/assistant/message', async (req, res) => {
     }
 
     // Call 1 — generate operations (reuse robust proposal pipeline)
-    const topK = todosIndex.searchByQuery('', { k: 40 });
+    // If auto mode, run router once to seed a focused snapshot via route.where
+    let topK;
     const aggregates = todosIndex.getAggregates();
-    let prompt1 = buildProposalPrompt({ instruction: message.trim(), todosSnapshot: { topK, aggregates }, transcript });
-    const raw1 = await runOllamaWithThinkingIfGranite({ userContent: prompt1 });
+    if (mode === 'auto' && AUTO_MODE_ENABLED) {
+      try {
+        const route = await runRouter({ instruction: message.trim(), transcript, clarify: options && options.clarify });
+        if (route && route.where && !Array.isArray(route.where) && typeof route.where === 'object') {
+          topK = todosIndex.filterByWhere(route.where).slice(0, 50);
+        }
+      } catch {}
+    }
+    if (!topK) topK = todosIndex.searchByQuery('', { k: 40 });
+    let prompt1 = buildProposalPrompt({ instruction: message.trim(), todosSnapshot: Array.isArray(topK) && topK.length && (mode === 'auto') ? { focused: topK, aggregates } : { topK, aggregates }, transcript });
+    const raw1 = await runOllamaForJsonPreferred({ userContent: prompt1 });
     const raw1MaybeResponse = extractResponseBody(raw1);
     const tryParse = (text) => { try { return JSON.parse(text); } catch { return null; } };
     let parsed1 = tryParse(raw1MaybeResponse);
@@ -1172,7 +1207,7 @@ app.post('/api/assistant/message', async (req, res) => {
       // Single repair attempt
       try {
         const repairPrompt = buildRepairPrompt({ instruction: message.trim(), originalOps: ops, errors: validation.results, transcript });
-        const rawRepair = await runOllamaWithThinkingIfGranite({ userContent: repairPrompt });
+        const rawRepair = await runOllamaForJsonPreferred({ userContent: repairPrompt });
         const body = extractResponseBody(rawRepair);
         const tryParse = (text) => { try { return JSON.parse(text); } catch { return null; } };
         let parsedR = tryParse(body);
@@ -1323,7 +1358,7 @@ app.get('/api/assistant/message/stream', async (req, res) => {
     const aggregates = todosIndex.getAggregates();
     const topK = focusedWhere ? todosIndex.filterByWhere(focusedWhere).slice(0, 50) : todosIndex.searchByQuery('', { k: 40 });
     const prompt1 = buildProposalPrompt({ instruction: message.trim(), todosSnapshot: focusedWhere ? { focused: topK, aggregates } : { topK, aggregates }, transcript });
-    const raw1 = await runOllamaWithThinkingIfGranite({ userContent: prompt1 });
+    const raw1 = await runOllamaForJsonPreferred({ userContent: prompt1 });
     const raw1MaybeResponse = extractResponseBody(raw1);
     const tryParse = (text) => { try { return JSON.parse(text); } catch { return null; } };
     let parsed1 = tryParse(raw1MaybeResponse);
@@ -1370,9 +1405,11 @@ app.get('/api/assistant/message/stream', async (req, res) => {
     let validOps = validation.results.filter(r => r.errors.length === 0).map(r => r.op);
     if (validation.errors.length) {
       try { appendAudit({ action: 'repair_attempted', mode: 'sse', invalid_ops: validation.results.filter(r => r.errors.length > 0).length }); } catch {}
+      // Emit repairing stage so UI can reflect progress
+      send('stage', JSON.stringify({ stage: 'repairing' }));
       try {
         const repairPrompt = buildRepairPrompt({ instruction: message.trim(), originalOps: ops, errors: validation.results, transcript });
-        const rawRepair = await runOllamaWithThinkingIfGranite({ userContent: repairPrompt });
+        const rawRepair = await runOllamaForJsonPreferred({ userContent: repairPrompt });
         const body = extractResponseBody(rawRepair);
         const tryParse = (text) => { try { return JSON.parse(text); } catch { return null; } };
         let parsedR = tryParse(body);
