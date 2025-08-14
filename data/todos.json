@@ -65,7 +65,7 @@
     "title": "Event 1",
     "notes": "",
     "scheduledFor": "2025-08-14",
-    "priority": "low",
+    "priority": "high",
     "timeOfDay": null,
     "recurrence": {
       "type": "none",
@@ -73,14 +73,14 @@
     },
     "completed": false,
     "createdAt": "2025-08-14T00:00:04.814Z",
-    "updatedAt": "2025-08-14T04:01:51.312Z"
+    "updatedAt": "2025-08-14T05:36:30.616Z"
   },
   {
     "id": 6,
     "title": "Event 2",
     "notes": "",
     "scheduledFor": "2025-08-14",
-    "priority": "low",
+    "priority": "high",
     "timeOfDay": null,
     "recurrence": {
       "type": "none",
@@ -88,14 +88,14 @@
     },
     "completed": false,
     "createdAt": "2025-08-14T00:00:04.814Z",
-    "updatedAt": "2025-08-14T04:01:51.312Z"
+    "updatedAt": "2025-08-14T05:36:30.616Z"
   },
   {
     "id": 7,
     "title": "Event 3",
     "notes": "",
     "scheduledFor": "2025-08-14",
-    "priority": "low",
+    "priority": "high",
     "timeOfDay": "12:00",
     "recurrence": {
       "type": "none",
@@ -103,14 +103,14 @@
     },
     "completed": false,
     "createdAt": "2025-08-14T00:00:04.814Z",
-    "updatedAt": "2025-08-14T04:01:51.312Z"
+    "updatedAt": "2025-08-14T05:36:30.616Z"
   },
   {
     "id": 8,
     "title": "Event 4",
     "notes": "",
     "scheduledFor": "2025-08-16",
-    "priority": "low",
+    "priority": "high",
     "timeOfDay": null,
     "recurrence": {
       "type": "none",
@@ -118,14 +118,14 @@
     },
     "completed": false,
     "createdAt": "2025-08-14T00:00:04.814Z",
-    "updatedAt": "2025-08-14T04:01:51.312Z"
+    "updatedAt": "2025-08-14T05:36:30.616Z"
   },
   {
     "id": 9,
     "title": "Event 5",
     "notes": "",
     "scheduledFor": "2025-08-16",
-    "priority": "low",
+    "priority": "high",
     "timeOfDay": null,
     "recurrence": {
       "type": "none",
@@ -133,14 +133,14 @@
     },
     "completed": false,
     "createdAt": "2025-08-14T00:00:04.814Z",
-    "updatedAt": "2025-08-14T04:01:51.313Z"
+    "updatedAt": "2025-08-14T05:36:30.616Z"
   },
   {
     "id": 10,
     "title": "Event 6",
     "notes": "",
     "scheduledFor": "2025-08-16",
-    "priority": "low",
+    "priority": "high",
     "timeOfDay": null,
     "recurrence": {
       "type": "none",
@@ -148,14 +148,14 @@
     },
     "completed": false,
     "createdAt": "2025-08-14T00:06:40.056Z",
-    "updatedAt": "2025-08-14T04:01:51.313Z"
+    "updatedAt": "2025-08-14T05:36:30.616Z"
   },
   {
     "id": 11,
     "title": "Event 2",
     "notes": "",
     "scheduledFor": "2025-08-14",
-    "priority": "medium",
+    "priority": "high",
     "timeOfDay": null,
     "recurrence": {
       "type": "none",
@@ -163,14 +163,14 @@
     },
     "completed": false,
     "createdAt": "2025-08-14T00:06:40.057Z",
-    "updatedAt": "2025-08-14T00:06:40.057Z"
+    "updatedAt": "2025-08-14T05:36:30.616Z"
   },
   {
     "id": 12,
     "title": "Event 3",
     "notes": "",
     "scheduledFor": "2025-08-14",
-    "priority": "medium",
+    "priority": "high",
     "timeOfDay": null,
     "recurrence": {
       "type": "none",
@@ -178,14 +178,14 @@
     },
     "completed": false,
     "createdAt": "2025-08-14T00:06:40.057Z",
-    "updatedAt": "2025-08-14T00:06:40.057Z"
+    "updatedAt": "2025-08-14T05:36:30.616Z"
   },
   {
     "id": 13,
     "title": "Event 4",
     "notes": "",
     "scheduledFor": "2025-08-16",
-    "priority": "medium",
+    "priority": "high",
     "timeOfDay": null,
     "recurrence": {
       "type": "none",
@@ -193,14 +193,14 @@
     },
     "completed": false,
     "createdAt": "2025-08-14T00:06:40.058Z",
-    "updatedAt": "2025-08-14T00:06:40.058Z"
+    "updatedAt": "2025-08-14T05:36:30.616Z"
   },
   {
     "id": 14,
     "title": "Event 5",
     "notes": "",
     "scheduledFor": "2025-08-16",
-    "priority": "medium",
+    "priority": "high",
     "timeOfDay": null,
     "recurrence": {
       "type": "none",
@@ -208,14 +208,14 @@
     },
     "completed": false,
     "createdAt": "2025-08-14T00:06:40.058Z",
-    "updatedAt": "2025-08-14T00:06:40.058Z"
+    "updatedAt": "2025-08-14T05:36:30.616Z"
   },
   {
     "id": 15,
     "title": "Event 6",
     "notes": "",
     "scheduledFor": "2025-08-16",
-    "priority": "medium",
+    "priority": "high",
     "timeOfDay": null,
     "recurrence": {
       "type": "none",
@@ -223,7 +223,7 @@
     },
     "completed": false,
     "createdAt": "2025-08-14T00:06:40.058Z",
-    "updatedAt": "2025-08-14T00:06:40.058Z"
+    "updatedAt": "2025-08-14T05:36:30.616Z"
   },
   {
     "id": 16,

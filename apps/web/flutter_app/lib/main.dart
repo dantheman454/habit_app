@@ -238,7 +238,13 @@ class _HomePageState extends State<HomePage> {
   // Assistant mode: 'auto' | 'chat' | 'plan' (server default remains 'plan' if omitted)
   String assistantMode = 'auto';
   int? assistantStreamingIndex;
+  // Clarify state: question and structured options/selection
   String? _pendingClarifyQuestion;
+  List<Map<String, dynamic>> _pendingClarifyOptions = const [];
+  final Set<int> _clarifySelectedIds = <int>{};
+  String? _clarifySelectedDate;
+  String? _clarifySelectedPriority;
+  String _progressStage = '';
 
  
 
@@ -736,7 +742,7 @@ class _HomePageState extends State<HomePage> {
             }
           });
         },
-        onClarify: (q) {
+        onClarify: (q, options) {
           if (!mounted) return;
           setState(() {
             // Replace placeholder with clarify question if emitted
@@ -748,9 +754,47 @@ class _HomePageState extends State<HomePage> {
               assistantTranscript.add({'role': 'assistant', 'text': q});
             }
             _pendingClarifyQuestion = q;
+            _pendingClarifyOptions = options;
+            _clarifySelectedIds.clear();
+            _clarifySelectedDate = null;
+            _clarifySelectedPriority = null;
           });
         },
-        priorClarifyQuestion: _pendingClarifyQuestion,
+        priorClarify: (_pendingClarifyQuestion == null)
+            ? null
+            : {
+                'question': _pendingClarifyQuestion,
+                if (_clarifySelectedIds.isNotEmpty || _clarifySelectedDate != null || _clarifySelectedPriority != null)
+                  'selection': {
+                    if (_clarifySelectedIds.isNotEmpty) 'ids': _clarifySelectedIds.toList(),
+                    if (_clarifySelectedDate != null) 'date': _clarifySelectedDate,
+                    if (_clarifySelectedPriority != null) 'priority': _clarifySelectedPriority,
+                  }
+              },
+        onStage: (st) {
+          if (!mounted) return;
+          setState(() { _progressStage = st; });
+        },
+        onOps: (ops, version, validCount, invalidCount) {
+          if (!mounted) return;
+          setState(() {
+            // Replace operations immediately; preserve checked state for matching ops by (op,id)
+            final prior = assistantOps;
+            final priorChecked = assistantOpsChecked;
+            assistantOps = ops.map((e) => AnnotatedOp.fromJson(e)).toList();
+            // Build a quick map by key
+            String kOp(dynamic x) {
+              try {
+                final m = (x is AnnotatedOp) ? x.op : LlmOperation.fromJson(Map<String, dynamic>.from((x as Map<String, dynamic>)['op'] as Map));
+                final id = m.id == null ? '' : '#${m.id}';
+                return '${m.op}$id';
+              } catch (_) { return ''; }
+            }
+            final prevMap = <String, bool>{};
+            for (var i = 0; i < prior.length; i++) { prevMap[kOp(prior[i])] = (i < priorChecked.length ? priorChecked[i] : true); }
+            assistantOpsChecked = List<bool>.generate(assistantOps.length, (i) => prevMap[kOp(assistantOps[i])] ?? assistantOps[i].errors.isEmpty);
+          });
+        },
       );
       final reply = (res['text'] as String?) ?? '';
       final opsRaw = res['operations'] as List<dynamic>?;
@@ -773,6 +817,11 @@ class _HomePageState extends State<HomePage> {
         assistantOpsChecked = List<bool>.generate(ops.length, (i) => ops[i].errors.isEmpty);
         assistantShowDiff = false;
         _pendingClarifyQuestion = null;
+        _pendingClarifyOptions = const [];
+        _clarifySelectedIds.clear();
+        _clarifySelectedDate = null;
+        _clarifySelectedPriority = null;
+        _progressStage = '';
       });
     } catch (e) {
       setState(() {
@@ -1105,6 +1154,16 @@ class _HomePageState extends State<HomePage> {
                                       assistantOpsChecked = [];
                                       assistantShowDiff = false;
                                     }),
+                                    clarifyQuestion: _pendingClarifyQuestion,
+                                    clarifyOptions: _pendingClarifyOptions,
+                                    onToggleClarifyId: (id) => setState(() {
+                                      if (_clarifySelectedIds.contains(id)) _clarifySelectedIds.remove(id);
+                                      else _clarifySelectedIds.add(id);
+                                    }),
+                                     onSelectClarifyDate: (d) => setState(() { _clarifySelectedDate = d; }),
+                                     onSelectClarifyPriority: (p) => setState(() { _clarifySelectedPriority = p; }),
+                                     progressStage: _progressStage,
+                                     todayYmd: ymd(DateTime.now()),
                                   ),
                                 ),
                               ],

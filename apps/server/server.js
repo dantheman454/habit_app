@@ -542,6 +542,27 @@ app.delete('/api/todos/:id', (req, res) => {
 const OLLAMA_MODEL = 'granite3.3:8b';
 const OLLAMA_TEMPERATURE = 0.1;
 const GLOBAL_TIMEOUT_SECS = parseInt(process.env.OLLAMA_TIMEOUT_SECS || '300', 10);
+const CLARIFY_THRESHOLD = 0.45;
+const CHAT_THRESHOLD = 0.70;
+const MAX_DELETE_WARNING = 20;
+const MAX_BULK_UPDATE_WARNING = 50;
+
+// Simple in-memory idempotency cache
+const applyIdempotency = {
+  cache: new Map(),
+  ttlMs: 10 * 60 * 1000,
+  get(key) {
+    if (!key) return null;
+    const v = this.cache.get(key);
+    if (!v) return null;
+    if (Date.now() - v.ts > this.ttlMs) { this.cache.delete(key); return null; }
+    return v.response;
+  },
+  set(key, response) {
+    if (!key) return;
+    this.cache.set(key, { ts: Date.now(), response });
+  }
+};
 
 function validateWhere(where) {
   const errors = [];
@@ -791,7 +812,7 @@ async function runRouter({ instruction, transcript, clarify }) {
       parsed = tryParse(body.replace(/```json|```/g, '').trim());
     }
     if (parsed && typeof parsed === 'object') {
-      const result = {
+      let result = {
         decision: String(parsed.decision || 'plan').toLowerCase(),
         category: parsed.category,
         entities: parsed.entities,
@@ -799,6 +820,22 @@ async function runRouter({ instruction, transcript, clarify }) {
         confidence: Number(parsed.confidence || 0),
         question: parsed.question,
       };
+      // Confidence-gated routing adjustments
+      try {
+        const c = Number.isFinite(result.confidence) ? result.confidence : 0;
+        if (c < CLARIFY_THRESHOLD) result.decision = 'clarify';
+        else if (c < CHAT_THRESHOLD && result.decision === 'plan') result.decision = 'chat';
+        // If clarify.selection is present, bias to plan and seed where
+        if (clarify && clarify.selection && typeof clarify.selection === 'object') {
+          result.decision = 'plan';
+          const sel = clarify.selection;
+          const where = {};
+          if (Array.isArray(sel.ids) && sel.ids.length) where.ids = sel.ids;
+          if (sel.priority) where.priority = sel.priority;
+          if (sel.date) where.scheduled_range = { from: sel.date, to: sel.date };
+          result.where = Object.keys(where).length ? where : result.where;
+        }
+      } catch {}
       if (result.decision === 'clarify') {
         try {
           const snapshots = buildRouterSnapshots();
@@ -811,6 +848,8 @@ async function runRouter({ instruction, transcript, clarify }) {
               ? result.question
               : 'Which item do you mean?';
             result.question = `${q} Options: ${bullets}.`;
+            // Also return structured options alongside the decorated question
+            result.options = cands.map(c => ({ id: c.id, title: c.title, scheduledFor: (c.scheduledFor ?? null) }));
           }
         } catch {}
       }
@@ -829,6 +868,8 @@ function buildProposalPrompt({ instruction, todosSnapshot, transcript }) {
     `For EVERY create or update you MUST include a "recurrence" object. Use {"type":"none"} for non-repeating tasks.\n` +
     `For repeating tasks (recurrence.type != none), an anchor scheduledFor is REQUIRED.\n` +
     `For complete_occurrence, include: id (masterId), occurrenceDate (YYYY-MM-DD), and optional completed (bool).\n` +
+    `When many items share a simple filter, you MAY use bulk operations: bulk_update, bulk_complete, bulk_delete.\n` +
+    `Bulk operations shape: { op: "bulk_update|bulk_complete|bulk_delete", where: { ids?, title_contains?, overdue?, scheduled_range?{from?,to?}, priority?, completed?, repeating? }, set?: { title?, notes?, scheduledFor?, timeOfDay?, priority?, completed?, recurrence? } }. Prefer bulk_* when targets > 5.\n` +
     `Today's date is ${todayYmd}. Do NOT invent invalid IDs. Prefer fewer changes over hallucination.\n` +
     `You may reason internally, but the final output MUST be a single JSON object exactly as specified. Do not include your reasoning or any prose.`;
   const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
@@ -850,6 +891,9 @@ function withApplyLock(fn) { applyMutex = applyMutex.then(() => fn()).catch(() =
 
 app.post('/api/llm/apply', async (req, res) => {
   const { operations } = req.body || {};
+  const idempoKey = req.headers['idempotency-key'] || req.body?.idempotencyKey;
+  const cached = applyIdempotency.get(idempoKey);
+  if (cached) return res.json(cached);
   const validation = validateProposal({ operations });
   if (validation.errors.length) {
     return res.status(400).json({ error: 'invalid_operations', detail: validation, message: 'Some operations were invalid. The assistant may be attempting unsupported or inconsistent changes.' });
@@ -964,7 +1008,9 @@ app.post('/api/llm/apply', async (req, res) => {
       }
     }
   });
-  res.json({ results, summary: { created, updated, deleted, completed } });
+  const response = { results, summary: { created, updated, deleted, completed } };
+  applyIdempotency.set(idempoKey, response);
+  res.json(response);
 });
 
 // --- Assistant chat (two-call pipeline) ---
@@ -1077,18 +1123,6 @@ app.post('/api/assistant/message', async (req, res) => {
     const topK = todosIndex.searchByQuery('', { k: 40 });
     const aggregates = todosIndex.getAggregates();
     let prompt1 = buildProposalPrompt({ instruction: message.trim(), todosSnapshot: { topK, aggregates }, transcript });
-    // Early SSE headers to keep connection alive during longer model calls
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    if (typeof res.flushHeaders === 'function') res.flushHeaders();
-    const send = (event, data) => { res.write(`event: ${event}\n`); res.write(`data: ${data}\n\n`); };
-    send('summary', JSON.stringify({ text: 'Planning…' }));
-    // Heartbeat every 10s
-    const heartbeat = setInterval(() => {
-      try { send('heartbeat', JSON.stringify({ ts: new Date().toISOString() })); } catch {}
-    }, 10000);
-    res.on('close', () => { try { clearInterval(heartbeat); } catch {} });
     const raw1 = await runOllamaWithThinkingIfGranite({ userContent: prompt1 });
     const raw1MaybeResponse = extractResponseBody(raw1);
     const tryParse = (text) => { try { return JSON.parse(text); } catch { return null; } };
@@ -1182,7 +1216,6 @@ app.post('/api/assistant/message', async (req, res) => {
     }
 
     // POST endpoint always returns final JSON; streaming is served by GET /api/assistant/message/stream
-
     res.json({ text, operations: annotatedAll });
   } catch (err) {
     res.status(502).json({ error: 'assistant_failure', detail: String(err && err.message ? err.message : err) });
@@ -1234,7 +1267,7 @@ app.get('/api/assistant/message/stream', async (req, res) => {
         res.setHeader('Connection', 'keep-alive');
         if (typeof res.flushHeaders === 'function') res.flushHeaders();
         const send = (event, data) => { res.write(`event: ${event}\n`); res.write(`data: ${data}\n\n`); };
-        send('clarify', JSON.stringify({ question: route.question }));
+        send('clarify', JSON.stringify({ question: route.question, options: Array.isArray(route.options) ? route.options.map(o => ({ id: o.id, title: o.title, scheduledFor: o.scheduledFor ?? null })) : [] }));
         send('done', 'true');
         return res.end();
       } else if (route.decision === 'chat') {
@@ -1267,6 +1300,19 @@ app.get('/api/assistant/message/stream', async (req, res) => {
     res.setHeader('Connection', 'keep-alive');
     if (typeof res.flushHeaders === 'function') res.flushHeaders();
     const send = (event, data) => { res.write(`event: ${event}\n`); res.write(`data: ${data}\n\n`); };
+    send('stage', JSON.stringify({ stage: 'routing' }));
+    // If router provided a narrowing where, prefer a focused snapshot for proposals
+    let focusedWhere = null;
+    if (mode === 'auto' && AUTO_MODE_ENABLED) {
+      try {
+        const clarify = (() => { try { return JSON.parse(String(req.query.clarify || 'null')); } catch { return null; } })();
+        const route = await runRouter({ instruction: message.trim(), transcript, clarify });
+        if (route && route.where && !Array.isArray(route.where) && typeof route.where === 'object') {
+          focusedWhere = route.where;
+        }
+      } catch {}
+    }
+    send('stage', JSON.stringify({ stage: 'proposing' }));
     send('summary', JSON.stringify({ text: 'Planning…' }));
     const heartbeat = setInterval(() => {
       try { send('heartbeat', JSON.stringify({ ts: new Date().toISOString() })); } catch {}
@@ -1274,9 +1320,9 @@ app.get('/api/assistant/message/stream', async (req, res) => {
     res.on('close', () => { try { clearInterval(heartbeat); } catch {} });
 
     // Call 1 — generate operations
-    const topK = todosIndex.searchByQuery('', { k: 40 });
     const aggregates = todosIndex.getAggregates();
-    const prompt1 = buildProposalPrompt({ instruction: message.trim(), todosSnapshot: { topK, aggregates }, transcript });
+    const topK = focusedWhere ? todosIndex.filterByWhere(focusedWhere).slice(0, 50) : todosIndex.searchByQuery('', { k: 40 });
+    const prompt1 = buildProposalPrompt({ instruction: message.trim(), todosSnapshot: focusedWhere ? { focused: topK, aggregates } : { topK, aggregates }, transcript });
     const raw1 = await runOllamaWithThinkingIfGranite({ userContent: prompt1 });
     const raw1MaybeResponse = extractResponseBody(raw1);
     const tryParse = (text) => { try { return JSON.parse(text); } catch { return null; } };
@@ -1312,6 +1358,8 @@ app.get('/api/assistant/message/stream', async (req, res) => {
 
     let validation = validateProposal({ operations: ops });
     let annotatedAll = validation.results.map(r => ({ op: r.op, errors: r.errors }));
+    send('stage', JSON.stringify({ stage: 'validating' }));
+    send('ops', JSON.stringify({ version: 1, operations: annotatedAll, validCount: validation.results.filter(r => r.errors.length === 0).length, invalidCount: validation.results.filter(r => r.errors.length > 0).length }));
     try {
       const summary = {
         valid: validation.results.filter(r => r.errors.length === 0).length,
@@ -1337,6 +1385,7 @@ app.get('/api/assistant/message/stream', async (req, res) => {
           validation = reValidation;
           annotatedAll = reValidation.results.map(r => ({ op: r.op, errors: r.errors }));
           try { appendAudit({ action: 'repair_success', mode: 'sse', repaired_ops: shaped.length }); } catch {}
+          send('ops', JSON.stringify({ version: 2, operations: annotatedAll, validCount: validation.results.filter(r => r.errors.length === 0).length, invalidCount: validation.results.filter(r => r.errors.length > 0).length }));
         } else {
           try { appendAudit({ action: 'repair_failed', mode: 'sse', remaining_invalid: reValidation.results.filter(r => r.errors.length > 0).length }); } catch {}
         }
@@ -1348,6 +1397,7 @@ app.get('/api/assistant/message/stream', async (req, res) => {
     // Call 2 — conversational summary
     let text;
     try {
+      send('stage', JSON.stringify({ stage: 'summarizing' }));
       const prompt2 = buildConversationalSummaryPrompt({ instruction: message.trim(), operations: validOps, todosSnapshot: todos, transcript });
       const raw2 = await runOllamaWithThinkingIfGranite({ userContent: prompt2 });
       let s2 = stripGraniteTags(String(raw2 || ''));
@@ -1368,6 +1418,45 @@ app.get('/api/assistant/message/stream', async (req, res) => {
     return res.end();
   } catch (err) {
     try { res.status(502).json({ error: 'assistant_failure', detail: String(err && err.message ? err.message : err) }); } catch {}
+  }
+});
+
+// Dry-run endpoint: validate and preview without mutating
+app.post('/api/llm/dryrun', async (req, res) => {
+  try {
+    const { operations } = req.body || {};
+    const validation = validateProposal({ operations });
+    const results = [];
+    let created = 0, updated = 0, deleted = 0, completed = 0;
+    for (const r of (validation.results || [])) {
+      const op = r.op;
+      const errs = r.errors;
+      const entry = { op, valid: errs.length === 0, errors: errs };
+      if (entry.valid) {
+        if (op.op === 'create') created++;
+        else if (op.op === 'update') updated++;
+        else if (op.op === 'delete') deleted++;
+        else if (op.op === 'complete' || op.op === 'complete_occurrence' || op.op === 'bulk_complete') completed++;
+        else if (op.op === 'bulk_update' || op.op === 'bulk_delete') updated++;
+      }
+      results.push(entry);
+    }
+    const warnings = [];
+    try {
+      for (const r of (validation.results || [])) {
+        const op = r.op;
+        if (op.op === 'bulk_delete') {
+          const targets = todosIndex.filterByWhere(op.where || {});
+          if (targets.length > MAX_DELETE_WARNING) warnings.push(`bulk_delete will remove ${targets.length} items`);
+        } else if (op.op === 'bulk_update') {
+          const targets = todosIndex.filterByWhere(op.where || {});
+          if (targets.length > MAX_BULK_UPDATE_WARNING) warnings.push(`bulk_update will affect ${targets.length} items`);
+        }
+      }
+    } catch {}
+    return res.json({ results, summary: { created, updated, deleted, completed }, warnings: warnings.length ? warnings : undefined });
+  } catch (e) {
+    return res.status(400).json({ error: 'dryrun_failed', detail: String(e && e.message ? e.message : e) });
   }
 });
 

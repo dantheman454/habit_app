@@ -68,16 +68,30 @@ Future<void> deleteTodo(int id) async {
   await api.delete('/api/todos/$id');
 }
 
-Future<Map<String, dynamic>> assistantMessage(String message, {List<Map<String, String>> transcript = const [], bool streamSummary = false, String mode = 'plan', void Function(String text)? onSummary, void Function(String question)? onClarify, String? priorClarifyQuestion}) async {
+Future<Map<String, dynamic>> assistantMessage(
+  String message, {
+  List<Map<String, String>> transcript = const [],
+  bool streamSummary = false,
+  String mode = 'plan',
+  void Function(String text)? onSummary,
+  void Function(String question, List<Map<String, dynamic>> options)? onClarify,
+  Map<String, dynamic>? priorClarify,
+  void Function(String stage)? onStage,
+  void Function(List<Map<String, dynamic>> operations, int version, int validCount, int invalidCount)? onOps,
+}) async {
   if (!streamSummary) {
     final res = await api.post('/api/assistant/message', data: {
       'message': message,
       'transcript': transcript,
-      'options': {'streamSummary': false, 'mode': mode, if (priorClarifyQuestion != null) 'clarify': {'question': priorClarifyQuestion}},
+      'options': {
+        'streamSummary': false,
+        'mode': mode,
+        if (priorClarify != null) 'clarify': priorClarify,
+      },
     });
     final map = Map<String, dynamic>.from(res.data as Map);
     if (onClarify != null && map['requiresClarification'] == true && map['question'] is String) {
-      onClarify(map['question'] as String);
+      onClarify(map['question'] as String, const <Map<String, dynamic>>[]);
     }
     return map;
   }
@@ -86,20 +100,48 @@ Future<Map<String, dynamic>> assistantMessage(String message, {List<Map<String, 
     'message': message,
     'transcript': transcript.isEmpty ? '[]' : jsonEncode(transcript),
     'mode': mode,
-    if (priorClarifyQuestion != null) 'clarify': jsonEncode({'question': priorClarifyQuestion}),
+    if (priorClarify != null) 'clarify': jsonEncode(priorClarify),
   }).toString();
 
   final completer = Completer<Map<String, dynamic>>();
   try {
     final es = html.EventSource(uri);
     Map<String, dynamic>? result;
-    // Future clarify listener (no-op until server emits it)
+    // Clarify listener with structured options
     es.addEventListener('clarify', (event) {
       try {
         final data = (event as html.MessageEvent).data as String;
         final obj = jsonDecode(data) as Map<String, dynamic>;
         final q = (obj['question'] as String?) ?? '';
-        if (onClarify != null && q.isNotEmpty) onClarify(q);
+        final optsRaw = obj['options'];
+        final opts = (optsRaw is List)
+            ? optsRaw.map((e) => Map<String, dynamic>.from(e as Map)).toList()
+            : const <Map<String, dynamic>>[];
+        if (onClarify != null && q.isNotEmpty) onClarify(q, opts);
+      } catch (_) {}
+    });
+    // Stage listener
+    es.addEventListener('stage', (event) {
+      try {
+        final data = (event as html.MessageEvent).data as String;
+        final obj = jsonDecode(data) as Map<String, dynamic>;
+        final st = (obj['stage'] as String?) ?? '';
+        if (onStage != null && st.isNotEmpty) onStage(st);
+      } catch (_) {}
+    });
+    // Ops listener (versioned)
+    es.addEventListener('ops', (event) {
+      try {
+        final data = (event as html.MessageEvent).data as String;
+        final obj = jsonDecode(data) as Map<String, dynamic>;
+        final opsRaw = obj['operations'];
+        final version = (obj['version'] is int) ? (obj['version'] as int) : 1;
+        final validCount = (obj['validCount'] is int) ? (obj['validCount'] as int) : 0;
+        final invalidCount = (obj['invalidCount'] is int) ? (obj['invalidCount'] as int) : 0;
+        final ops = (opsRaw is List)
+            ? opsRaw.map((e) => Map<String, dynamic>.from(e as Map)).toList()
+            : const <Map<String, dynamic>>[];
+        if (onOps != null) onOps(ops, version, validCount, invalidCount);
       } catch (_) {}
     });
     es.addEventListener('summary', (event) {
@@ -130,7 +172,7 @@ Future<Map<String, dynamic>> assistantMessage(String message, {List<Map<String, 
           final res = await api.post('/api/assistant/message', data: {
             'message': message,
             'transcript': transcript,
-            'options': {'streamSummary': false, 'mode': mode, if (priorClarifyQuestion != null) 'clarify': {'question': priorClarifyQuestion}},
+            'options': {'streamSummary': false, 'mode': mode, if (priorClarify != null) 'clarify': priorClarify},
           });
           completer.complete(Map<String, dynamic>.from(res.data as Map));
         } catch (e) {

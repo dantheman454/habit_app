@@ -45,6 +45,16 @@ class AssistantPanel extends StatelessWidget {
   final String? mode; // 'chat' | 'plan'
   final void Function(String mode)? onModeChanged;
   final VoidCallback? onClearChat;
+  // Clarify UI
+  final String? clarifyQuestion;
+  final List<Map<String, dynamic>> clarifyOptions;
+  final void Function(int id)? onToggleClarifyId;
+  final void Function(String? date)? onSelectClarifyDate;
+  final void Function(String? priority)? onSelectClarifyPriority;
+  // Progress stage label
+  final String? progressStage;
+  // Helper for date quick-selects
+  final String? todayYmd;
 
   const AssistantPanel({
     super.key,
@@ -63,6 +73,13 @@ class AssistantPanel extends StatelessWidget {
     this.mode,
     this.onModeChanged,
     this.onClearChat,
+    this.clarifyQuestion,
+    this.clarifyOptions = const [],
+    this.onToggleClarifyId,
+    this.onSelectClarifyDate,
+    this.onSelectClarifyPriority,
+    this.progressStage,
+    this.todayYmd,
   });
 
   @override
@@ -117,10 +134,18 @@ class AssistantPanel extends StatelessWidget {
           child: ListView(
             padding: const EdgeInsets.all(8),
             children: [
-              for (final turn in transcript)
-                _buildTurnBubble(context, turn),
+              for (final turn in transcript) _buildTurnBubble(context, turn),
+              if ((clarifyQuestion != null && clarifyQuestion!.isNotEmpty) || clarifyOptions.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                _buildClarifySection(context),
+              ],
               if (sending)
                 _buildTypingBubble(context),
+              if (sending && (progressStage != null && progressStage!.isNotEmpty))
+                Padding(
+                  padding: const EdgeInsets.only(left: 6, bottom: 6),
+                  child: Text('Progress: ${progressStage!}', style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.8))),
+                ),
               if (operations.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 const Text('Proposed operations', style: TextStyle(fontWeight: FontWeight.w600)),
@@ -282,6 +307,65 @@ class AssistantPanel extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
         ),
         child: const _TypingDots(),
+      ),
+    );
+  }
+
+  Widget _buildClarifySection(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceVariant.withOpacity(0.4),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (clarifyQuestion != null && clarifyQuestion!.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Text(clarifyQuestion!, style: const TextStyle(fontWeight: FontWeight.w600)),
+            ),
+          if (clarifyOptions.isNotEmpty)
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final o in clarifyOptions)
+                  FilterChip(
+                    label: Text('#${o['id']} ${o['title']}${o['scheduledFor'] == null ? '' : ' @${o['scheduledFor']}'}'),
+                    selected: false,
+                    onSelected: (_) => onToggleClarifyId?.call((o['id'] as int)),
+                  )
+              ],
+            ),
+          const SizedBox(height: 8),
+          Wrap(spacing: 6, runSpacing: 6, children: [
+            OutlinedButton.icon(
+              icon: const Icon(Icons.today, size: 16),
+              onPressed: () => onSelectClarifyDate?.call(todayYmd),
+              label: const Text('Today'),
+            ),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.calendar_today, size: 16),
+              onPressed: () => onSelectClarifyDate?.call(null),
+              label: const Text('Unscheduled'),
+            ),
+            OutlinedButton(
+              onPressed: () => onSelectClarifyPriority?.call('high'),
+              child: const Text('prio: high'),
+            ),
+            OutlinedButton(
+              onPressed: () => onSelectClarifyPriority?.call('medium'),
+              child: const Text('prio: medium'),
+            ),
+            OutlinedButton(
+              onPressed: () => onSelectClarifyPriority?.call('low'),
+              child: const Text('prio: low'),
+            ),
+          ]),
+        ],
       ),
     );
   }
