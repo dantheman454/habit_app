@@ -1,0 +1,6 @@
+{"ts":"2025-08-15T00:47:20.831Z","action":"router_decision","mode":"post","decision":"clarify","confidence":0.8,"question":"Which specific task are you referring to? Options: #3 “test 3” @2025-08-15."}
+{"ts":"2025-08-15T00:47:27.700Z","action":"router_decision","mode":"sse","decision":"plan","confidence":1,"question":null}
+{"ts":"2025-08-15T00:47:36.427Z","action":"router_decision","mode":"sse","decision":"plan","confidence":1,"question":null}
+{"ts":"2025-08-15T00:47:53.855Z","action":"assistant_understanding","results":[{"op":{"op":"update","id":1,"title":"test","notes":"","scheduledFor":"2025-08-14","priority":"high","timeOfDay":"06:00","recurrence":{"type":"none","until":"2025-12-31"}},"errors":[]}],"summary":{"valid":1,"invalid":0}}
+{"ts":"2025-08-15T00:48:04.614Z","action":"assistant_understanding","results":[{"op":{"op":"bulk_update","where":{"priority":"high"},"set":{"scheduledFor":"2025-08-15"}},"errors":[]}],"summary":{"valid":1,"invalid":0}}
+{"ts":"2025-08-15T00:48:43.267Z","action":"update","op":{"op":"update","id":1,"title":"test","notes":"","scheduledFor":"2025-08-14","priority":"high","timeOfDay":"06:00","recurrence":{"type":"none","until":"2025-12-31"}},"result":"ok","id":1}

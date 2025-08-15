@@ -4,17 +4,15 @@
   "description": "MCP server for todo list operations",
   "main": "apps/server/server.js",
   "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node apps/server/server.js",
     "dev": "nodemon apps/server/server.js",
-    "test": "python3 -m pytest -q",
-    "web": "node apps/server/server.js",
-    "web:dev": "nodemon apps/server/server.js",
-    "start:web": "node apps/server/server.js",
-    "dev:web": "nodemon apps/server/server.js"
+    "test": "python3 -m pytest -q"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^0.4.0",
     "cors": "^2.8.5",
     "express": "^5.1.0"
   },

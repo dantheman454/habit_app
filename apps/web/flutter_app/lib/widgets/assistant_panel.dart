@@ -42,8 +42,7 @@ class AssistantPanel extends StatelessWidget {
   final TextEditingController inputController;
   final VoidCallback onSend;
   final String Function(dynamic op)? opLabel;
-  final String? mode; // 'chat' | 'plan'
-  final void Function(String mode)? onModeChanged;
+  // mode removed
   final VoidCallback? onClearChat;
   // Clarify UI
   final String? clarifyQuestion;
@@ -75,8 +74,6 @@ class AssistantPanel extends StatelessWidget {
     required this.inputController,
     required this.onSend,
     this.opLabel,
-    this.mode,
-    this.onModeChanged,
     this.onClearChat,
     this.clarifyQuestion,
     this.clarifyOptions = const [],

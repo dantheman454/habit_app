@@ -235,8 +235,7 @@ class _HomePageState extends State<HomePage> {
   List<bool> assistantOpsChecked = [];
   bool assistantSending = false;
   bool assistantShowDiff = false;
-  // Assistant mode: 'auto' | 'chat' | 'plan' (server default remains 'plan' if omitted)
-  String assistantMode = 'auto';
+  // Assistant mode removed; server always uses auto flow
   int? assistantStreamingIndex;
   // Clarify state: question and structured options/selection
   String? _pendingClarifyQuestion;
@@ -269,7 +268,7 @@ class _HomePageState extends State<HomePage> {
     setState(() => loading = true);
     try {
       final r = rangeForView(anchor, view);
-      final scheduledRaw = await api.fetchScheduled(from: r.from, to: r.to, completed: showCompleted ? null : false, expand: true);
+      final scheduledRaw = await api.fetchScheduled(from: r.from, to: r.to, completed: showCompleted ? null : false);
       final scheduledAllRaw = await api.fetchScheduledAllTime(completed: showCompleted ? null : false);
       final backlogRaw = await api.fetchBacklog();
       final sList = scheduledRaw.map((e) => Todo.fromJson(e as Map<String, dynamic>)).toList();
@@ -479,7 +478,10 @@ class _HomePageState extends State<HomePage> {
       if (t.masterId != null && t.scheduledFor != null) {
         await api.updateOccurrence(t.masterId!, t.scheduledFor!, !t.completed);
       } else {
-        await api.updateTodo(t.id, {'completed': !t.completed});
+        await api.updateTodo(t.id, {
+          'completed': !t.completed,
+          'recurrence': t.recurrence ?? {'type': 'none'}
+        });
       }
       await _refreshAll();
     } catch (e) {
@@ -701,6 +703,9 @@ class _HomePageState extends State<HomePage> {
 
     if (patch.isEmpty) return;
     try {
+      if (!patch.containsKey('recurrence')) {
+        patch['recurrence'] = t.recurrence ?? {'type': 'none'};
+      }
       await api.updateTodo(t.id, patch);
       await _refreshAll();
     } catch (e) {
@@ -730,7 +735,6 @@ class _HomePageState extends State<HomePage> {
         text,
         transcript: recent,
         streamSummary: true,
-        mode: assistantMode,
         onSummary: (s) {
           // Update placeholder bubble with latest streamed text
           if (!mounted) return;
@@ -1132,6 +1136,7 @@ class _HomePageState extends State<HomePage> {
                           setState(() => showCompleted = v);
                           _refreshAll();
                         },
+                        counters: sidebarCounts,
                       ),
                     ),
                     const VerticalDivider(width: 1),
@@ -1183,16 +1188,6 @@ class _HomePageState extends State<HomePage> {
                                     inputController: assistantCtrl,
                                     onSend: _sendAssistantMessage,
                                     opLabel: (op) => _opLabel((op as AnnotatedOp).op),
-                                    mode: assistantMode,
-                                    onModeChanged: (m) => setState(() {
-                                      assistantMode = m;
-                                      // Clear pending ops when switching to chat mode to avoid stale UI
-                                      if (assistantMode == 'chat') {
-                                        assistantOps = [];
-                                        assistantOpsChecked = [];
-                                        assistantShowDiff = false;
-                                      }
-                                    }),
                                     onClearChat: () => setState(() {
                                       assistantTranscript.clear();
                                       assistantOps = [];
@@ -1258,14 +1253,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildSimpleList(List<Todo> items) {
-    return ListView.separated(
-      padding: const EdgeInsets.all(8),
-      itemCount: items.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 6),
-      itemBuilder: (context, i) => _buildRow(items[i]),
-    );
-  }
+  
 
   Widget _buildRow(Todo t) {
     // Determine overdue: only in Today context, timed tasks, not completed, and time < now

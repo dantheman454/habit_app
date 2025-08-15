@@ -14,12 +14,11 @@ String _computeApiBase() {
 
 final Dio api = Dio(BaseOptions(baseUrl: _computeApiBase()));
 
-Future<List<dynamic>> fetchScheduled({required String from, required String to, bool? completed, bool expand = true}) async {
+Future<List<dynamic>> fetchScheduled({required String from, required String to, bool? completed}) async {
   final res = await api.get('/api/todos', queryParameters: {
     'from': from,
     'to': to,
     if (completed != null) 'completed': completed.toString(),
-    if (expand) 'expand': 'true',
   });
   return (res.data['todos'] as List<dynamic>);
 }
@@ -72,7 +71,6 @@ Future<Map<String, dynamic>> assistantMessage(
   String message, {
   List<Map<String, String>> transcript = const [],
   bool streamSummary = false,
-  String mode = 'plan',
   void Function(String text)? onSummary,
   void Function(String question, List<Map<String, dynamic>> options)? onClarify,
   Map<String, dynamic>? priorClarify,
@@ -84,8 +82,6 @@ Future<Map<String, dynamic>> assistantMessage(
       'message': message,
       'transcript': transcript,
       'options': {
-        'streamSummary': false,
-        'mode': mode,
         if (priorClarify != null) 'clarify': priorClarify,
       },
     });
@@ -99,7 +95,6 @@ Future<Map<String, dynamic>> assistantMessage(
   final uri = Uri.parse('${api.options.baseUrl}/api/assistant/message/stream').replace(queryParameters: {
     'message': message,
     'transcript': transcript.isEmpty ? '[]' : jsonEncode(transcript),
-    'mode': mode,
     if (priorClarify != null) 'clarify': jsonEncode(priorClarify),
   }).toString();
 
@@ -172,7 +167,7 @@ Future<Map<String, dynamic>> assistantMessage(
           final res = await api.post('/api/assistant/message', data: {
             'message': message,
             'transcript': transcript,
-            'options': {'streamSummary': false, 'mode': mode, if (priorClarify != null) 'clarify': priorClarify},
+            'options': { if (priorClarify != null) 'clarify': priorClarify },
           });
           completer.complete(Map<String, dynamic>.from(res.data as Map));
         } catch (e) {
@@ -185,7 +180,7 @@ Future<Map<String, dynamic>> assistantMessage(
     final res = await api.post('/api/assistant/message', data: {
       'message': message,
       'transcript': transcript,
-      'options': {'streamSummary': false, 'mode': mode},
+      'options': {},
     });
     return Map<String, dynamic>.from(res.data as Map);
   }

@@ -23,7 +23,6 @@ const STATIC_DIR = process.env.STATIC_DIR || path.join(REPO_ROOT, 'apps', 'web',
 
 // --- Timezone (fixed semantics) ---
 const TIMEZONE = process.env.TZ_NAME || 'America/New_York';
-const AUTO_MODE_ENABLED = String(process.env.ASSISTANT_AUTO_MODE_ENABLED || 'true').toLowerCase() !== 'false';
 
 function ymdInTimeZone(date, tz) {
   try {
@@ -158,6 +157,20 @@ function normalizeTodo(todo) {
   } catch {
     return todo;
   }
+}
+
+// Merge/normalize recurrence on a target todo with consistent defaults and transitions
+function applyRecurrenceMutation(targetTodo, incomingRecurrence) {
+  try {
+    const prevType = targetTodo?.recurrence?.type || 'none';
+    targetTodo.recurrence = { ...(targetTodo.recurrence || {}), ...(incomingRecurrence || {}) };
+    if (targetTodo.recurrence.until === undefined) targetTodo.recurrence.until = endOfCurrentYearYmd();
+    if (prevType !== 'none' && targetTodo.recurrence.type === 'none') {
+      targetTodo.completedDates = [];
+    } else if (targetTodo.recurrence.type !== 'none') {
+      if (!Array.isArray(targetTodo.completedDates)) targetTodo.completedDates = [];
+    }
+  } catch {}
 }
 
 let todos = loadTodos();
@@ -297,21 +310,23 @@ app.use(express.json({ limit: '256kb' }));
 // Health
 app.get('/health', (_req, res) => { res.json({ ok: true }); });
 
-// Debug: list routes (temporary)
-app.get('/__routes', (_req, res) => {
-  try {
-    const routes = [];
-    app._router.stack.forEach((m) => {
-      if (m.route && m.route.path) {
-        const methods = Object.keys(m.route.methods).filter(Boolean);
-        routes.push({ path: m.route.path, methods });
-      }
-    });
-    res.json({ routes });
-  } catch (e) {
-    res.status(500).json({ error: String(e && e.message ? e.message : e) });
-  }
-});
+// Debug: list routes (optional)
+if (process.env.ENABLE_DEBUG_ROUTES === 'true') {
+  app.get('/__routes', (_req, res) => {
+    try {
+      const routes = [];
+      app._router.stack.forEach((m) => {
+        if (m.route && m.route.path) {
+          const methods = Object.keys(m.route.methods).filter(Boolean);
+          routes.push({ path: m.route.path, methods });
+        }
+      });
+      res.json({ routes });
+    } catch (e) {
+      res.status(500).json({ error: String(e && e.message ? e.message : e) });
+    }
+  });
+}
 
 // --- CRUD Endpoints ---
 // Create
@@ -354,7 +369,7 @@ app.post('/api/todos', (req, res) => {
 
 // List (scheduled only within range)
 app.get('/api/todos', (req, res) => {
-  const { from, to, priority, completed, expand } = req.query;
+  const { from, to, priority, completed } = req.query;
   if (from !== undefined && !isYmdString(from)) return res.status(400).json({ error: 'invalid_from' });
   if (to !== undefined && !isYmdString(to)) return res.status(400).json({ error: 'invalid_to' });
   if (priority !== undefined && !['low', 'medium', 'high'].includes(String(priority))) {
@@ -374,7 +389,7 @@ app.get('/api/todos', (req, res) => {
   if (priority) items = items.filter(t => String(t.priority).toLowerCase() === String(priority).toLowerCase());
   if (completedBool !== undefined) items = items.filter(t => t.completed === completedBool);
 
-  const doExpand = ((String(expand).toLowerCase() === 'true' || expand === true) || true) && fromDate && toDate;
+  const doExpand = !!(fromDate && toDate);
   if (!doExpand) {
     if (fromDate || toDate) {
       items = items.filter(t => {
@@ -482,18 +497,7 @@ app.patch('/api/todos/:id', (req, res) => {
   if (priority !== undefined) t.priority = priority;
   if (completed !== undefined) t.completed = completed;
   if (timeOfDay !== undefined) t.timeOfDay = (timeOfDay === '' ? null : timeOfDay);
-  if (recurrence !== undefined) {
-    const prevType = t.recurrence?.type || 'none';
-    t.recurrence = { ...t.recurrence, ...recurrence };
-    // Normalize defaults: until default only if undefined
-    if (t.recurrence.until === undefined) t.recurrence.until = endOfCurrentYearYmd();
-    if (prevType !== 'none' && t.recurrence.type === 'none') {
-      // moving repeating -> none: clear completedDates
-      t.completedDates = [];
-    } else if (t.recurrence.type !== 'none') {
-      if (!Array.isArray(t.completedDates)) t.completedDates = [];
-    }
-  }
+  if (recurrence !== undefined) { applyRecurrenceMutation(t, recurrence); }
   t.updatedAt = now;
   saveTodos(todos);
   try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {}
@@ -774,6 +778,40 @@ function stripGraniteTags(text) {
   } catch { return String(text); }
 }
 
+// Lenient JSON parsing: try direct parse, then strip code fences, then brace-match first object
+function parseJsonLenient(text) {
+  const tryParse = (t) => { try { return JSON.parse(t); } catch { return null; } };
+  try {
+    const body = String(text || '');
+    // 1) direct
+    let parsed = tryParse(body);
+    if (parsed) return parsed;
+    // 2) fenced ```json or ```
+    if (/```/.test(body)) {
+      const unfenced = body.replace(/```json|```/g, '').trim();
+      parsed = tryParse(unfenced);
+      if (parsed) return parsed;
+    }
+    // 3) first top-level { ... } object
+    const s = body;
+    const start = s.indexOf('{');
+    if (start !== -1) {
+      let depth = 0; let end = -1;
+      for (let i = start; i < s.length; i++) {
+        const ch = s[i];
+        if (ch === '{') depth++;
+        else if (ch === '}') { depth--; if (depth === 0) { end = i; break; } }
+      }
+      if (end !== -1) {
+        const sliced = s.slice(start, end + 1);
+        parsed = tryParse(sliced);
+        if (parsed) return parsed;
+      }
+    }
+  } catch {}
+  return null;
+}
+
 function buildSchemaV2Excerpt() {
   return [
     'Schema v2:',
@@ -831,11 +869,7 @@ async function runRouter({ instruction, transcript, clarify }) {
     const prompt = buildRouterPrompt({ instruction, transcript, clarify });
     const raw = await runOllamaForJsonPreferred({ userContent: prompt });
     const body = extractResponseBody(raw);
-    const tryParse = (text) => { try { return JSON.parse(text); } catch { return null; } };
-    let parsed = tryParse(body);
-    if (!parsed && /```/.test(body)) {
-      parsed = tryParse(body.replace(/```json|```/g, '').trim());
-    }
+    let parsed = parseJsonLenient(body);
     if (parsed && typeof parsed === 'object') {
       let result = {
         decision: String(parsed.decision || 'plan').toLowerCase(),
@@ -926,11 +960,12 @@ app.post('/api/llm/apply', async (req, res) => {
   const results = [];
   let created = 0, updated = 0, deleted = 0, completed = 0;
   await withApplyLock(async () => {
+    let mutatedSinceRefresh = false;
     for (const op of operations) {
       try {
         if (op.op === 'create') {
           const t = createTodo({ title: String(op.title || '').trim(), notes: op.notes || '', scheduledFor: op.scheduledFor ?? null, priority: op.priority || 'medium', timeOfDay: (op.timeOfDay === '' ? null : op.timeOfDay) ?? null, recurrence: op.recurrence });
-          todos.push(t); saveTodos(todos); try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {} ; results.push({ ok: true, op, todo: t }); created++;
+          todos.push(t); mutatedSinceRefresh = true; results.push({ ok: true, op, todo: t }); created++;
           appendAudit({ action: 'create', op, result: 'ok', id: t.id });
         } else if (op.op === 'update') {
           const t = findTodoById(op.id); if (!t) throw new Error('not_found');
@@ -941,26 +976,16 @@ app.post('/api/llm/apply', async (req, res) => {
           if (op.priority !== undefined) t.priority = op.priority;
           if (op.completed !== undefined) t.completed = !!op.completed;
           if (op.timeOfDay !== undefined) t.timeOfDay = (op.timeOfDay === '' ? null : op.timeOfDay);
-          if (op.recurrence !== undefined) {
-            const prevType = t.recurrence?.type || 'none';
-            t.recurrence = { ...t.recurrence, ...op.recurrence };
-            if (t.recurrence.until === undefined) t.recurrence.until = endOfCurrentYearYmd();
-            if (prevType !== 'none' && t.recurrence.type === 'none') {
-              t.completedDates = [];
-            } else if (t.recurrence.type !== 'none') {
-              if (!Array.isArray(t.completedDates)) t.completedDates = [];
-            }
-          }
-          t.updatedAt = now; saveTodos(todos); try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {} ; results.push({ ok: true, op, todo: t }); updated++;
+          if (op.recurrence !== undefined) { applyRecurrenceMutation(t, op.recurrence); }
+          t.updatedAt = now; mutatedSinceRefresh = true; results.push({ ok: true, op, todo: t }); updated++;
           appendAudit({ action: 'update', op, result: 'ok', id: t.id });
         } else if (op.op === 'delete') {
           const idx = todos.findIndex(t => t.id === op.id); if (idx === -1) throw new Error('not_found');
-          const removed = todos.splice(idx, 1)[0]; saveTodos(todos); try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {} ; results.push({ ok: true, op }); deleted++;
+          const removed = todos.splice(idx, 1)[0]; mutatedSinceRefresh = true; results.push({ ok: true, op }); deleted++;
           appendAudit({ action: 'delete', op, result: 'ok', id: removed?.id });
         } else if (op.op === 'complete') {
           const t = findTodoById(op.id); if (!t) throw new Error('not_found');
-          t.completed = op.completed === undefined ? true : !!op.completed; t.updatedAt = new Date().toISOString();
-          saveTodos(todos); try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {} ; results.push({ ok: true, op, todo: t }); completed++;
+          t.completed = op.completed === undefined ? true : !!op.completed; t.updatedAt = new Date().toISOString(); mutatedSinceRefresh = true; results.push({ ok: true, op, todo: t }); completed++;
           appendAudit({ action: 'complete', op, result: 'ok', id: t.id });
         } else if (op.op === 'complete_occurrence') {
           const t = findTodoById(op.id); if (!t) throw new Error('not_found');
@@ -970,9 +995,10 @@ app.post('/api/llm/apply', async (req, res) => {
           const shouldComplete = (op.completed === undefined) ? true : !!op.completed;
           if (shouldComplete) { if (idx === -1) t.completedDates.push(op.occurrenceDate); }
           else { if (idx !== -1) t.completedDates.splice(idx, 1); }
-          t.updatedAt = new Date().toISOString(); saveTodos(todos); try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {} ; results.push({ ok: true, op, todo: t }); completed++;
+          t.updatedAt = new Date().toISOString(); mutatedSinceRefresh = true; results.push({ ok: true, op, todo: t }); completed++;
           appendAudit({ action: 'complete_occurrence', op, result: 'ok', id: t.id });
         } else if (op.op === 'bulk_update') {
+          if (mutatedSinceRefresh) { saveTodos(todos); try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {} ; mutatedSinceRefresh = false; }
           // Expand where to concrete ids, then apply updates item-wise
           const targets = todosIndex.filterByWhere(op.where || {});
           const set = op.set || {};
@@ -985,41 +1011,34 @@ app.post('/api/llm/apply', async (req, res) => {
             if (set.priority !== undefined) tt.priority = set.priority;
             if (set.completed !== undefined) tt.completed = !!set.completed;
             if (set.timeOfDay !== undefined) tt.timeOfDay = (set.timeOfDay === '' ? null : set.timeOfDay);
-            if (set.recurrence !== undefined) {
-              const prevType = tt.recurrence?.type || 'none';
-              tt.recurrence = { ...tt.recurrence, ...set.recurrence };
-              if (tt.recurrence.until === undefined) tt.recurrence.until = endOfCurrentYearYmd();
-              if (prevType !== 'none' && tt.recurrence.type === 'none') {
-                tt.completedDates = [];
-              } else if (tt.recurrence.type !== 'none') {
-                if (!Array.isArray(tt.completedDates)) tt.completedDates = [];
-              }
-            }
+            if (set.recurrence !== undefined) { applyRecurrenceMutation(tt, set.recurrence); }
             tt.updatedAt = now2;
           }
-          saveTodos(todos); try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {}
+          saveTodos(todos); try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {} ; mutatedSinceRefresh = false;
           results.push({ ok: true, op, count: targets.length, expandedIds: targets.map(t => t.id) });
           updated += targets.length;
           appendAudit({ action: 'bulk_update', op, result: 'ok', expandedIds: targets.map(t => t.id) });
         } else if (op.op === 'bulk_complete') {
+          if (mutatedSinceRefresh) { saveTodos(todos); try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {} ; mutatedSinceRefresh = false; }
           const targets = todosIndex.filterByWhere(op.where || {});
           const shouldComplete = (op.completed === undefined) ? true : !!op.completed;
           for (const t of targets) {
             const tt = findTodoById(t.id); if (!tt) continue;
             tt.completed = shouldComplete; tt.updatedAt = new Date().toISOString();
           }
-          saveTodos(todos); try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {}
+          saveTodos(todos); try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {} ; mutatedSinceRefresh = false;
           results.push({ ok: true, op, count: targets.length, expandedIds: targets.map(t => t.id) });
           completed += targets.length;
           appendAudit({ action: 'bulk_complete', op, result: 'ok', expandedIds: targets.map(t => t.id) });
         } else if (op.op === 'bulk_delete') {
+          if (mutatedSinceRefresh) { saveTodos(todos); try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {} ; mutatedSinceRefresh = false; }
           const targets = todosIndex.filterByWhere(op.where || {});
           const ids = new Set(targets.map(t => t.id));
           let removedCount = 0;
           for (let i = todos.length - 1; i >= 0; i--) {
             if (ids.has(todos[i].id)) { todos.splice(i, 1); removedCount++; }
           }
-          saveTodos(todos); try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {}
+          saveTodos(todos); try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {} ; mutatedSinceRefresh = false;
           results.push({ ok: true, op, count: removedCount, expandedIds: Array.from(ids) });
           deleted += removedCount;
           appendAudit({ action: 'bulk_delete', op, result: 'ok', expandedIds: Array.from(ids) });
@@ -1031,6 +1050,10 @@ app.post('/api/llm/apply', async (req, res) => {
         results.push({ ok: false, op, error: String(e && e.message ? e.message : e) });
         appendAudit({ action: op?.op || 'unknown', op, result: 'error', error: String(e && e.message ? e.message : e) });
       }
+    }
+    if (mutatedSinceRefresh) {
+      saveTodos(todos);
+      try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {}
     }
   });
   const response = { results, summary: { created, updated, deleted, completed } };
@@ -1087,16 +1110,87 @@ function buildDeterministicSummaryText(operations) {
 }
 
 // Lightweight chat-only prompt (no operations)
-function buildChatPrompt({ instruction, transcript }) {
-  const today = new Date();
-  const todayYmd = ymdInTimeZone(today, TIMEZONE);
-  const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
-  const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
-  const system = `You are a helpful assistant for a todo app. Keep answers concise and clear. Prefer 1–3 short sentences; allow a short paragraph when needed. No markdown, no lists.`;
-  const context = `Conversation (last 3 turns):\n${convo}\n\nToday: ${todayYmd} (${TIMEZONE})`;
-  const user = `User message:\n${instruction}`;
-  const task = `Respond helpfully and concretely. Do not output JSON.`;
-  return `${system}\n\n${context}\n\n${user}\n\n${task}`;
+// Chat-only prompt removed; only auto pipeline is supported.
+
+// Shared helper: propose → validate → (attempt repair) → return ops and annotations
+async function runProposalAndRepair({ instruction, transcript, focusedWhere, mode = 'post', onValidating, onOps, onRepairing }) {
+  // Snapshot selection
+  const aggregates = todosIndex.getAggregates();
+  const topK = focusedWhere ? todosIndex.filterByWhere(focusedWhere).slice(0, 50) : todosIndex.searchByQuery('', { k: 40 });
+  const snapshot = focusedWhere ? { focused: topK, aggregates } : { topK, aggregates };
+
+  // Propose
+  const prompt1 = buildProposalPrompt({ instruction: instruction.trim(), todosSnapshot: snapshot, transcript });
+  const raw1 = await runOllamaForJsonPreferred({ userContent: prompt1 });
+  const raw1MaybeResponse = extractResponseBody(raw1);
+  let parsed1 = parseJsonLenient(raw1MaybeResponse);
+  let ops = [];
+  if (Array.isArray(parsed1)) ops = parsed1;
+  else if (parsed1 && Array.isArray(parsed1.operations)) ops = parsed1.operations;
+  else if (parsed1 && Array.isArray(parsed1.actions)) ops = parsed1.actions;
+  if (!ops.length && parsed1 && typeof parsed1 === 'object') ops = [parsed1];
+  ops = ops.filter(o => o && typeof o === 'object').map(o => {
+    const m = { ...o };
+    if (!m.op && typeof m.action === 'string') m.op = m.action;
+    if (!m.op && typeof m.type === 'string') m.op = m.type;
+    return inferOperationShape(m);
+  }).filter(Boolean);
+
+  // Validate initial
+  let validation = validateProposal({ operations: ops });
+  let annotatedAll = validation.results.map(r => ({ op: r.op, errors: r.errors }));
+  try {
+    const summary = {
+      valid: validation.results.filter(r => r.errors.length === 0).length,
+      invalid: validation.results.filter(r => r.errors.length > 0).length,
+    };
+    appendAudit({ action: 'assistant_understanding', results: annotatedAll, summary });
+  } catch {}
+  if (typeof onValidating === 'function') {
+    try { onValidating(); } catch {}
+  }
+  if (typeof onOps === 'function') {
+    try {
+      onOps(1, annotatedAll, validation.results.filter(r => r.errors.length === 0).length, validation.results.filter(r => r.errors.length > 0).length);
+    } catch {}
+  }
+
+  // Attempt single repair if needed
+  if (validation.errors.length) {
+    try { appendAudit({ action: 'repair_attempted', mode }); } catch {}
+    if (typeof onRepairing === 'function') {
+      try { onRepairing(); } catch {}
+    }
+    try {
+      const repairPrompt = buildRepairPrompt({ instruction: instruction.trim(), originalOps: ops, errors: validation.results, transcript });
+      const rawRepair = await runOllamaForJsonPreferred({ userContent: repairPrompt });
+      const body = extractResponseBody(rawRepair);
+      let parsedR = parseJsonLenient(body);
+      const repairedOps = (parsedR && Array.isArray(parsedR.operations)) ? parsedR.operations : [];
+      const shaped = repairedOps.filter(o => o && typeof o === 'object').map(o => inferOperationShape(o)).filter(Boolean);
+      const reValidation = validateProposal({ operations: shaped });
+      if (!reValidation.errors.length) {
+        ops = shaped;
+        validation = reValidation;
+        annotatedAll = reValidation.results.map(r => ({ op: r.op, errors: r.errors }));
+        try { appendAudit({ action: 'repair_success', mode, repaired_ops: shaped.length }); } catch {}
+        if (typeof onOps === 'function') {
+          try {
+            onOps(2, annotatedAll, validation.results.filter(r => r.errors.length === 0).length, validation.results.filter(r => r.errors.length > 0).length);
+          } catch {}
+        }
+      } else {
+        try { appendAudit({ action: 'repair_failed', mode, remaining_invalid: reValidation.results.filter(r => r.errors.length > 0).length }); } catch {}
+        // keep original valid subset
+        ops = validation.results.filter(r => r.errors.length === 0).map(r => r.op);
+      }
+    } catch {
+      ops = validation.results.filter(r => r.errors.length === 0).map(r => r.op);
+      try { appendAudit({ action: 'repair_error', mode }); } catch {}
+    }
+  }
+
+  return { ops, annotatedAll, validation };
 }
 
 app.post('/api/assistant/message', async (req, res) => {
@@ -1105,131 +1199,19 @@ app.post('/api/assistant/message', async (req, res) => {
     if (typeof message !== 'string' || message.trim() === '') {
       return res.status(400).json({ error: 'invalid_message' });
     }
-    const mode = String((options && options.mode) || 'plan').toLowerCase();
-
-    // Router branch for auto mode
-    if (mode === 'auto' && AUTO_MODE_ENABLED) {
-      const route = await runRouter({ instruction: message.trim(), transcript, clarify: options && options.clarify });
-      try { appendAudit({ action: 'router_decision', mode: 'post', decision: route.decision, confidence: route.confidence, question: route.question || null }); } catch {}
-      if (route.decision === 'clarify' && route.question) {
-        return res.json({ requiresClarification: true, question: route.question });
-      } else if (route.decision === 'chat') {
-        try {
-          const prompt = buildChatPrompt({ instruction: message.trim(), transcript });
-          const raw = await runOllamaWithThinkingIfGranite({ userContent: prompt });
-          let s = stripGraniteTags(String(raw || ''));
-          s = s.replace(/```[\s\S]*?```/g, '').trim();
-          s = s.replace(/[\r\n]+/g, ' ').trim();
-          const text = s || 'Okay.';
-          return res.json({ text, operations: [] });
-        } catch (e) {
-          return res.status(502).json({ error: 'assistant_failure', detail: String(e && e.message ? e.message : e) });
-        }
-      }
-      // else fall through to plan path
+    // Auto pipeline: router → (clarify|plan) → proposal → validate/repair → summarize
+    const route = await runRouter({ instruction: message.trim(), transcript, clarify: options && options.clarify });
+    try { appendAudit({ action: 'router_decision', mode: 'post', decision: route.decision, confidence: route.confidence, question: route.question || null }); } catch {}
+    if (route.decision === 'clarify' && route.question) {
+      return res.json({ requiresClarification: true, question: route.question });
     }
 
-    // Chat-only mode: single LLM call, no operations
-    if (mode === 'chat') {
-      try {
-        const prompt = buildChatPrompt({ instruction: message.trim(), transcript });
-        const raw = await runOllamaWithThinkingIfGranite({ userContent: prompt });
-        let s = stripGraniteTags(String(raw || ''));
-        s = s.replace(/```[\s\S]*?```/g, '').trim();
-        s = s.replace(/[\r\n]+/g, ' ').trim();
-        const text = s || 'Okay.';
-        return res.json({ text, operations: [] });
-      } catch (e) {
-        return res.status(502).json({ error: 'assistant_failure', detail: String(e && e.message ? e.message : e) });
-      }
-    }
-
-    // Call 1 — generate operations (reuse robust proposal pipeline)
-    // If auto mode, run router once to seed a focused snapshot via route.where
-    let topK;
-    const aggregates = todosIndex.getAggregates();
-    if (mode === 'auto' && AUTO_MODE_ENABLED) {
-      try {
-        const route = await runRouter({ instruction: message.trim(), transcript, clarify: options && options.clarify });
-        if (route && route.where && !Array.isArray(route.where) && typeof route.where === 'object') {
-          topK = todosIndex.filterByWhere(route.where).slice(0, 50);
-        }
-      } catch {}
-    }
-    if (!topK) topK = todosIndex.searchByQuery('', { k: 40 });
-    let prompt1 = buildProposalPrompt({ instruction: message.trim(), todosSnapshot: Array.isArray(topK) && topK.length && (mode === 'auto') ? { focused: topK, aggregates } : { topK, aggregates }, transcript });
-    const raw1 = await runOllamaForJsonPreferred({ userContent: prompt1 });
-    const raw1MaybeResponse = extractResponseBody(raw1);
-    const tryParse = (text) => { try { return JSON.parse(text); } catch { return null; } };
-    let parsed1 = tryParse(raw1MaybeResponse);
-    if (!parsed1 && /```/.test(raw1MaybeResponse)) {
-      const inner = raw1MaybeResponse.replace(/```json|```/g, '').trim();
-      parsed1 = tryParse(inner);
-    }
-    if (!parsed1) {
-      // Try extracting first JSON object
-      const s = raw1MaybeResponse;
-      const start = s.indexOf('{');
-      if (start !== -1) {
-        let depth = 0; let end = -1;
-        for (let i = start; i < s.length; i++) {
-          const ch = s[i];
-          if (ch === '{') depth++;
-          else if (ch === '}') { depth--; if (depth === 0) { end = i; break; } }
-        }
-        if (end !== -1) parsed1 = tryParse(s.slice(start, end + 1));
-      }
-    }
-    let ops = [];
-    if (Array.isArray(parsed1)) ops = parsed1;
-    else if (parsed1 && Array.isArray(parsed1.operations)) ops = parsed1.operations;
-    else if (parsed1 && Array.isArray(parsed1.actions)) ops = parsed1.actions;
-    if (!ops.length && parsed1 && typeof parsed1 === 'object') ops = [parsed1];
-    ops = ops.filter(o => o && typeof o === 'object').map(o => {
-      const m = { ...o };
-      if (!m.op && typeof m.action === 'string') m.op = m.action;
-      if (!m.op && typeof m.type === 'string') m.op = m.type;
-      return inferOperationShape(m);
-    }).filter(Boolean);
-
-    let validation = validateProposal({ operations: ops });
-    let annotatedAll = validation.results.map(r => ({ op: r.op, errors: r.errors }));
-    // Audit the model's understanding (internal-only)
-    try {
-      const summary = {
-        valid: validation.results.filter(r => r.errors.length === 0).length,
-        invalid: validation.results.filter(r => r.errors.length > 0).length,
-      };
-      appendAudit({ action: 'assistant_understanding', results: annotatedAll, summary });
-    } catch {}
-    if (validation.errors.length) {
-      try { appendAudit({ action: 'repair_attempted', mode: 'post', invalid_ops: validation.results.filter(r => r.errors.length > 0).length }); } catch {}
-      // Single repair attempt
-      try {
-        const repairPrompt = buildRepairPrompt({ instruction: message.trim(), originalOps: ops, errors: validation.results, transcript });
-        const rawRepair = await runOllamaForJsonPreferred({ userContent: repairPrompt });
-        const body = extractResponseBody(rawRepair);
-        const tryParse = (text) => { try { return JSON.parse(text); } catch { return null; } };
-        let parsedR = tryParse(body);
-        if (!parsedR && /```/.test(body)) parsedR = tryParse(body.replace(/```json|```/g, '').trim());
-        const repairedOps = (parsedR && Array.isArray(parsedR.operations)) ? parsedR.operations : [];
-        const shaped = repairedOps.filter(o => o && typeof o === 'object').map(o => inferOperationShape(o)).filter(Boolean);
-        const reValidation = validateProposal({ operations: shaped });
-        if (!reValidation.errors.length) {
-          ops = shaped;
-          validation = reValidation;
-          annotatedAll = reValidation.results.map(r => ({ op: r.op, errors: r.errors }));
-          try { appendAudit({ action: 'repair_success', mode: 'post', repaired_ops: shaped.length }); } catch {}
-        } else {
-          // fallback to valid-only from first pass
-          try { appendAudit({ action: 'repair_failed', mode: 'post', remaining_invalid: reValidation.results.filter(r => r.errors.length > 0).length }); } catch {}
-          ops = validation.results.filter(r => r.errors.length === 0).map(r => r.op);
-        }
-      } catch {
-        ops = validation.results.filter(r => r.errors.length === 0).map(r => r.op);
-        try { appendAudit({ action: 'repair_error', mode: 'post' }); } catch {}
-      }
-    }
+    const { ops, annotatedAll, validation } = await runProposalAndRepair({
+      instruction: message,
+      transcript,
+      focusedWhere: (route && route.where && !Array.isArray(route.where) && typeof route.where === 'object') ? route.where : null,
+      mode: 'post'
+    });
 
     // Call 2 — conversational summary
     let text;
@@ -1250,7 +1232,7 @@ app.post('/api/assistant/message', async (req, res) => {
       appendAudit({ action: 'assistant_message', conversational_fallback: true, error: String(e && e.message ? e.message : e) });
     }
 
-    // POST endpoint always returns final JSON; streaming is served by GET /api/assistant/message/stream
+    // POST endpoint returns final JSON; streaming is served by GET /api/assistant/message/stream
     res.json({ text, operations: annotatedAll });
   } catch (err) {
     res.status(502).json({ error: 'assistant_failure', detail: String(err && err.message ? err.message : err) });
@@ -1266,67 +1248,18 @@ app.get('/api/assistant/message/stream', async (req, res) => {
       try { return Array.isArray(transcriptParam) ? transcriptParam : JSON.parse(String(transcriptParam || '[]')); } catch { return []; }
     })();
     if (message.trim() === '') return res.status(400).json({ error: 'invalid_message' });
-    const mode = String(req.query.mode || 'plan').toLowerCase();
-
-    if (mode === 'chat') {
-      try {
-        const prompt = buildChatPrompt({ instruction: message.trim(), transcript });
-        const raw = await runOllamaWithThinkingIfGranite({ userContent: prompt });
-        let s = stripGraniteTags(String(raw || ''));
-        s = s.replace(/```[\s\S]*?```/g, '').trim();
-        s = s.replace(/[\r\n]+/g, ' ').trim();
-        const text = s || 'Okay.';
-
-        // Stream SSE
-        res.setHeader('Content-Type', 'text/event-stream');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Connection', 'keep-alive');
-        if (typeof res.flushHeaders === 'function') res.flushHeaders();
-        const send = (event, data) => { res.write(`event: ${event}\n`); res.write(`data: ${data}\n\n`); };
-        send('summary', JSON.stringify({ text }));
-        send('result', JSON.stringify({ text, operations: [] }));
-        send('done', 'true');
-        return res.end();
-      } catch (e) {
-        try { return res.status(502).json({ error: 'assistant_failure', detail: String(e && e.message ? e.message : e) }); } catch {}
-      }
-    }
-
-    if (mode === 'auto' && AUTO_MODE_ENABLED) {
-      const clarify = (() => { try { return JSON.parse(String(req.query.clarify || 'null')); } catch { return null; } })();
-      const route = await runRouter({ instruction: message.trim(), transcript, clarify });
-      try { appendAudit({ action: 'router_decision', mode: 'sse', decision: route.decision, confidence: route.confidence, question: route.question || null }); } catch {}
-      if (route.decision === 'clarify' && route.question) {
-        res.setHeader('Content-Type', 'text/event-stream');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Connection', 'keep-alive');
-        if (typeof res.flushHeaders === 'function') res.flushHeaders();
-        const send = (event, data) => { res.write(`event: ${event}\n`); res.write(`data: ${data}\n\n`); };
-        send('clarify', JSON.stringify({ question: route.question, options: Array.isArray(route.options) ? route.options.map(o => ({ id: o.id, title: o.title, scheduledFor: o.scheduledFor ?? null })) : [] }));
-        send('done', 'true');
-        return res.end();
-      } else if (route.decision === 'chat') {
-        try {
-          const prompt = buildChatPrompt({ instruction: message.trim(), transcript });
-          const raw = await runOllamaWithThinkingIfGranite({ userContent: prompt });
-          let s = stripGraniteTags(String(raw || ''));
-          s = s.replace(/```[\s\S]*?```/g, '').trim();
-          s = s.replace(/[\r\n]+/g, ' ').trim();
-          const text = s || 'Okay.';
-          res.setHeader('Content-Type', 'text/event-stream');
-          res.setHeader('Cache-Control', 'no-cache');
-          res.setHeader('Connection', 'keep-alive');
-          if (typeof res.flushHeaders === 'function') res.flushHeaders();
-          const send = (event, data) => { res.write(`event: ${event}\n`); res.write(`data: ${data}\n\n`); };
-          send('summary', JSON.stringify({ text }));
-          send('result', JSON.stringify({ text, operations: [] }));
-          send('done', 'true');
-          return res.end();
-        } catch (e) {
-          try { return res.status(502).json({ error: 'assistant_failure', detail: String(e && e.message ? e.message : e) }); } catch {}
-        }
-      }
-      // else fall through to plan path; plan branch will set SSE headers below
+    const clarify = (() => { try { return JSON.parse(String(req.query.clarify || 'null')); } catch { return null; } })();
+    const route = await runRouter({ instruction: message.trim(), transcript, clarify });
+    try { appendAudit({ action: 'router_decision', mode: 'sse', decision: route.decision, confidence: route.confidence, question: route.question || null }); } catch {}
+    if (route.decision === 'clarify' && route.question) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      if (typeof res.flushHeaders === 'function') res.flushHeaders();
+      const send = (event, data) => { res.write(`event: ${event}\n`); res.write(`data: ${data}\n\n`); };
+      send('clarify', JSON.stringify({ question: route.question, options: Array.isArray(route.options) ? route.options.map(o => ({ id: o.id, title: o.title, scheduledFor: o.scheduledFor ?? null })) : [] }));
+      send('done', 'true');
+      return res.end();
     }
 
     // Establish SSE for plan path
@@ -1338,15 +1271,11 @@ app.get('/api/assistant/message/stream', async (req, res) => {
     send('stage', JSON.stringify({ stage: 'routing' }));
     // If router provided a narrowing where, prefer a focused snapshot for proposals
     let focusedWhere = null;
-    if (mode === 'auto' && AUTO_MODE_ENABLED) {
-      try {
-        const clarify = (() => { try { return JSON.parse(String(req.query.clarify || 'null')); } catch { return null; } })();
-        const route = await runRouter({ instruction: message.trim(), transcript, clarify });
-        if (route && route.where && !Array.isArray(route.where) && typeof route.where === 'object') {
-          focusedWhere = route.where;
-        }
-      } catch {}
-    }
+    try {
+      if (route && route.where && !Array.isArray(route.where) && typeof route.where === 'object') {
+        focusedWhere = route.where;
+      }
+    } catch {}
     send('stage', JSON.stringify({ stage: 'proposing' }));
     send('summary', JSON.stringify({ text: 'Planning…' }));
     const heartbeat = setInterval(() => {
@@ -1354,82 +1283,15 @@ app.get('/api/assistant/message/stream', async (req, res) => {
     }, 10000);
     res.on('close', () => { try { clearInterval(heartbeat); } catch {} });
 
-    // Call 1 — generate operations
-    const aggregates = todosIndex.getAggregates();
-    const topK = focusedWhere ? todosIndex.filterByWhere(focusedWhere).slice(0, 50) : todosIndex.searchByQuery('', { k: 40 });
-    const prompt1 = buildProposalPrompt({ instruction: message.trim(), todosSnapshot: focusedWhere ? { focused: topK, aggregates } : { topK, aggregates }, transcript });
-    const raw1 = await runOllamaForJsonPreferred({ userContent: prompt1 });
-    const raw1MaybeResponse = extractResponseBody(raw1);
-    const tryParse = (text) => { try { return JSON.parse(text); } catch { return null; } };
-    let parsed1 = tryParse(raw1MaybeResponse);
-    if (!parsed1 && /```/.test(raw1MaybeResponse)) {
-      const inner = raw1MaybeResponse.replace(/```json|```/g, '').trim();
-      parsed1 = tryParse(inner);
-    }
-    if (!parsed1) {
-      const s = raw1MaybeResponse;
-      const start = s.indexOf('{');
-      if (start !== -1) {
-        let depth = 0; let end = -1;
-        for (let i = start; i < s.length; i++) {
-          const ch = s[i];
-          if (ch === '{') depth++;
-          else if (ch === '}') { depth--; if (depth === 0) { end = i; break; } }
-        }
-        if (end !== -1) parsed1 = tryParse(s.slice(start, end + 1));
-      }
-    }
-    let ops = [];
-    if (Array.isArray(parsed1)) ops = parsed1;
-    else if (parsed1 && Array.isArray(parsed1.operations)) ops = parsed1.operations;
-    else if (parsed1 && Array.isArray(parsed1.actions)) ops = parsed1.actions;
-    if (!ops.length && parsed1 && typeof parsed1 === 'object') ops = [parsed1];
-    ops = ops.filter(o => o && typeof o === 'object').map(o => {
-      const m = { ...o };
-      if (!m.op && typeof m.action === 'string') m.op = m.action;
-      if (!m.op && typeof m.type === 'string') m.op = m.type;
-      return inferOperationShape(m);
-    }).filter(Boolean);
-
-    let validation = validateProposal({ operations: ops });
-    let annotatedAll = validation.results.map(r => ({ op: r.op, errors: r.errors }));
-    send('stage', JSON.stringify({ stage: 'validating' }));
-    send('ops', JSON.stringify({ version: 1, operations: annotatedAll, validCount: validation.results.filter(r => r.errors.length === 0).length, invalidCount: validation.results.filter(r => r.errors.length > 0).length }));
-    try {
-      const summary = {
-        valid: validation.results.filter(r => r.errors.length === 0).length,
-        invalid: validation.results.filter(r => r.errors.length > 0).length,
-      };
-      appendAudit({ action: 'assistant_understanding', results: annotatedAll, summary });
-    } catch {}
-    let validOps = validation.results.filter(r => r.errors.length === 0).map(r => r.op);
-    if (validation.errors.length) {
-      try { appendAudit({ action: 'repair_attempted', mode: 'sse', invalid_ops: validation.results.filter(r => r.errors.length > 0).length }); } catch {}
-      // Emit repairing stage so UI can reflect progress
-      send('stage', JSON.stringify({ stage: 'repairing' }));
-      try {
-        const repairPrompt = buildRepairPrompt({ instruction: message.trim(), originalOps: ops, errors: validation.results, transcript });
-        const rawRepair = await runOllamaForJsonPreferred({ userContent: repairPrompt });
-        const body = extractResponseBody(rawRepair);
-        const tryParse = (text) => { try { return JSON.parse(text); } catch { return null; } };
-        let parsedR = tryParse(body);
-        if (!parsedR && /```/.test(body)) parsedR = tryParse(body.replace(/```json|```/g, '').trim());
-        const repairedOps = (parsedR && Array.isArray(parsedR.operations)) ? parsedR.operations : [];
-        const shaped = repairedOps.filter(o => o && typeof o === 'object').map(o => inferOperationShape(o)).filter(Boolean);
-        const reValidation = validateProposal({ operations: shaped });
-        if (!reValidation.errors.length) {
-          validOps = shaped;
-          validation = reValidation;
-          annotatedAll = reValidation.results.map(r => ({ op: r.op, errors: r.errors }));
-          try { appendAudit({ action: 'repair_success', mode: 'sse', repaired_ops: shaped.length }); } catch {}
-          send('ops', JSON.stringify({ version: 2, operations: annotatedAll, validCount: validation.results.filter(r => r.errors.length === 0).length, invalidCount: validation.results.filter(r => r.errors.length > 0).length }));
-        } else {
-          try { appendAudit({ action: 'repair_failed', mode: 'sse', remaining_invalid: reValidation.results.filter(r => r.errors.length > 0).length }); } catch {}
-        }
-      } catch {
-        try { appendAudit({ action: 'repair_error', mode: 'sse' }); } catch {}
-      }
-    }
+    const { ops: validOps, annotatedAll, validation } = await runProposalAndRepair({
+      instruction: message,
+      transcript,
+      focusedWhere,
+      mode: 'sse',
+      onValidating: () => send('stage', JSON.stringify({ stage: 'validating' })),
+      onOps: (version, operations, validCount, invalidCount) => send('ops', JSON.stringify({ version, operations, validCount, invalidCount })),
+      onRepairing: () => send('stage', JSON.stringify({ stage: 'repairing' }))
+    });
 
     // Call 2 — conversational summary
     let text;
@@ -1508,7 +1370,7 @@ app.use((err, _req, res, _next) => {
 });
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
-const HOST = '127.0.0.1';
+const HOST = process.env.HOST || '127.0.0.1';
 app.listen(PORT, HOST, () => {
   console.log(`Server listening at http://${HOST}:${PORT}`);
 });
