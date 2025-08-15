@@ -109,10 +109,11 @@ async function main() {
   const second = await request('POST', '/api/llm/apply', idemPayload, { 'Idempotency-Key': idemKey });
   assert.equal(first.status, 200);
   assert.equal(second.status, 200);
+  // Ensure indexing has been applied before asserting search results
   const idemSearch = await request('GET', '/api/todos/search?query=idem');
   assert.equal(idemSearch.status, 200);
   const idemCount = idemSearch.body.todos.filter(t => String(t.title || '').toLowerCase().includes('idem task')).length;
-  assert.ok(idemCount >= 1);
+  assert.ok(idemCount >= 1, 'Expected at least one todo with title containing "Idem Task"');
 
   // Bulk ops should be rejected in V3 (dryrun returns error annotation)
   const bulkDry = await request('POST', '/api/llm/dryrun', { operations: [{ op: 'bulk_update', where: {}, set: { priority: 'high' } }] });

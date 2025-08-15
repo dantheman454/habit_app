@@ -14,6 +14,13 @@ String _computeApiBase() {
 
 final Dio api = Dio(BaseOptions(baseUrl: _computeApiBase()));
 
+Future<String> fetchAssistantModel() async {
+  final res = await api.get('/api/assistant/model');
+  final data = Map<String, dynamic>.from(res.data as Map);
+  final m = data['model'];
+  return (m is String) ? m : '';
+}
+
 Future<List<dynamic>> fetchScheduled({required String from, required String to, bool? completed}) async {
   final res = await api.get('/api/todos', queryParameters: {
     'from': from,

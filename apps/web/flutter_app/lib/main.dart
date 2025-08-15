@@ -218,6 +218,8 @@ class _HomePageState extends State<HomePage> {
 
   bool loading = false;
   String? message;
+  // Assistant model label
+  String _assistantModel = '';
   
     
   final TextEditingController assistantCtrl = TextEditingController();
@@ -242,6 +244,7 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _refreshAll();
+    _loadAssistantModel();
   }
 
   @override
@@ -292,6 +295,16 @@ class _HomePageState extends State<HomePage> {
       setState(() => message = 'Load failed: $e');
     } finally {
       setState(() => loading = false);
+    }
+  }
+
+  Future<void> _loadAssistantModel() async {
+    try {
+      final m = await api.fetchAssistantModel();
+      if (!mounted) return;
+      setState(() { _assistantModel = m; });
+    } catch (_) {
+      // ignore
     }
   }
 
@@ -1181,6 +1194,7 @@ class _HomePageState extends State<HomePage> {
                                     operations: assistantOps,
                                     operationsChecked: assistantOpsChecked,
                                     sending: assistantSending,
+                                    model: _assistantModel,
                                     showDiff: assistantShowDiff,
                                     onToggleDiff: () => setState(() => assistantShowDiff = !assistantShowDiff),
                                     onToggleOperation: (i, v) => setState(() => assistantOpsChecked[i] = v),

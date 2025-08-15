@@ -14,6 +14,7 @@
     "test:integration": "node tests/run.js",
     "test:all": "node tests/all.js",
     "test": "node tests/all.js",
+    "test:with-server": "node scripts/test_with_server.js",
     "db:migrate": "node apps/server/database/migration_script.js",
     "db:dump": "node scripts/db_dump.js"
   },

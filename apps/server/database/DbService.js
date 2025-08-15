@@ -408,7 +408,7 @@ export class DbService {
   }
 }
 
-const instance = new DbService('./data/app.db');
+const instance = new DbService(process.env.APP_DB_PATH || './data/app.db');
 export default instance;
 
 

@@ -17,8 +17,6 @@ const __dirname = path.dirname(__filename);
 // --- Paths ---
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const DATA_DIR = path.join(REPO_ROOT, 'data');
-const TODOS_FILE = path.join(DATA_DIR, 'todos.json');
-const COUNTER_FILE = path.join(DATA_DIR, 'counter.json');
 const STATIC_DIR = process.env.STATIC_DIR || path.join(REPO_ROOT, 'apps', 'web', 'flutter_app', 'build', 'web');
 const SCHEMA_FILE = path.join(REPO_ROOT, 'apps', 'server', 'database', 'schema.sql');
 
@@ -784,12 +782,17 @@ app.delete('/api/todos/:id', (req, res) => {
 });
 
 // --- LLM proposal-and-verify (Ollama) ---
-const OLLAMA_MODEL = 'granite3.3:8b';
+const OLLAMA_MODEL = 'gemma3:12b';
 const OLLAMA_TEMPERATURE = 0.1;
 const GLOBAL_TIMEOUT_SECS = parseInt(process.env.OLLAMA_TIMEOUT_SECS || '300', 10);
 const CLARIFY_THRESHOLD = 0.45;
 const CHAT_THRESHOLD = 0.70;
 // Note: bulk operations are not supported; validation rejects them.
+
+// Read-only endpoint to expose the current assistant model (UX badge)
+app.get('/api/assistant/model', (_req, res) => {
+  res.json({ model: OLLAMA_MODEL });
+});
 
 
 function validateWhere(where) {

@@ -34,6 +34,7 @@ class AssistantPanel extends StatelessWidget {
   final List<dynamic> operations; // Accepts domain type with fields used above (supports annotated ops)
   final List<bool> operationsChecked;
   final bool sending;
+  final String? model; // raw model id (badge)
   final bool showDiff;
   final VoidCallback onToggleDiff;
   final void Function(int index, bool value) onToggleOperation;
@@ -66,6 +67,7 @@ class AssistantPanel extends StatelessWidget {
     required this.operations,
     required this.operationsChecked,
     required this.sending,
+    this.model,
     required this.showDiff,
     required this.onToggleDiff,
     required this.onToggleOperation,
@@ -123,6 +125,21 @@ class AssistantPanel extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
           child: Row(
             children: [
+              if (model != null && model!.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surface,
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.5)),
+                  ),
+                  child: Row(children: [
+                    const Icon(Icons.memory, size: 14),
+                    const SizedBox(width: 6),
+                    Text(model!, style: const TextStyle(fontSize: 12)),
+                  ]),
+                ),
+              const SizedBox(width: 8),
               const Spacer(),
               if (onClearChat != null)
                 TextButton.icon(
