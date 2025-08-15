@@ -4,21 +4,21 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 
 ### Cross-cutting concerns
 
-- Content type and size: JSON bodies up to 256kb (server 293:294)
-- CORS enabled, `x-powered-by` disabled (server 291:293)
-- Static assets served after API routes from `STATIC_DIR` (server 1403:1406)
+- Content type and size: JSON bodies up to 256kb (server 306)
+- CORS enabled, `x-powered-by` disabled (server 304:305)
+- Static assets served after API routes from `STATIC_DIR` (server 1483:1485)
 
 ### Endpoints (server)
 
 - Health
   - GET `/health` → `{ ok: true }`
-  - Source: `apps/server/server.js` 297:299
+  - Source: `apps/server/server.js` 310:312
 
 - List scheduled (optionally expanded occurrences)
   - GET `/api/todos`
   - Query: `from?: YYYY-MM-DD`, `to?: YYYY-MM-DD`, `priority?: low|medium|high`, `completed?: true|false`
   - Response: `{ todos: Todo[] }` where `Todo` are masters when no range is supplied; when `from,to` are present, returns expanded occurrences within range
-  - Source: `apps/server/server.js` 358:412
+  - Source: `apps/server/server.js` 370:430
   - Behavior details:
     - When `from,to` are provided, repeating tasks are expanded into daily occurrences across the closed-open interval `[from, to+1d)`; non-repeating tasks are included once if within range (server 397:410)
     - Without a range, returns scheduled masters optionally filtered by `priority` and `completed` (server 375:393)
@@ -26,16 +26,16 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 
 - Backlog (unscheduled only)
   - GET `/api/todos/backlog` → `{ todos: Todo[] }`
-  - Source: `apps/server/server.js` 415:418
+  - Source: `apps/server/server.js` 432:435
 
 - Search (title or notes)
   - GET `/api/todos/search?query=<text>&completed=true|false`
   - Response: `{ todos: Todo[] }`
-  - Source: `apps/server/server.js` 421:434
+  - Source: `apps/server/server.js` 438:446
 
 - Get by id
   - GET `/api/todos/:id` → `{ todo: Todo }`
-  - Source: `apps/server/server.js` 437:443
+  - Source: `apps/server/server.js` 454:460
 
 - Create
   - POST `/api/todos`
@@ -43,7 +43,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
   - Strict policy: recurrence object is REQUIRED; use `{ type: 'none' }` for non-repeating.
   - For repeating recurrence, `scheduledFor` anchor is REQUIRED.
   - Response: `{ todo: Todo }`
-  - Source: `apps/server/server.js` 320:355
+  - Source: `apps/server/server.js` 333:368
   - Validation matrix:
     - `title`: required non-empty string → `invalid_title`
     - `recurrence`: required object with `type` → `missing_recurrence`/`invalid_recurrence`
@@ -56,7 +56,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
   - Body (partial): `title?`, `notes?`, `scheduledFor?`, `priority?`, `completed?`, `timeOfDay?`, `recurrence?`
   - Strict policy: recurrence object REQUIRED on update as well. For repeating recurrence, anchor must exist (either in patch or existing).
   - Response: `{ todo: Todo }`
-  - Source: `apps/server/server.js` 446:503
+  - Source: `apps/server/server.js` 463:509
   - Validation matrix (differences from Create):
     - `id`: path param must be int → `invalid_id`, 404 → `not_found`
     - `recurrence`: REQUIRED; for repeating, anchor must exist in patch or existing record → `missing_recurrence`, `missing_anchor_for_recurrence`
@@ -67,31 +67,32 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
   - PATCH `/api/todos/:id/occurrence` with `{ occurrenceDate: YYYY-MM-DD, completed?: boolean }`
   - Mutates `completedDates` on master
   - Response: `{ todo: Todo }`
-  - Source: `apps/server/server.js` 506:529
+  - Source: `apps/server/server.js` 512:535
   - Notes:
     - Validates `occurrenceDate` strictly; toggles membership in master `completedDates`
     - Returns 400 `not_repeating` if target is non-repeating
 
 - Delete by id
   - DELETE `/api/todos/:id` → `{ ok: true }`
-  - Source: `apps/server/server.js` 531:541
+  - Source: `apps/server/server.js` 538:547
 
 - Assistant — auto pipeline (non-streaming)
   - POST `/api/assistant/message` with `{ message: string, transcript?: {role,text}[], options?: { clarify?: object } }`
-  - Returns `{ text: string, operations: { op: LlmOperation, errors: string[] }[] }` or a clarification `{ requiresClarification: true, question }`.
-  - Source: `apps/server/server.js` 1094:1214
+  - Returns `{ text: string, operations: { op: LlmOperation, errors: string[] }[] }`, a clarification `{ requiresClarification: true, question }`, or a chat-only `{ text, operations: [] }` when the router decides `chat`.
+  - Source: `apps/server/server.js` 1268:1332
 
 - Assistant — auto pipeline (SSE streaming)
   - GET `/api/assistant/message/stream` query: `message`, `transcript`, `clarify?`
-  - Events: `stage`, `clarify`, `ops`, `summary`, `result`, `done`
-  - Source: `apps/server/server.js` 1216:1362
+  - Events: `stage`, `clarify`, `ops`, `summary`, `result`, `done`. When router decides `chat`, only `summary` and `done` are emitted.
+  - Source: `apps/server/server.js` 1335:1442
 
 - LLM Apply (idempotent via header `Idempotency-Key`)
   - POST `/api/llm/apply` `{ operations: LlmOperation[] }` → `{ results, summary }`
   - Validation and per-op application; bulk operations expand `where` via index.
-  - Source: `apps/server/server.js` 919:1041
+  - Source: `apps/server/server.js` 974:1134
   - Operation coverage:
     - `create|update|delete|complete|complete_occurrence|bulk_update|bulk_complete|bulk_delete`
+    - `bulk_complete` supports optional `occurrenceDate: YYYY-MM-DD` or `occurrence_range: { from?: YYYY-MM-DD|null, to?: YYYY-MM-DD|null }` to act on repeating occurrences via `completedDates`. Without these, non-repeating tasks toggle `completed`; repeating tasks fall back to master `completed`.
     - Bulk ops expand `where` via index: `filterByWhere` (index 100:141)
   - Side effects: persist todos, refresh index, append audit
 
@@ -114,8 +115,8 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 
 - 200: successful responses per endpoint
 - 400: validation failures (strings listed above per endpoint)
-- 404: `not_found` for missing id (server 479:480, 536:537)
-- 500: internal error handler returns `{ error: 'internal_error' }` (server 1408:1411)
+- 404: `not_found` for missing id (server 459, 497, 543)
+- 500: internal error handler returns `{ error: 'internal_error' }` (server 1488:1491)
 
 ### Error contracts (selected)
 

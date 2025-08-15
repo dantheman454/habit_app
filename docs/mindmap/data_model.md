@@ -7,7 +7,7 @@ This document specifies the Todo schema, recurrence semantics, occurrence expans
 - `data/todos.json`: authoritative array of Todo objects
 - `data/counter.json`: `{ nextId: number }`
 - `data/audit.jsonl`: append-only audit lines
-- References: `apps/server/server.js` 17:23, 98:101, 101:118, 119:133
+- References: `apps/server/server.js` 17:23, 100:116, 118:133
 
 ### Todo schema (normalized)
 
@@ -26,34 +26,34 @@ Fields present on master todos and expanded occurrences unless noted:
 - `createdAt: ISO-8601 string`
 - `updatedAt: ISO-8601 string`
 
-Normalization rules: `apps/server/server.js` 135:161
+Normalization rules: `apps/server/server.js` 142:160
 
 - Default `timeOfDay` to null when absent
 - Default `recurrence` to `{ type: 'none', until: endOfCurrentYear }` when absent; preserve provided `until` when defined
 - When `recurrence.type != 'none'`, ensure `completedDates` is an array
 - Ensure `completed` boolean exists (defaults to false)
 
-Creation: `createTodo(...)` applies normalization, increments `nextId`, stamps timestamps, persists `counter.json` (server 175:191)
-Update: updates mutable fields; merges `recurrence` with defaults; handles completedDates lifecycle; stamps `updatedAt` (server 478:500)
+Creation: `createTodo(...)` applies normalization, increments `nextId`, stamps timestamps, persists `counter.json` (server 188:204)
+Update: updates mutable fields; merges `recurrence` with defaults; handles completedDates lifecycle; stamps `updatedAt` (server 496:506)
 
 ### Recurrence
 
-Type union: `'none'|'daily'|'weekdays'|'weekly'|'every_n_days'` (server 216:228, 239:256)
+Type union: `'none'|'daily'|'weekdays'|'weekly'|'every_n_days'` (server 229:241, 252:269)
 
 - Anchor date: `scheduledFor` on the master is REQUIRED when `type != 'none'`
 - `until?: YYYY-MM-DD|null`: cap expansion; `null` means no cap
 - `intervalDays` (for `every_n_days`): integer >= 1, step from anchor
 
-Validation: `isValidRecurrence` and validators in `validateOperation` (server 216:228, 590:649)
+Validation: `isValidRecurrence` and validators in `validateOperation` (server 229:241, 597:665)
 
 Edge cases:
-- `until === undefined` → default `YYYY-12-31` for current year (server 147:152, 491:491, 949:949, 994:994)
-- `until === null` → no cap in expansion; loop only bounded by request `[from,to]` (server 262:269)
-- `timeOfDay === ''` from client normalized to `null` in handlers (server 338:339, 486:486)
+- `until` default is provided by `endOfCurrentYearYmd()` and enforced by `applyRecurrenceMutation` when absent (server 135:140, 167:171)
+- `until === null` → no cap in expansion; loop only bounded by request `[from,to]` (server 275:279)
+- `timeOfDay === ''` from client normalized to `null` in handlers (server 351:353, 499:500)
 
 ### Occurrence expansion
 
-Function: `expandOccurrences(todo, fromDate, toDate)` (server 258:287)
+Function: `expandOccurrences(todo, fromDate, toDate)` (server 271:300)
 
 - Iterates dates from `max(fromDate, anchor)` to inclusive end-of-day for `toDate`
 - Stops at `until` if provided
@@ -64,7 +64,7 @@ Function: `expandOccurrences(todo, fromDate, toDate)` (server 258:287)
   - `scheduledFor = occurrenceDate`
   - `completed` computed from `completedDates.includes(dateStr)`
 
-Rule matching: `matchesRule` (server 239:256)
+Rule matching: `matchesRule` (server 252:269)
 - `daily`: always true
 - `weekdays`: Monday–Friday only
 - `weekly`: same weekday as anchor
@@ -88,17 +88,17 @@ Tokenization/scoring details:
 - For any master with `recurrence.type != 'none'`:
   - `scheduledFor` must be a valid `YYYY-MM-DD`
   - `completed` flag on master is not used to mark occurrences; use `completedDates`
-  - Completing an occurrence toggles membership of `occurrenceDate` in `completedDates`
-- When a repeating task switches to `type: 'none'`, `completedDates` is cleared (server 492:495)
+  - Completing an occurrence toggles membership of `occurrenceDate` in `completedDates` (server 524:531, 1014:1021)
+- When a repeating task switches to `type: 'none'`, `completedDates` is cleared (server 168:172)
 - `timeOfDay` accepts `HH:MM` 24h or null; client uses null to indicate all-day
 - `id` is stable; operations that change recurrence do not change `id`
-- Expanded occurrences use master `id`; client distinguishes with `masterId!=null` (main.dart 1267:1281)
+- Expanded occurrences use master `id`; client distinguishes with `masterId!=null` (main.dart ~1263:1275)
 
 ### Persistence & durability
 
-- Synchronous writes for todos/counter ensure immediate durability (server 113:117, 130:133)
-- Apply path uses a single-process mutex to serialize multi-op writes (server 916:918)
-- Audit lines appended for all mutating LLM ops; CRUD endpoints do not append audit by design (server 936, 961, 967, 976, 1006, 1016, 1027)
+- Synchronous writes for todos/counter ensure immediate durability (server 112:116, 129:133)
+- Apply path uses a single-process mutex to serialize multi-op writes (server 971:973)
+- Audit lines appended for all mutating LLM ops; CRUD endpoints do not append audit by design (server 966:969; apply path throughout 989–1116)
 
 
 

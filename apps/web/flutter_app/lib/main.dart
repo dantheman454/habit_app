@@ -74,6 +74,7 @@ class LlmOperation {
   final Map<String, dynamic>? setFields; // for bulk_update set payload (serialized as 'set')
   // Occurrence completion support
   final String? occurrenceDate; // YYYY-MM-DD for complete_occurrence
+  final Map<String, dynamic>? occurrenceRange; // { from?, to? } for bulk_complete
   LlmOperation({
     required this.op,
     this.id,
@@ -87,6 +88,7 @@ class LlmOperation {
     this.where,
     this.setFields,
     this.occurrenceDate,
+    this.occurrenceRange,
   });
   factory LlmOperation.fromJson(Map<String, dynamic> j) => LlmOperation(
         op: j['op'] as String,
@@ -105,6 +107,7 @@ class LlmOperation {
         where: j['where'] == null ? null : Map<String, dynamic>.from(j['where'] as Map),
         setFields: j['set'] == null ? null : Map<String, dynamic>.from(j['set'] as Map),
         occurrenceDate: j['occurrenceDate'] as String?,
+        occurrenceRange: j['occurrence_range'] == null ? null : Map<String, dynamic>.from(j['occurrence_range'] as Map),
       );
   Map<String, dynamic> toJson() => {
         'op': op,
@@ -119,6 +122,7 @@ class LlmOperation {
         if (where != null) 'where': where,
         if (setFields != null) 'set': setFields,
         if (occurrenceDate != null) 'occurrenceDate': occurrenceDate,
+        if (occurrenceRange != null) 'occurrence_range': occurrenceRange,
       };
 }
 
@@ -567,7 +571,7 @@ class _HomePageState extends State<HomePage> {
                   if (recurType == 'weekly' && dateCtrl.text.trim().isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: 6),
-                      child: Text('Repeats every weekday of anchor ${dateCtrl.text.trim()}', style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                      child: Text('Repeats weekly on the same weekday as anchor ${dateCtrl.text.trim()}', style: const TextStyle(fontSize: 12, color: Colors.black54)),
                     ),
                   const SizedBox(height: 12),
                   Align(
@@ -662,7 +666,7 @@ class _HomePageState extends State<HomePage> {
                 if (recurType == 'weekly' && dateCtrl.text.trim().isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 6),
-                    child: Text('Repeats every weekday of anchor ${dateCtrl.text.trim()}', style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                    child: Text('Repeats weekly on the same weekday as anchor ${dateCtrl.text.trim()}', style: const TextStyle(fontSize: 12, color: Colors.black54)),
                   ),
               ],
             ),

@@ -11,10 +11,10 @@ Actionable(NO HABITS,GOALS, OR EVENTS until app has same functionality as how I 
 
 
 -get behaviours the app needs to faciliate (use notebookLM for this and make a detailed spec for the application; Frontend, backend, and everything needed to fully make a prototype of this app)
-    *Daily check in 
-    *Task allocation
-    *Event planning
-    *Habit Tracking
+    *Daily/Weekly check in 
+    *Task allocation/planning
+    *Event tracking/planning
+    *Habit/Goal Tracking
     *First map out current todo list and google calendar usage, then have it be able to facilitate these behaviours asap
     
 -look at current LLM setup and update the prompts and query flow
@@ -25,7 +25,7 @@ Actionable(NO HABITS,GOALS, OR EVENTS until app has same functionality as how I 
     *then add in Habit tracking and chatting with thinking and non-thinking version of LLM
 
 -Update UI based on apple reminders app
-    *fix the diffs for operations and have the ability to observe the recent ops in current chat(like in cursor)
+    *fix the diffs for operations and have the ability to observe the recent ops and undo in current chat(like in cursor)
 
 
 Long term:

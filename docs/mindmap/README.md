@@ -45,24 +45,28 @@ sequenceDiagram
   rect rgb(245,245,255)
   note over UI,API: CRUD flow (non-LLM)
   UI->>API: POST /api/todos (create)
-  API->>API: validate + normalize (server 320:355, 143:161)
+  API->>API: validate + normalize (server 333:368, 142:160)
   API->>FS: write todos.json + counter.json
   API->>IDX: refresh()
   API-->>UI: { todo }
   end
 
   rect rgb(245,255,245)
-  note over UI,LLM: Assistant (auto/plan) flow
+  note over UI,LLM: Assistant (auto)
   UI->>API: GET /api/assistant/message/stream (auto)
-  API->>API: runRouter (server 831:887)
+  API->>API: runRouter (server 890:942)
   alt decision == clarify
     API-->>UI: event: clarify { question, options }
-  else decision in [plan,chat]
-    API->>LLM: propose prompt (server 889:907)
+  else decision == chat
+    API->>LLM: chat summary prompt
+    LLM-->>API: plain text
+    API-->>UI: event: summary; then done
+  else decision == plan
+    API->>LLM: propose prompt (server 944:961)
     LLM-->>API: raw text (JSON preferred)
-    API->>API: parse→infer→validate (server 1116:1158)
+    API->>API: parse→infer→validate (server 1188:1214)
     alt invalid
-      API->>LLM: repair prompt (server 1165:1188)
+      API->>LLM: repair prompt (server 853:867)
       LLM-->>API: repaired JSON
       API->>API: re-validate
     end
@@ -71,7 +75,7 @@ sequenceDiagram
   UI->>API: POST /api/llm/dryrun (preview)
   API-->>UI: warnings?
   UI->>API: POST /api/llm/apply (idempotent)
-  API->>API: withApplyLock (server 916:918)
+  API->>API: withApplyLock (server 971:973)
   API->>FS: write todos + audit
   API->>IDX: refresh
   API-->>UI: results + summary
@@ -95,10 +99,10 @@ sequenceDiagram
 
 ### Key invariants and contracts
 
-- Recurrence tasks use `completedDates`; occurrence completion toggles this array (server 517:524, 968:975). Master-level `completed` is for non-repeating or expanded occurrences only.
-- Switching repeating→none clears `completedDates` (server 492:495, 950:954, 994:998).
-- Time-of-day is `HH:MM` or null; UI treats null as all-day (server 210:214; main.dart 1267:1283).
-- Apply path is serialized via `withApplyLock` and idempotent responses are cached ~10 minutes (server 552:567, 916:918).
+- Recurrence tasks use `completedDates`; occurrence completion toggles this array (server 524:531, 1014:1021). Master-level `completed` is for non-repeating or expanded occurrences only.
+- Switching repeating→none clears `completedDates` (server 167:172).
+- Time-of-day is `HH:MM` or null; UI treats null as all-day (server 223:227; main.dart 1269:1279).
+- Apply path is serialized via `withApplyLock` and idempotent responses are cached ~10 minutes (server 559:569, 971:973, 1132:1133).
 
 - Server: `apps/server/server.js`
 - Index engine: `apps/server/todos_index.js`

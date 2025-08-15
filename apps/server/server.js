@@ -421,6 +421,11 @@ app.get('/api/todos', (req, res) => {
       expanded.push(...expandOccurrences(t, fromDate, toDate));
     }
   }
+  // Apply completed filter post-expansion when provided
+  if (completedBool !== undefined) {
+    const filtered = expanded.filter(x => x && typeof x.completed === 'boolean' && (x.completed === completedBool));
+    return res.json({ todos: filtered });
+  }
   res.json({ todos: expanded });
 });
 
@@ -538,7 +543,7 @@ app.delete('/api/todos/:id', (req, res) => {
   if (idx === -1) return res.status(404).json({ error: 'not_found' });
   todos.splice(idx, 1);
   saveTodos(todos);
-  try { todosIndex.refresh(todos); } catch {}
+  try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {}
   res.json({ ok: true });
 });
 
@@ -643,6 +648,16 @@ function validateOperation(op) {
     const wErrors = validateWhere(op.where);
     if (wErrors.length) errors.push(...wErrors);
     if (op.completed !== undefined && typeof op.completed !== 'boolean') errors.push('invalid_completed');
+    // Optional occurrence selectors for repeating tasks
+    if (op.occurrenceDate !== undefined && !isYmdString(op.occurrenceDate)) errors.push('invalid_occurrenceDate');
+    if (op.occurrence_range !== undefined) {
+      if (typeof op.occurrence_range !== 'object') errors.push('invalid_occurrence_range');
+      else {
+        const r = op.occurrence_range;
+        if (r.from !== undefined && !(r.from === null || isYmdString(r.from))) errors.push('invalid_occurrence_range_from');
+        if (r.to !== undefined && !(r.to === null || isYmdString(r.to))) errors.push('invalid_occurrence_range_to');
+      }
+    }
   } else if (kind === 'bulk_delete') {
     const wErrors = validateWhere(op.where);
     if (wErrors.length) errors.push(...wErrors);
@@ -737,16 +752,24 @@ async function tryRunOllamaJsonFormat({ userContent }) {
   const base = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
   const url = `${base}/api/generate`;
   const payload = { model: OLLAMA_MODEL, prompt: userContent, format: 'json', stream: false };
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
-  if (!res.ok) throw new Error(`ollama_http_${res.status}`);
-  const obj = await res.json();
-  const text = String(obj && (obj.response ?? obj.text) || '');
-  if (!text) throw new Error('ollama_http_empty');
-  return text;
+  const controller = new AbortController();
+  const timeoutMs = Math.max(1000, GLOBAL_TIMEOUT_SECS * 1000);
+  const timer = setTimeout(() => { try { controller.abort(); } catch {} }, timeoutMs);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`ollama_http_${res.status}`);
+    const obj = await res.json();
+    const text = String(obj && (obj.response ?? obj.text) || '');
+    if (!text) throw new Error('ollama_http_empty');
+    return text;
+  } finally {
+    try { clearTimeout(timer); } catch {}
+  }
 }
 
 async function runOllamaForJsonPreferred({ userContent }) {
@@ -817,7 +840,7 @@ function buildSchemaV2Excerpt() {
     'Schema v2:',
     '- create/update/delete/complete/complete_occurrence (existing)',
     '- bulk_update: { op: "bulk_update", where: { ids?, title_contains?, overdue?, scheduled_range?{from?,to?}, priority?, completed?, repeating? }, set: { title?, notes?, scheduledFor?, timeOfDay?, priority?, completed?, recurrence? }, reason? }',
-    '- bulk_complete: { op: "bulk_complete", where: { ... }, completed: true|false, reason? }',
+    '- bulk_complete: { op: "bulk_complete", where: { ... }, completed: true|false, occurrenceDate?: YYYY-MM-DD, occurrence_range?: { from?: YYYY-MM-DD|null, to?: YYYY-MM-DD|null }, reason? }',
     '- bulk_delete: { op: "bulk_delete", where: { ... }, reason? }',
     'Strict rules:',
     '- For create/update, include a recurrence object. Use {"type":"none"} if non-repeating.',
@@ -928,7 +951,7 @@ function buildProposalPrompt({ instruction, todosSnapshot, transcript }) {
     `For repeating tasks (recurrence.type != none), an anchor scheduledFor is REQUIRED.\n` +
     `For complete_occurrence, include: id (masterId), occurrenceDate (YYYY-MM-DD), and optional completed (bool).\n` +
     `When many items share a simple filter, you MAY use bulk operations: bulk_update, bulk_complete, bulk_delete.\n` +
-    `Bulk operations shape: { op: "bulk_update|bulk_complete|bulk_delete", where: { ids?, title_contains?, overdue?, scheduled_range?{from?,to?}, priority?, completed?, repeating? }, set?: { title?, notes?, scheduledFor?, timeOfDay?, priority?, completed?, recurrence? } }. Prefer bulk_* when targets > 5.\n` +
+    `Bulk operations shape: { op: "bulk_update|bulk_complete|bulk_delete", where: { ids?, title_contains?, overdue?, scheduled_range?{from?,to?}, priority?, completed?, repeating? }, set?: { title?, notes?, scheduledFor?, timeOfDay?, priority?, completed?, recurrence? }, occurrenceDate?: YYYY-MM-DD, occurrence_range?: { from?: YYYY-MM-DD|null, to?: YYYY-MM-DD|null } }. Prefer bulk_* when targets > 5.\n` +
     `Today's date is ${todayYmd}. Do NOT invent invalid IDs. Prefer fewer changes over hallucination.\n` +
     `You may reason internally, but the final output MUST be a single JSON object exactly as specified. Do not include your reasoning or any prose.`;
   const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
@@ -1022,8 +1045,57 @@ app.post('/api/llm/apply', async (req, res) => {
           if (mutatedSinceRefresh) { saveTodos(todos); try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {} ; mutatedSinceRefresh = false; }
           const targets = todosIndex.filterByWhere(op.where || {});
           const shouldComplete = (op.completed === undefined) ? true : !!op.completed;
+          const dateFromWhere = (() => {
+            try {
+              const r = op.where && op.where.scheduled_range ? op.where.scheduled_range : null;
+              return r && r.from === r.to ? r.from : null;
+            } catch { return null; }
+          })();
+          let singleDate = op.occurrenceDate || dateFromWhere || null;
+          const range = op.occurrence_range || (op.where ? op.where.scheduled_range : null) || null;
           for (const t of targets) {
             const tt = findTodoById(t.id); if (!tt) continue;
+            const isRepeating = tt.recurrence && tt.recurrence.type && tt.recurrence.type !== 'none';
+            if (!isRepeating) {
+              tt.completed = shouldComplete; tt.updatedAt = new Date().toISOString();
+              continue;
+            }
+            if (!Array.isArray(tt.completedDates)) tt.completedDates = [];
+            const mark = (ymdStr) => {
+              const idx = tt.completedDates.indexOf(ymdStr);
+              if (shouldComplete) {
+                if (idx === -1) tt.completedDates.push(ymdStr);
+              } else {
+                if (idx !== -1) tt.completedDates.splice(idx, 1);
+              }
+            };
+            // Default: if no occurrence hint provided, act on today's occurrence in server timezone
+            if (!singleDate && !(range && (range.from || range.to))) {
+              singleDate = ymdInTimeZone(new Date(), TIMEZONE);
+            }
+            if (singleDate && isYmdString(singleDate)) {
+              mark(singleDate);
+              tt.updatedAt = new Date().toISOString();
+              continue;
+            }
+            const from = range && range.from && isYmdString(range.from) ? parseYMD(range.from) : null;
+            const to = range && range.to && isYmdString(range.to) ? parseYMD(range.to) : null;
+            if (from || to) {
+              const anchor = tt.scheduledFor ? parseYMD(tt.scheduledFor) : null;
+              if (anchor) {
+                const start = from ? from : anchor;
+                const end = to ? to : (from ? from : anchor);
+                const inclusiveEnd = new Date(end.getFullYear(), end.getMonth(), end.getDate() + 1);
+                for (let d = new Date(start); d < inclusiveEnd; d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)) {
+                  if (matchesRule(d, anchor, tt.recurrence)) {
+                    mark(ymd(d));
+                  }
+                }
+                tt.updatedAt = new Date().toISOString();
+                continue;
+              }
+            }
+            // Fallback: if no date hints provided, set master completed for consistency
             tt.completed = shouldComplete; tt.updatedAt = new Date().toISOString();
           }
           saveTodos(todos); try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {} ; mutatedSinceRefresh = false;
@@ -1205,6 +1277,26 @@ app.post('/api/assistant/message', async (req, res) => {
     if (route.decision === 'clarify' && route.question) {
       return res.json({ requiresClarification: true, question: route.question });
     }
+    if (route.decision === 'chat') {
+      // Return a concise chat answer without generating operations
+      try {
+        const today = new Date();
+        const todayYmd = ymdInTimeZone(today, TIMEZONE);
+        const system = `You are a helpful assistant for a todo app. Keep answers concise and clear. Prefer 1–3 short sentences; no lists or JSON.`;
+        const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
+        const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
+        const user = `Today: ${todayYmd} (${TIMEZONE})\nConversation (last 3 turns):\n${convo}\nUser: ${message.trim()}`;
+        const prompt = `${system}\n\n${user}`;
+        const raw = await runOllamaWithThinkingIfGranite({ userContent: prompt });
+        let text = stripGraniteTags(String(raw || ''));
+        text = text.replace(/```[\s\S]*?```/g, '').trim();
+        text = text.replace(/[\r\n]+/g, ' ').trim();
+        if (!text) text = 'Okay.';
+        return res.json({ text, operations: [] });
+      } catch (e) {
+        return res.json({ text: 'Okay.', operations: [] });
+      }
+    }
 
     const { ops, annotatedAll, validation } = await runProposalAndRepair({
       instruction: message,
@@ -1258,6 +1350,35 @@ app.get('/api/assistant/message/stream', async (req, res) => {
       if (typeof res.flushHeaders === 'function') res.flushHeaders();
       const send = (event, data) => { res.write(`event: ${event}\n`); res.write(`data: ${data}\n\n`); };
       send('clarify', JSON.stringify({ question: route.question, options: Array.isArray(route.options) ? route.options.map(o => ({ id: o.id, title: o.title, scheduledFor: o.scheduledFor ?? null })) : [] }));
+      send('done', 'true');
+      return res.end();
+    }
+    if (route.decision === 'chat') {
+      // Stream just a chat summary and done
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      if (typeof res.flushHeaders === 'function') res.flushHeaders();
+      const send = (event, data) => { res.write(`event: ${event}\n`); res.write(`data: ${data}\n\n`); };
+      const today = new Date();
+      const todayYmd = ymdInTimeZone(today, TIMEZONE);
+      const system = `You are a helpful assistant for a todo app. Keep answers concise and clear. Prefer 1–3 short sentences; no lists or JSON.`;
+      const transcriptParam = req.query.transcript;
+      const transcript = (() => { try { return Array.isArray(transcriptParam) ? transcriptParam : JSON.parse(String(transcriptParam || '[]')); } catch { return []; } })();
+      const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
+      const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
+      const user = `Today: ${todayYmd} (${TIMEZONE})\nConversation (last 3 turns):\n${convo}\nUser: ${String(req.query.message || '').trim()}`;
+      const prompt = `${system}\n\n${user}`;
+      try {
+        const raw = await runOllamaWithThinkingIfGranite({ userContent: prompt });
+        let text = stripGraniteTags(String(raw || ''));
+        text = text.replace(/```[\s\S]*?```/g, '').trim();
+        text = text.replace(/[\r\n]+/g, ' ').trim();
+        send('summary', JSON.stringify({ text }));
+      } catch {
+        send('summary', JSON.stringify({ text: 'Okay.' }));
+      }
+      send('result', JSON.stringify({ text: '', operations: [] }));
       send('done', 'true');
       return res.end();
     }
