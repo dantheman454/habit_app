@@ -8,7 +8,7 @@
 
 - Backlog: Todos with `scheduledFor = null`. Served by `/api/todos/backlog` and surfaced in snapshots (server 415:418, 63:77).
 
-- Bulk operations: `bulk_update|bulk_complete|bulk_delete` operations that use a `where` clause and expand to concrete IDs via index filtering. Validation and application at server 590:649, 977:1028.
+- Bulk operations: Not supported. Proposals attempting `bulk_*` are rejected with `bulk_operations_removed` during validation (server 860:864).
 
 - Router: The auto-mode intent decision step that returns `{ decision, confidence, question? }` and may request `clarify`. Implemented in `runRouter` and prompt builders (server 811:887, 831:887).
 

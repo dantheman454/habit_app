@@ -79,30 +79,25 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 - Assistant — auto pipeline (non-streaming)
   - POST `/api/assistant/message` with `{ message: string, transcript?: {role,text}[], options?: { clarify?: object } }`
   - Returns `{ text: string, operations: { op: LlmOperation, errors: string[] }[] }`, a clarification `{ requiresClarification: true, question }`, or a chat-only `{ text, operations: [] }` when the router decides `chat`.
-  - Source: `apps/server/server.js` 1268:1332
+  - Source: `apps/server/server.js` 1601:1665
 
 - Assistant — auto pipeline (SSE streaming)
   - GET `/api/assistant/message/stream` query: `message`, `transcript`, `clarify?`
   - Events: `stage`, `clarify`, `ops`, `summary`, `result`, `done`. When router decides `chat`, only `summary` and `done` are emitted.
-  - Source: `apps/server/server.js` 1335:1442
+  - Source: `apps/server/server.js` 1668:1775
 
 - LLM Apply (idempotent via header `Idempotency-Key`)
   - POST `/api/llm/apply` `{ operations: LlmOperation[] }` → `{ results, summary }`
-  - Validation and per-op application; bulk operations expand `where` via index.
-  - Source: `apps/server/server.js` 974:1134
+  - Validation and per-op application; bulk operations are not supported and are rejected by validation.
+  - Source: `apps/server/server.js` 1199:1467
   - Operation coverage:
-    - `create|update|delete|complete|complete_occurrence|bulk_update|bulk_complete|bulk_delete`
-    - `bulk_complete` supports optional `occurrenceDate: YYYY-MM-DD` or `occurrence_range: { from?: YYYY-MM-DD|null, to?: YYYY-MM-DD|null }` to act on repeating occurrences via `completedDates`. Without these, non-repeating tasks toggle `completed`; repeating tasks fall back to master `completed`.
-    - Bulk ops expand `where` via index: `filterByWhere` (index 100:141)
-  - Side effects: persist todos, refresh index, append audit
+    - `create|update|delete|complete|complete_occurrence` for todos/events and goal ops
+  - Side effects: DB mutations and audit entries; idempotent replay returns cached response
 
 - LLM Dry-run
-  - POST `/api/llm/dryrun` `{ operations: LlmOperation[] }` → `{ results, summary, warnings? }`
-  - Source: `apps/server/server.js` 1365:1401
-  - Warnings:
-    - `bulk_delete` over `MAX_DELETE_WARNING` (20)
-    - `bulk_update` over `MAX_BULK_UPDATE_WARNING` (50)
-    - Source: server 1389:1394, constants 549:551
+  - POST `/api/llm/dryrun` `{ operations: LlmOperation[] }` → `{ results, summary }`
+  - Source: `apps/server/server.js` 1777:1816
+  - Notes: Bulk warnings removed; bulk ops are rejected at validation time
 
 ### Client couplings (Flutter `api.dart`)
 
@@ -121,13 +116,13 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 ### Error contracts (selected)
 
 - Common 400 errors on CRUD: `invalid_title`, `missing_recurrence`, `invalid_notes`, `invalid_scheduledFor`, `invalid_priority`, `invalid_timeOfDay`, `invalid_recurrence`, `missing_anchor_for_recurrence` (create/update), `invalid_completed`, `invalid_id`.
-- Assistant apply/dryrun: returns `invalid_operations` with per-op `errors` array; see `validateProposal` and `validateOperation` for exact strings (server 651:658, 590:649).
+- Assistant apply/dryrun: returns `invalid_operations` with per-op `errors` array; see `validateProposal` and `validateOperation` for exact strings (server 871:873, 817:865).
 
 ### Types
 
 - Todo: see [Data Model](./data_model.md).
 - Recurrence: `{ type: 'none'|'daily'|'weekdays'|'weekly'|'every_n_days', intervalDays?: int (>=1), until?: YYYY-MM-DD|null }`.
-- LlmOperation: one of `create|update|delete|complete|complete_occurrence|bulk_update|bulk_complete|bulk_delete` plus fields; normalization/inference may fill `op` when omitted.
+- LlmOperation: one of `create|update|delete|complete|complete_occurrence` (todo/event) or goal ops; normalization/inference may fill `op` when omitted.
 
 ### Endpoint → Client usage map
 

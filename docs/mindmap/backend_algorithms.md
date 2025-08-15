@@ -21,10 +21,9 @@ This document enumerates server-side algorithms and strict policies with file/li
   - Completing a repeating task via master `complete` is forbidden in apply validation (use `complete_occurrence`) (server 622:626)
 
 - Operation-level validation (apply path)
-  - `validateProposal` enforces presence of `operations` array (server 668:675)
-  - `validateOperation` guards op kind, field shapes, id existence, and bulk where/set shapes (server 597:665)
-  - For `complete_occurrence`, requires valid `occurrenceDate` and boolean `completed` if provided (server 617:620)
-  - For `bulk_complete`, supports `occurrenceDate` or `occurrence_range` and validates both (server 651:660)
+  - `validateProposal` enforces presence of `operations` array (server 867:874)
+  - `validateOperation` guards op kind, field shapes, and recurrence/time/date constraints; bulk operations are rejected (server 817:865, 860:864)
+  - For `complete_occurrence`, requires valid `occurrenceDate` and boolean `completed` if provided (server 841:844)
 
 ### Recurrence and occurrences
 
@@ -37,12 +36,10 @@ Edge behaviors:
 - `weekly` matches `getDay()` equality with anchor (server 260:262)
 - `every_n_days` computes `daysBetween(anchor,date) % step == 0` and `diff >= 0` (server 263:268)
 
-### Indexing and retrieval
+### Snapshots and aggregates
 
-- In-memory index lifecycle: `init`, `refresh`, `setTimeZone` (index 55:67)
-- Query-less ranking: scheduled soon first, then backlog (index 69:98)
-- `filterByWhere` implements where-clause for bulk ops and router narrowing (index 100:141)
-- Aggregates: counts for today windowing and UI badges (index 143:157)
+- Aggregates: counts from DB-backed search used for assistant prompts (server 125:143)
+- Router snapshots: Mon–Sun week range + backlog sample derived from DB, not an in-memory index (server 145:152)
 
 Router snapshots builder:
 - Computes Mon–Sun week range in given timezone (server 42:60)
@@ -54,7 +51,7 @@ Router snapshots builder:
 - Router thresholds: `CLARIFY_THRESHOLD = 0.45`, `CHAT_THRESHOLD = 0.70` (server 554:556)
 - Router prompt construction embeds Monday–Sunday snapshot and backlog sample; when low confidence, rewrites to `clarify` (server 870:887)
 - Clarify augmentation: attaches concise options of top candidates (server 921:937)
-- Proposal prompt: instructs LLM to output JSON-only operations; enforces recurrence requirements; includes aggregates/topK snapshot; documents `occurrenceDate` and `occurrence_range` for bulk completes (server 944:961)
+- Proposal prompt: instructs LLM to output JSON-only operations; enforces recurrence requirements; includes aggregates/topK snapshot; use `complete_occurrence` for repeating items (server 1171:1183)
 - Operation inference: `inferOperationShape` sets `op` when omitted (server 677:696)
 - Validation pass: `validateProposal` + `validateOperation` returns per-op errors (server 668:675, 597:665)
 - Single repair attempt: builds a repair prompt with schema excerpt and last-3 transcript; re-validate (server 853:867, 1231:1263)
@@ -63,15 +60,12 @@ Router snapshots builder:
 Determinisic summary details:
 - Counts created/updated/deleted/completed; previews created titles (up to 2) and dates (up to 2) (server 1159:1181)
 
-### Idempotency, locking, and auditing
+### Idempotency and auditing
 
-- Idempotency cache: header `Idempotency-Key` (or body `idempotencyKey`) deduplicates apply responses for 10 minutes (server 559:569, 974:979, 1132:1133)
-- Apply mutex: `withApplyLock` serializes write operations to JSON files (server 971:973)
-- Audit: append `{ ts, action, op, result, id?, error? }` to `data/audit.jsonl` (server 966:969; apply path emits audit entries throughout 989–1116)
+- Idempotency cache: header `Idempotency-Key` (or body `idempotencyKey`) deduplicates apply responses (server 1201:1210, 1465:1466)
+- Audit: entries recorded via DB (`audit_log`); assistant/apply path emits audit entries throughout apply (server 1235:1453)
 
-Audit coverage per op (apply path):
-- create/update/delete/complete/complete_occurrence/bulk_update/bulk_complete/bulk_delete each write an audit entry
-- Invalid op and caught errors also logged with `result: 'invalid'|'error'`
+Audit coverage per op (apply path): create/update/delete/complete/complete_occurrence (todo/event) and goal operations write audit entries; invalid ops and caught errors are logged with `result: 'invalid'|'error'`.
 ### Error messages catalog (quick reference)
 
 - Endpoints: `invalid_title`, `missing_recurrence`, `invalid_notes`, `invalid_scheduledFor`, `invalid_priority`, `invalid_timeOfDay`, `invalid_recurrence`, `missing_anchor_for_recurrence`, `invalid_completed`, `invalid_id`, `not_found`, `not_repeating`, `invalid_occurrenceDate`

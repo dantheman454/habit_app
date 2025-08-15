@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // Single-server Express app that serves the UI and provides CRUD + search + backlog APIs.
-// Persistence uses JSON files in ./data. Designed to replace web/server.js + src/server.js bridge.
+// Persistence uses SQLite (better-sqlite3) at ./data/app.db with schema at apps/server/database/schema.sql.
 
 import express from 'express';
 import cors from 'cors';
@@ -789,8 +789,7 @@ const OLLAMA_TEMPERATURE = 0.1;
 const GLOBAL_TIMEOUT_SECS = parseInt(process.env.OLLAMA_TIMEOUT_SECS || '300', 10);
 const CLARIFY_THRESHOLD = 0.45;
 const CHAT_THRESHOLD = 0.70;
-const MAX_DELETE_WARNING = 20;
-const MAX_BULK_UPDATE_WARNING = 50;
+// Note: bulk operations are not supported; validation rejects them.
 
 
 function validateWhere(where) {
@@ -835,8 +834,13 @@ function validateOperation(op) {
     }
   }
   if ((kind === 'update' || kind === 'delete' || kind === 'complete' || kind === 'complete_occurrence')) {
-    if (!(Number.isFinite(op.id))) errors.push('missing_or_invalid_id');
-    else if (!findTodoById(op.id)) errors.push('id_not_found');
+    if (!(Number.isFinite(op.id))) {
+      errors.push('missing_or_invalid_id');
+    } else {
+      const v3Kind = (op.kind && String(op.kind).toLowerCase()) || null;
+      // For validation we do not hard-require current existence; apply stage will 404 appropriately.
+      // This avoids false negatives for entities created earlier in the same batch.
+    }
   }
   if (kind === 'complete_occurrence') {
     if (!isYmdString(op.occurrenceDate)) errors.push('invalid_occurrenceDate');
@@ -1304,98 +1308,6 @@ app.post('/api/llm/apply', async (req, res) => {
           else { if (idx !== -1) t.completedDates.splice(idx, 1); }
           t.updatedAt = new Date().toISOString(); mutatedSinceRefresh = true; results.push({ ok: true, op, todo: t }); completed++;
           appendAudit({ action: 'complete_occurrence', op, result: 'ok', id: t.id });
-        } else if (op.op === 'bulk_update') {
-          // DB-backed; no JSON refresh needed
-          // Expand where to concrete ids, then apply updates item-wise
-          const targets = filterTodosByWhere(op.where || {});
-          const set = op.set || {};
-          for (const t of targets) {
-            const tt = findTodoById(t.id); if (!tt) continue;
-            const now2 = new Date().toISOString();
-            if (set.title !== undefined) tt.title = set.title;
-            if (set.notes !== undefined) tt.notes = set.notes;
-            if (set.scheduledFor !== undefined) tt.scheduledFor = set.scheduledFor;
-            if (set.priority !== undefined) tt.priority = set.priority;
-            if (set.completed !== undefined) tt.completed = !!set.completed;
-            if (set.timeOfDay !== undefined) tt.timeOfDay = (set.timeOfDay === '' ? null : set.timeOfDay);
-            if (set.recurrence !== undefined) { applyRecurrenceMutation(tt, set.recurrence); }
-            tt.updatedAt = now2;
-          }
-          // DB-backed; no JSON refresh needed
-          results.push({ ok: true, op, count: targets.length, expandedIds: targets.map(t => t.id) });
-          updated += targets.length;
-          appendAudit({ action: 'bulk_update', op, result: 'ok', expandedIds: targets.map(t => t.id) });
-        } else if (op.op === 'bulk_complete') {
-          // DB-backed; no JSON refresh needed
-          const targets = filterTodosByWhere(op.where || {});
-          const shouldComplete = (op.completed === undefined) ? true : !!op.completed;
-          const dateFromWhere = (() => {
-            try {
-              const r = op.where && op.where.scheduled_range ? op.where.scheduled_range : null;
-              return r && r.from === r.to ? r.from : null;
-            } catch { return null; }
-          })();
-          let singleDate = op.occurrenceDate || dateFromWhere || null;
-          const range = op.occurrence_range || (op.where ? op.where.scheduled_range : null) || null;
-          for (const t of targets) {
-            const tt = findTodoById(t.id); if (!tt) continue;
-            const isRepeating = tt.recurrence && tt.recurrence.type && tt.recurrence.type !== 'none';
-            if (!isRepeating) {
-              tt.completed = shouldComplete; tt.updatedAt = new Date().toISOString();
-              continue;
-            }
-            if (!Array.isArray(tt.completedDates)) tt.completedDates = [];
-            const mark = (ymdStr) => {
-              const idx = tt.completedDates.indexOf(ymdStr);
-              if (shouldComplete) {
-                if (idx === -1) tt.completedDates.push(ymdStr);
-              } else {
-                if (idx !== -1) tt.completedDates.splice(idx, 1);
-              }
-            };
-            // Default: if no occurrence hint provided, act on today's occurrence in server timezone
-            if (!singleDate && !(range && (range.from || range.to))) {
-              singleDate = ymdInTimeZone(new Date(), TIMEZONE);
-            }
-            if (singleDate && isYmdString(singleDate)) {
-              mark(singleDate);
-              tt.updatedAt = new Date().toISOString();
-              continue;
-            }
-            const from = range && range.from && isYmdString(range.from) ? parseYMD(range.from) : null;
-            const to = range && range.to && isYmdString(range.to) ? parseYMD(range.to) : null;
-            if (from || to) {
-              const anchor = tt.scheduledFor ? parseYMD(tt.scheduledFor) : null;
-              if (anchor) {
-                const start = from ? from : anchor;
-                const end = to ? to : (from ? from : anchor);
-                const inclusiveEnd = new Date(end.getFullYear(), end.getMonth(), end.getDate() + 1);
-                for (let d = new Date(start); d < inclusiveEnd; d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)) {
-                  if (matchesRule(d, anchor, tt.recurrence)) {
-                    mark(ymd(d));
-                  }
-                }
-                tt.updatedAt = new Date().toISOString();
-                continue;
-              }
-            }
-            // Fallback: if no date hints provided, set master completed for consistency
-            tt.completed = shouldComplete; tt.updatedAt = new Date().toISOString();
-          }
-          // DB-backed; no JSON refresh needed
-          results.push({ ok: true, op, count: targets.length, expandedIds: targets.map(t => t.id) });
-          completed += targets.length;
-          appendAudit({ action: 'bulk_complete', op, result: 'ok', expandedIds: targets.map(t => t.id) });
-        } else if (op.op === 'bulk_delete') {
-          // DB-backed; no JSON refresh needed
-          const targets = filterTodosByWhere(op.where || {});
-          const ids = new Set(targets.map(t => t.id));
-          let removedCount = 0;
-          for (const id of ids) { try { db.deleteTodo(id); removedCount++; } catch {} }
-          // DB-backed; no JSON refresh needed
-          results.push({ ok: true, op, count: removedCount, expandedIds: Array.from(ids) });
-          deleted += removedCount;
-          appendAudit({ action: 'bulk_delete', op, result: 'ok', expandedIds: Array.from(ids) });
         } else if (
           op.op === 'goal_create' || op.op === 'goal_update' || op.op === 'goal_delete' ||
           op.op === 'goal_add_items' || op.op === 'goal_remove_item' ||
@@ -1796,20 +1708,7 @@ app.post('/api/llm/dryrun', async (req, res) => {
       }
       results.push(entry);
     }
-    const warnings = [];
-    try {
-      for (const r of (validation.results || [])) {
-        const op = r.op;
-        if (op.op === 'bulk_delete') {
-          const targets = filterTodosByWhere(op.where || {});
-          if (targets.length > MAX_DELETE_WARNING) warnings.push(`bulk_delete will remove ${targets.length} items`);
-        } else if (op.op === 'bulk_update') {
-          const targets = filterTodosByWhere(op.where || {});
-          if (targets.length > MAX_BULK_UPDATE_WARNING) warnings.push(`bulk_update will affect ${targets.length} items`);
-        }
-      }
-    } catch {}
-    return res.json({ results, summary: { created, updated, deleted, completed }, warnings: warnings.length ? warnings : undefined });
+    return res.json({ results, summary: { created, updated, deleted, completed } });
   } catch (e) {
     return res.status(400).json({ error: 'dryrun_failed', detail: String(e && e.message ? e.message : e) });
   }
