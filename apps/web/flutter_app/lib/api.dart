@@ -155,11 +155,11 @@ Future<Map<String, dynamic>> assistantMessage(
         result = Map<String, dynamic>.from(jsonDecode(data) as Map);
       } catch (_) {}
     });
-    es.addEventListener('done', (_) {
+    es.addEventListener('done', (event) {
       es.close();
       completer.complete(result ?? {'text': '', 'operations': []});
     });
-    es.addEventListener('error', (_) async {
+    es.addEventListener('error', (event) async {
       try { es.close(); } catch (_) {}
       if (!completer.isCompleted) {
         try {

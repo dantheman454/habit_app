@@ -43,8 +43,8 @@ class TodoRow extends StatelessWidget {
         border: Border.all(color: highlighted ? Theme.of(context).colorScheme.primary : Colors.grey.shade300, width: highlighted ? 2 : 1),
         borderRadius: BorderRadius.circular(6),
         color: highlighted
-            ? Theme.of(context).colorScheme.primary.withOpacity(0.06)
-            : (todo.completed ? Colors.grey.withOpacity(0.1) : null),
+            ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.06)
+            : (todo.completed ? Colors.grey.withValues(alpha: 0.1) : null),
       ),
       child: Row(
         children: [
@@ -74,7 +74,7 @@ class TodoRow extends StatelessWidget {
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
-                        '${todo.timeOfDay}',
+                        todo.timeOfDay!,
                         style: TextStyle(
                           fontSize: 12,
                           color: todo.overdue ? Colors.red : null,

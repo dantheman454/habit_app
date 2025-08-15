@@ -373,12 +373,12 @@ class _HomePageState extends State<HomePage> {
                       child: Container(
                         margin: const EdgeInsets.only(left: 0, right: 0),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.72),
+                          color: Colors.white.withValues(alpha: 0.72),
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: theme.colorScheme.outline.withOpacity(0.35)),
+                          border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.35)),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.08),
+                              color: Colors.black.withValues(alpha: 0.08),
                               blurRadius: 16,
                               offset: const Offset(0, 8),
                             ),
@@ -399,7 +399,7 @@ class _HomePageState extends State<HomePage> {
                                     onTap: () => _selectSearchResult(t as Todo),
                                     onHover: (h) => setState(() => _searchHoverIndex = h ? i : _searchHoverIndex),
                                     child: Container(
-                                      color: selected ? theme.colorScheme.primary.withOpacity(0.08) : Colors.transparent,
+                                      color: selected ? theme.colorScheme.primary.withValues(alpha: 0.08) : Colors.transparent,
                                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                       child: Row(
                                         children: [
@@ -421,7 +421,7 @@ class _HomePageState extends State<HomePage> {
                                     ),
                                   );
                                 },
-                                separatorBuilder: (_, __) => Divider(height: 1, color: theme.colorScheme.outline.withOpacity(0.2)),
+                                separatorBuilder: (_, __) => Divider(height: 1, color: theme.colorScheme.outline.withValues(alpha: 0.2)),
                                 itemCount: results.length,
                               ),
                       ),
@@ -800,7 +800,11 @@ class _HomePageState extends State<HomePage> {
             }
             final prevMap = <String, bool>{};
             for (var i = 0; i < prior.length; i++) { prevMap[kOp(prior[i])] = (i < priorChecked.length ? priorChecked[i] : true); }
-            assistantOpsChecked = List<bool>.generate(assistantOps.length, (i) => prevMap[kOp(assistantOps[i])] ?? assistantOps[i].errors.isEmpty);
+            assistantOpsChecked = List<bool>.generate(assistantOps.length, (i) {
+              final key = kOp(assistantOps[i]);
+              final preserved = prevMap[key] ?? assistantOps[i].errors.isEmpty;
+              return preserved && assistantOps[i].errors.isEmpty;
+            });
           });
         },
       );
@@ -835,7 +839,11 @@ class _HomePageState extends State<HomePage> {
         for (var i = 0; i < prior.length; i++) {
           prevMap[kOp(prior[i])] = (i < priorChecked.length ? priorChecked[i] : true);
         }
-        assistantOpsChecked = List<bool>.generate(assistantOps.length, (i) => prevMap[kOp(assistantOps[i])] ?? assistantOps[i].errors.isEmpty);
+        assistantOpsChecked = List<bool>.generate(assistantOps.length, (i) {
+          final key = kOp(assistantOps[i]);
+          final preserved = prevMap[key] ?? assistantOps[i].errors.isEmpty;
+          return preserved && assistantOps[i].errors.isEmpty;
+        });
         assistantShowDiff = false;
         _pendingClarifyQuestion = null;
         _pendingClarifyOptions = const [];
@@ -1022,9 +1030,9 @@ class _HomePageState extends State<HomePage> {
                                   if (!f) _removeSearchOverlay();
                                   else _showSearchOverlayIfNeeded();
                                 },
-                                onKey: (node, event) {
+                                onKeyEvent: (node, event) {
                                   if (!_searchFocus.hasFocus) return KeyEventResult.ignored;
-                                  if (event is! RawKeyDownEvent) return KeyEventResult.ignored;
+                                  if (event is! KeyDownEvent) return KeyEventResult.ignored;
                                   final len = math.min(searchResults.length, 7);
                                   if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
                                     setState(() { _searchHoverIndex = len == 0 ? -1 : (_searchHoverIndex + 1) % len; });
@@ -1036,7 +1044,9 @@ class _HomePageState extends State<HomePage> {
                                     return KeyEventResult.handled;
                                   } else if (event.logicalKey == LogicalKeyboardKey.enter) {
                                     final list = searchResults.take(7).toList();
-                                    if (list.isEmpty) return KeyEventResult.handled;
+                                    if (list.isEmpty) {
+                                      return KeyEventResult.handled;
+                                    }
                                     final idx = _searchHoverIndex >= 0 && _searchHoverIndex < list.length ? _searchHoverIndex : 0;
                                     _selectSearchResult(list[idx] as Todo);
                                     return KeyEventResult.handled;
@@ -1049,10 +1059,10 @@ class _HomePageState extends State<HomePage> {
                                     prefixIcon: const Icon(Icons.search),
                                     hintText: 'Search',
                                     filled: true,
-                                    fillColor: Colors.white.withOpacity(0.9),
+                                    fillColor: Colors.white.withValues(alpha: 0.9),
                                     border: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(24),
-                                      borderSide: BorderSide(color: Theme.of(context).colorScheme.outline.withOpacity(0.4)),
+                                      borderSide: BorderSide(color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.4)),
                                     ),
                                     focusedBorder: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(24),
