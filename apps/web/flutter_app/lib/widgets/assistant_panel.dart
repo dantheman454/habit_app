@@ -92,15 +92,25 @@ class AssistantPanel extends StatelessWidget {
     final labeler = opLabel ?? (dynamic op) {
       // Support annotated ops: { op: {...}, errors: [...] }
       final candidate = op is Map<String, dynamic> && op.containsKey('op') ? (op['op'] as dynamic) : op;
-      final like = LlmOperationLike(
-        op: _getString(candidate, 'op') ?? '',
-        id: _getInt(candidate, 'id'),
-        title: _getString(candidate, 'title'),
-        notes: _getString(candidate, 'notes'),
-        scheduledFor: _getString(candidate, 'scheduledFor'),
-        priority: _getString(candidate, 'priority'),
-        completed: _getBool(candidate, 'completed'),
-      );
+      final opStr = _getString(candidate, 'op') ?? '';
+      final kind = _getString(candidate, 'kind');
+      final action = _getString(candidate, 'action');
+      final id = _getInt(candidate, 'id');
+      final title = _getString(candidate, 'title');
+      final sched = _getString(candidate, 'scheduledFor');
+      final prio = _getString(candidate, 'priority');
+      final done = _getBool(candidate, 'completed');
+      // Prefer V3 label when present
+      if (kind != null && action != null) {
+        final parts = <String>[kind, action];
+        if (id != null) parts.add('#$id');
+        if (title != null) parts.add('– $title');
+        if (prio != null) parts.add('(prio $prio)');
+        if (sched != null) parts.add('@$sched');
+        if (done != null) parts.add(done ? '[done]' : '[undone]');
+        return parts.join(' ');
+      }
+      final like = LlmOperationLike(op: opStr, id: id, title: title, notes: _getString(candidate, 'notes'), scheduledFor: sched, priority: prio, completed: done);
       return defaultOpLabel(like);
     };
 
@@ -159,35 +169,7 @@ class AssistantPanel extends StatelessWidget {
                   ),
                   const SizedBox(height: 6),
                 ],
-                ...List.generate(operations.length, (i) {
-                  final op = operations[i];
-                  final errs = _getErrors(op);
-                  final isInvalid = errs.isNotEmpty;
-                  return Row(children: [
-                    Tooltip(
-                      message: isInvalid ? 'This operation is invalid and cannot be applied.' : '',
-                      preferBelow: false,
-                      child: Checkbox(
-                        value: operationsChecked[i],
-                        onChanged: isInvalid ? null : (v) => onToggleOperation(i, v ?? true),
-                      ),
-                    ),
-                    Expanded(child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(labeler(op)),
-                        if (isInvalid)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 2),
-                            child: Text(
-                              errs.join(', '),
-                              style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 12),
-                            ),
-                          ),
-                      ],
-                    )),
-                  ]);
-                }),
+                ..._buildGroupedOperationList(context, operations, operationsChecked, labeler),
                 const SizedBox(height: 8),
                 Wrap(spacing: 8, runSpacing: 8, children: [
                   FilledButton(onPressed: onApplySelected, child: const Text('Apply Selected')),
@@ -311,6 +293,75 @@ class AssistantPanel extends StatelessWidget {
       }
     } catch (_) {}
     return const <String>[];
+  }
+
+  String _kindOf(dynamic obj) {
+    try {
+      final candidate = obj is Map<String, dynamic> && obj.containsKey('op') ? (obj['op'] as dynamic) : obj;
+      final k = (candidate as dynamic)['kind'];
+      if (k is String && k.isNotEmpty) return k.toLowerCase();
+    } catch (_) {}
+    return 'todo';
+  }
+
+  Icon _kindIcon(String kind) {
+    switch (kind) {
+      case 'event':
+        return const Icon(Icons.event, size: 16);
+      case 'goal':
+        return const Icon(Icons.flag, size: 16);
+      default:
+        return const Icon(Icons.check_box_outline_blank, size: 16);
+    }
+  }
+
+  List<Widget> _buildGroupedOperationList(BuildContext context, List<dynamic> ops, List<bool> checked, String Function(dynamic) labeler) {
+    // Build ordered kinds by first appearance
+    final kinds = <String>[];
+    final byKind = <String, List<int>>{};
+    for (var i = 0; i < ops.length; i++) {
+      final k = _kindOf(ops[i]);
+      if (!byKind.containsKey(k)) { byKind[k] = <int>[]; kinds.add(k); }
+      byKind[k]!.add(i);
+    }
+    final theme = Theme.of(context);
+    final widgets = <Widget>[];
+    for (final k in kinds) {
+      widgets.add(Padding(
+        padding: const EdgeInsets.only(top: 8, bottom: 4),
+        child: Row(children: [
+          _kindIcon(k), const SizedBox(width: 6), Text(k.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.w600)),
+        ]),
+      ));
+      for (final i in byKind[k]!) {
+        final op = ops[i];
+        final errs = _getErrors(op);
+        final isInvalid = errs.isNotEmpty;
+        widgets.add(Row(children: [
+          Tooltip(
+            message: isInvalid ? 'This operation is invalid and cannot be applied.' : '',
+            preferBelow: false,
+            child: Checkbox(
+              value: checked[i],
+              onChanged: isInvalid ? null : (v) => onToggleOperation(i, v ?? true),
+            ),
+          ),
+          _kindIcon(k), const SizedBox(width: 6),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(labeler(op)),
+            if (isInvalid)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  errs.join(', '),
+                  style: TextStyle(color: theme.colorScheme.error, fontSize: 12),
+                ),
+              ),
+          ])),
+        ]));
+      }
+    }
+    return widgets;
   }
 
   Widget _buildTypingBubble(BuildContext context) {

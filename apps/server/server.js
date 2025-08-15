@@ -9,7 +9,7 @@ import path from 'path';
 import fs from 'fs';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
-import * as todosIndex from './todos_index.js';
+import db from './database/DbService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,6 +20,7 @@ const DATA_DIR = path.join(REPO_ROOT, 'data');
 const TODOS_FILE = path.join(DATA_DIR, 'todos.json');
 const COUNTER_FILE = path.join(DATA_DIR, 'counter.json');
 const STATIC_DIR = process.env.STATIC_DIR || path.join(REPO_ROOT, 'apps', 'web', 'flutter_app', 'build', 'web');
+const SCHEMA_FILE = path.join(REPO_ROOT, 'apps', 'server', 'database', 'schema.sql');
 
 // --- Timezone (fixed semantics) ---
 const TIMEZONE = process.env.TZ_NAME || 'America/New_York';
@@ -59,20 +60,95 @@ function weekRangeFromToday(tz) {
   return { fromYmd: ymd(monday), toYmd: ymd(sunday) };
 }
 
-// Build compact router snapshots for this week and backlog sample
+// DB-backed helpers
+function loadAllTodos() {
+  try { return db.listTodos({ from: null, to: null }); } catch { return []; }
+}
+
+function listAllTodosRaw() {
+  // Use FTS fallback path to get all items deterministically
+  try { return db.searchTodos({ q: ' ' }); } catch { return []; }
+}
+
+function filterTodosByWhere(where = {}) {
+  const items = listAllTodosRaw().slice();
+  let filtered = items;
+  // ids
+  if (Array.isArray(where.ids) && where.ids.length) {
+    const set = new Set(where.ids.map((id) => parseInt(id, 10)));
+    filtered = filtered.filter((t) => set.has(t.id));
+  }
+  // title_contains
+  if (typeof where.title_contains === 'string' && where.title_contains.trim()) {
+    const q = where.title_contains.toLowerCase();
+    filtered = filtered.filter((t) => String(t.title || '').toLowerCase().includes(q));
+  }
+  // overdue
+  if (typeof where.overdue === 'boolean') {
+    const todayY = ymd(new Date());
+    const isOverdue = (t) => { if (t.completed) return false; if (!t.scheduledFor) return false; return String(t.scheduledFor) < String(todayY); };
+    filtered = filtered.filter((t) => isOverdue(t) === where.overdue);
+  }
+  // scheduled_range
+  if (where.scheduled_range && (where.scheduled_range.from || where.scheduled_range.to)) {
+    const from = where.scheduled_range.from ? parseYMD(where.scheduled_range.from) : null;
+    const to = where.scheduled_range.to ? parseYMD(where.scheduled_range.to) : null;
+    filtered = filtered.filter((t) => {
+      if (!t.scheduledFor) return false;
+      const d = parseYMD(t.scheduledFor);
+      if (!d) return false;
+      if (from && d < from) return false;
+      if (to) {
+        const inclusiveEnd = new Date(to.getFullYear(), to.getMonth(), to.getDate() + 1);
+        if (d >= inclusiveEnd) return false;
+      }
+      return true;
+    });
+  }
+  // priority
+  if (typeof where.priority === 'string') {
+    const p = where.priority.toLowerCase();
+    filtered = filtered.filter((t) => String(t.priority || '').toLowerCase() === p);
+  }
+  // completed
+  if (typeof where.completed === 'boolean') {
+    filtered = filtered.filter((t) => !!t.completed === where.completed);
+  }
+  // repeating
+  if (typeof where.repeating === 'boolean') {
+    const isRepeating = (todo) => !!(todo?.recurrence && todo.recurrence.type && todo.recurrence.type !== 'none');
+    filtered = filtered.filter((t) => isRepeating(t) === where.repeating);
+  }
+  return filtered;
+}
+
+function getAggregatesFromDb() {
+  const items = listAllTodosRaw();
+  const today = new Date();
+  const todayY = ymd(today);
+  let overdueCount = 0; let next7DaysCount = 0; let backlogCount = 0; let scheduledCount = 0;
+  for (const t of items) {
+    if (t.scheduledFor === null) backlogCount++; else scheduledCount++;
+    const isOverdue = (!t.completed && t.scheduledFor && String(t.scheduledFor) < String(todayY));
+    if (isOverdue) overdueCount++;
+    if (t.scheduledFor) {
+      const d = parseYMD(t.scheduledFor); if (d) {
+        const end = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7);
+        const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        if (d >= start && d <= end) next7DaysCount++;
+      }
+    }
+  }
+  return { overdueCount, next7DaysCount, backlogCount, scheduledCount };
+}
+
 function buildRouterSnapshots() {
   const { fromYmd, toYmd } = weekRangeFromToday(TIMEZONE);
-  const weekItems = todosIndex.filterByWhere({
-    scheduled_range: { from: fromYmd, to: toYmd },
-    completed: false,
-  });
-  const backlogAll = todosIndex.filterByWhere({ completed: false });
+  const weekItems = filterTodosByWhere({ scheduled_range: { from: fromYmd, to: toYmd }, completed: false });
+  const backlogAll = filterTodosByWhere({ completed: false });
   const backlogSample = backlogAll.filter(t => t.scheduledFor === null).slice(0, 40);
   const compact = (t) => ({ id: t.id, title: t.title, scheduledFor: t.scheduledFor, priority: t.priority });
-  return {
-    week: { from: fromYmd, to: toYmd, items: weekItems.map(compact) },
-    backlog: backlogSample.map(compact),
-  };
+  return { week: { from: fromYmd, to: toYmd, items: weekItems.map(compact) }, backlog: backlogSample.map(compact) };
 }
 
 // Rank top clarify candidates from snapshots by fuzzy title tokens
@@ -94,42 +170,12 @@ function topClarifyCandidates(instruction, snapshot, limit = 5) {
     .map(x => x.i);
 }
 
-// Ensure data dir exists
+// Ensure data dir exists and bootstrap DB schema
 try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch {}
-
-// --- Persistence helpers (sync for simplicity) ---
-function loadTodos() {
-  try {
-    if (fs.existsSync(TODOS_FILE)) {
-      const s = fs.readFileSync(TODOS_FILE, 'utf8');
-      const arr = JSON.parse(s);
-      return Array.isArray(arr) ? arr : [];
-    }
-  } catch (e) { console.error('loadTodos error:', e); }
-  return [];
-}
-
-function saveTodos(todos) {
-  try {
-    fs.writeFileSync(TODOS_FILE, JSON.stringify(todos, null, 2));
-  } catch (e) { console.error('saveTodos error:', e); }
-}
-
-function loadNextId() {
-  try {
-    if (fs.existsSync(COUNTER_FILE)) {
-      const s = fs.readFileSync(COUNTER_FILE, 'utf8');
-      const obj = JSON.parse(s);
-      if (obj && Number.isFinite(obj.nextId)) return obj.nextId;
-    }
-  } catch (e) { console.error('loadNextId error:', e); }
-  return 1;
-}
-
-function saveNextId(nextId) {
-  try { fs.writeFileSync(COUNTER_FILE, JSON.stringify({ nextId }, null, 2)); }
-  catch (e) { console.error('saveNextId error:', e); }
-}
+try {
+  const schemaSql = fs.readFileSync(SCHEMA_FILE, 'utf8');
+  db.bootstrapSchema(schemaSql);
+} catch {}
 
 // --- Normalization helpers (forward-compatible defaults) ---
 function endOfCurrentYearYmd() {
@@ -173,40 +219,11 @@ function applyRecurrenceMutation(targetTodo, incomingRecurrence) {
   } catch {}
 }
 
-let todos = loadTodos();
-// One-time write-back migration: normalize loaded records and persist once
-try {
-  const normalized = Array.isArray(todos) ? todos.map(normalizeTodo) : [];
-  todos = normalized;
-  saveTodos(todos);
-} catch {}
-let nextId = loadNextId();
-
-// Initialize retrieval index
-try { todosIndex.init(todos); todosIndex.setTimeZone(TIMEZONE); } catch {}
-
-function createTodo({ title, notes = '', scheduledFor = null, priority = 'medium', timeOfDay = null, recurrence = undefined }) {
-  const now = new Date().toISOString();
-  const todo = normalizeTodo({
-    id: nextId++,
-    title,
-    notes,
-    scheduledFor,
-    priority,
-    timeOfDay,
-    recurrence,
-    completed: false,
-    createdAt: now,
-    updatedAt: now,
-  });
-  saveNextId(nextId);
-  return todo;
+function createTodoDb({ title, notes = '', scheduledFor = null, priority = 'medium', timeOfDay = null, recurrence = undefined }) {
+  return db.createTodo({ title, notes, scheduledFor, timeOfDay, priority, recurrence: recurrence || { type: 'none' }, completed: false });
 }
 
-function findTodoById(id) {
-  const iid = parseInt(id, 10);
-  return todos.find(t => t.id === iid);
-}
+function findTodoById(id) { return db.getTodoById(parseInt(id, 10)); }
 
 function parseYMD(s) {
   try {
@@ -360,10 +377,7 @@ app.post('/api/todos', (req, res) => {
     }
   }
 
-  const todo = createTodo({ title: title.trim(), notes: notes || '', scheduledFor: scheduledFor ?? null, priority: priority || 'medium', timeOfDay: (timeOfDay === '' ? null : timeOfDay) ?? null, recurrence: recurrence });
-  todos.push(todo);
-  saveTodos(todos);
-  try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {}
+  const todo = createTodoDb({ title: title.trim(), notes: notes || '', scheduledFor: scheduledFor ?? null, priority: priority || 'medium', timeOfDay: (timeOfDay === '' ? null : timeOfDay) ?? null, recurrence: recurrence });
   res.json({ todo });
 });
 
@@ -385,7 +399,7 @@ app.get('/api/todos', (req, res) => {
   const fromDate = from ? parseYMD(from) : null;
   const toDate = to ? parseYMD(to) : null;
 
-  let items = todos.filter(t => t.scheduledFor !== null);
+  let items = db.listTodos({ from: null, to: null }).filter(t => t.scheduledFor !== null);
   if (priority) items = items.filter(t => String(t.priority).toLowerCase() === String(priority).toLowerCase());
   if (completedBool !== undefined) items = items.filter(t => t.completed === completedBool);
 
@@ -431,24 +445,46 @@ app.get('/api/todos', (req, res) => {
 
 // Backlog (unscheduled only)
 app.get('/api/todos/backlog', (_req, res) => {
-  const items = todos.filter(t => t.scheduledFor === null);
+  const items = listAllTodosRaw().filter(t => t.scheduledFor === null);
   res.json({ todos: items });
 });
 
 // Search (title or notes, case-insensitive)
 app.get('/api/todos/search', (req, res) => {
-  const q = String(req.query.query || '').toLowerCase().trim();
-  if (!q) return res.status(400).json({ error: 'invalid_query' });
+  const qRaw = String(req.query.query || '');
+  const q = qRaw.trim();
+  if (q.length === 0) return res.status(400).json({ error: 'invalid_query' });
   let completedBool;
   if (req.query.completed !== undefined) {
     if (req.query.completed === 'true' || req.query.completed === true) completedBool = true;
     else if (req.query.completed === 'false' || req.query.completed === false) completedBool = false;
     else return res.status(400).json({ error: 'invalid_completed' });
   }
-  let items = todos;
-  if (completedBool !== undefined) items = items.filter(t => t.completed === completedBool);
-  items = items.filter(t => String(t.title || '').toLowerCase().includes(q) || String(t.notes || '').toLowerCase().includes(q));
-  res.json({ todos: items });
+  try {
+    // FTS5 search when possible; DbService handles fallback behavior
+    let items = db.searchTodos({ q, completed: completedBool });
+    // For very short queries, DbService returns a broad set; apply substring filter to mimic previous UX
+    if (q.length < 2) {
+      const ql = q.toLowerCase();
+      items = items.filter(t => String(t.title || '').toLowerCase().includes(ql) || String(t.notes || '').toLowerCase().includes(ql));
+    }
+    // Boosters: overdue +0.5; priority high +0.25, medium +0.1; tie-break by scheduledFor ASC then id ASC
+    const todayY = ymdInTimeZone(new Date(), TIMEZONE);
+    const score = (t) => {
+      let s = 0;
+      const overdue = (!t.completed && t.scheduledFor && String(t.scheduledFor) < String(todayY));
+      if (overdue) s += 0.5;
+      if (t.priority === 'high') s += 0.25;
+      else if (t.priority === 'medium') s += 0.1;
+      return s;
+    };
+    items = items.map(t => ({ t, s: score(t) }))
+      .sort((a, b) => b.s - a.s || String(a.t.scheduledFor || '').localeCompare(String(b.t.scheduledFor || '')) || (a.t.id - b.t.id))
+      .map(x => x.t);
+    return res.json({ todos: items });
+  } catch (e) {
+    return res.status(500).json({ error: 'search_failed' });
+  }
 });
 
 // Get by id
@@ -458,6 +494,218 @@ app.get('/api/todos/:id', (req, res) => {
   const t = findTodoById(id);
   if (!t) return res.status(404).json({ error: 'not_found' });
   res.json({ todo: t });
+});
+
+// Events (mirror Todos minimal wiring)
+app.post('/api/events', (req, res) => {
+  const { title, notes, scheduledFor, startTime, endTime, location, priority, recurrence } = req.body || {};
+  if (typeof title !== 'string' || title.trim() === '') return res.status(400).json({ error: 'invalid_title' });
+  if (startTime !== undefined && !(startTime === null || /^([01]\d|2[0-3]):[0-5]\d$/.test(String(startTime)))) return res.status(400).json({ error: 'invalid_start_time' });
+  if (endTime !== undefined && !(endTime === null || /^([01]\d|2[0-3]):[0-5]\d$/.test(String(endTime)))) return res.status(400).json({ error: 'invalid_end_time' });
+  if (startTime && endTime && String(endTime) < String(startTime)) return res.status(400).json({ error: 'invalid_time_range' });
+  const rec = (recurrence && typeof recurrence === 'object') ? recurrence : { type: 'none' };
+  if (rec.type && rec.type !== 'none') {
+    if (!(scheduledFor && isYmdString(scheduledFor))) return res.status(400).json({ error: 'missing_anchor_for_recurrence' });
+  }
+  try {
+    const ev = db.createEvent({ title: title.trim(), notes: notes || '', scheduledFor: scheduledFor ?? null, startTime: startTime ?? null, endTime: endTime ?? null, location: location ?? null, priority: priority || 'medium', recurrence: rec, completed: false });
+    return res.json({ event: ev });
+  } catch (e) { return res.status(500).json({ error: 'create_failed' }); }
+});
+
+app.get('/api/events', (req, res) => {
+  const { from, to, priority, completed } = req.query;
+  if (from !== undefined && !isYmdString(from)) return res.status(400).json({ error: 'invalid_from' });
+  if (to !== undefined && !isYmdString(to)) return res.status(400).json({ error: 'invalid_to' });
+  if (priority !== undefined && !['low','medium','high'].includes(String(priority))) return res.status(400).json({ error: 'invalid_priority' });
+  let completedBool;
+  if (completed !== undefined) {
+    if (completed === 'true' || completed === true) completedBool = true;
+    else if (completed === 'false' || completed === false) completedBool = false;
+    else return res.status(400).json({ error: 'invalid_completed' });
+  }
+  try {
+    const list = db.listEvents({ from: from || null, to: to || null, priority: priority || null, completed: completedBool });
+    return res.json({ events: list });
+  } catch (e) { return res.status(500).json({ error: 'db_error' }); }
+});
+
+app.get('/api/events/:id', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
+  const ev = db.getEventById(id);
+  if (!ev) return res.status(404).json({ error: 'not_found' });
+  return res.json({ event: ev });
+});
+
+app.patch('/api/events/:id', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
+  const { title, notes, scheduledFor, startTime, endTime, location, priority, completed, recurrence } = req.body || {};
+  if (title !== undefined && typeof title !== 'string') return res.status(400).json({ error: 'invalid_title' });
+  if (notes !== undefined && typeof notes !== 'string') return res.status(400).json({ error: 'invalid_notes' });
+  if (!(scheduledFor === undefined || scheduledFor === null || isYmdString(scheduledFor))) return res.status(400).json({ error: 'invalid_scheduledFor' });
+  if (priority !== undefined && !['low','medium','high'].includes(String(priority))) return res.status(400).json({ error: 'invalid_priority' });
+  if (completed !== undefined && typeof completed !== 'boolean') return res.status(400).json({ error: 'invalid_completed' });
+  if (startTime !== undefined && !(startTime === null || /^([01]\d|2[0-3]):[0-5]\d$/.test(String(startTime)))) return res.status(400).json({ error: 'invalid_start_time' });
+  if (endTime !== undefined && !(endTime === null || /^([01]\d|2[0-3]):[0-5]\d$/.test(String(endTime)))) return res.status(400).json({ error: 'invalid_end_time' });
+  if (startTime && endTime && String(endTime) < String(startTime)) return res.status(400).json({ error: 'invalid_time_range' });
+  if (recurrence !== undefined && typeof recurrence !== 'object') return res.status(400).json({ error: 'invalid_recurrence' });
+  if (recurrence && recurrence.type && recurrence.type !== 'none') {
+    const anchor = (scheduledFor !== undefined) ? scheduledFor : (db.getEventById(id)?.scheduledFor ?? null);
+    if (!(anchor !== null && isYmdString(anchor))) return res.status(400).json({ error: 'missing_anchor_for_recurrence' });
+  }
+  try {
+    const ev = db.updateEvent(id, { title, notes, scheduledFor, startTime, endTime, location, priority, completed, recurrence });
+    return res.json({ event: ev });
+  } catch (e) {
+    const msg = String(e && e.message ? e.message : e);
+    if (msg === 'not_found') return res.status(404).json({ error: 'not_found' });
+    return res.status(500).json({ error: 'update_failed' });
+  }
+});
+
+app.patch('/api/events/:id/occurrence', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const { occurrenceDate, completed } = req.body || {};
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
+  if (!isYmdString(occurrenceDate)) return res.status(400).json({ error: 'invalid_occurrenceDate' });
+  try { const ev = db.toggleEventOccurrence({ id, occurrenceDate, completed: !!completed }); return res.json({ event: ev }); }
+  catch (e) {
+    const msg = String(e && e.message ? e.message : e);
+    if (msg === 'not_repeating') return res.status(400).json({ error: 'not_repeating' });
+    if (msg === 'not_found') return res.status(404).json({ error: 'not_found' });
+    return res.status(500).json({ error: 'occurrence_failed' });
+  }
+});
+
+app.delete('/api/events/:id', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
+  try { db.deleteEvent(id); return res.json({ ok: true }); }
+  catch { return res.status(500).json({ error: 'delete_failed' }); }
+});
+
+// Events search
+app.get('/api/events/search', (req, res) => {
+  const qRaw = String(req.query.query || '');
+  const q = qRaw.trim();
+  if (q.length === 0) return res.status(400).json({ error: 'invalid_query' });
+  let completedBool;
+  if (req.query.completed !== undefined) {
+    if (req.query.completed === 'true' || req.query.completed === true) completedBool = true;
+    else if (req.query.completed === 'false' || req.query.completed === false) completedBool = false;
+    else return res.status(400).json({ error: 'invalid_completed' });
+  }
+  try {
+    let items = db.searchEvents({ q, completed: completedBool });
+    if (q.length < 2) {
+      const ql = q.toLowerCase();
+      items = items.filter(e => String(e.title || '').toLowerCase().includes(ql) || String(e.notes || '').toLowerCase().includes(ql) || String(e.location || '').toLowerCase().includes(ql));
+    }
+    const todayY = ymdInTimeZone(new Date(), TIMEZONE);
+    const score = (e) => {
+      let s = 0;
+      const overdue = (!e.completed && e.scheduledFor && String(e.scheduledFor) < String(todayY));
+      if (overdue) s += 0.5;
+      if (e.priority === 'high') s += 0.25;
+      else if (e.priority === 'medium') s += 0.1;
+      return s;
+    };
+    items = items.map(e => ({ e, s: score(e) }))
+      .sort((a, b) => b.s - a.s || String(a.e.scheduledFor || '').localeCompare(String(b.e.scheduledFor || '')) || (a.e.id - b.e.id))
+      .map(x => x.e);
+    return res.json({ events: items });
+  } catch (e) {
+    return res.status(500).json({ error: 'search_failed' });
+  }
+});
+
+// Goals
+app.post('/api/goals', (req, res) => {
+  const { title, notes, status, currentProgressValue, targetProgressValue, progressUnit } = req.body || {};
+  if (typeof title !== 'string' || title.trim() === '') return res.status(400).json({ error: 'invalid_title' });
+  if (status !== undefined && !['active','completed','archived'].includes(String(status))) return res.status(400).json({ error: 'invalid_status' });
+  try {
+    const g = db.createGoal({ title: title.trim(), notes: notes || '', status: status || 'active', currentProgressValue, targetProgressValue, progressUnit });
+    return res.json({ goal: g });
+  } catch { return res.status(500).json({ error: 'create_failed' }); }
+});
+
+app.get('/api/goals', (req, res) => {
+  const { status } = req.query || {};
+  if (status !== undefined && !['active','completed','archived'].includes(String(status))) return res.status(400).json({ error: 'invalid_status' });
+  try { const list = db.listGoals({ status: status || null }); return res.json({ goals: list }); }
+  catch { return res.status(500).json({ error: 'db_error' }); }
+});
+
+app.get('/api/goals/:id', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
+  const g = db.getGoalById(id, { includeItems: String(req.query.includeItems||'false')==='true', includeChildren: String(req.query.includeChildren||'false')==='true' });
+  if (!g) return res.status(404).json({ error: 'not_found' });
+  return res.json({ goal: g });
+});
+
+app.patch('/api/goals/:id', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
+  const { title, notes, status, currentProgressValue, targetProgressValue, progressUnit } = req.body || {};
+  if (title !== undefined && typeof title !== 'string') return res.status(400).json({ error: 'invalid_title' });
+  if (notes !== undefined && typeof notes !== 'string') return res.status(400).json({ error: 'invalid_notes' });
+  if (status !== undefined && !['active','completed','archived'].includes(String(status))) return res.status(400).json({ error: 'invalid_status' });
+  try { const g = db.updateGoal(id, { title, notes, status, currentProgressValue, targetProgressValue, progressUnit }); return res.json({ goal: g }); }
+  catch (e) { const msg=String(e&&e.message?e.message:e); if(msg==='not_found') return res.status(404).json({error:'not_found'}); return res.status(500).json({ error: 'update_failed' }); }
+});
+
+app.delete('/api/goals/:id', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
+  try { db.deleteGoal(id); return res.json({ ok: true }); }
+  catch { return res.status(500).json({ error: 'delete_failed' }); }
+});
+
+app.post('/api/goals/:id/items', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
+  const { todos = [], events = [] } = req.body || {};
+  try {
+    db.addGoalTodoItems(id, (Array.isArray(todos)?todos:[]).map(Number).filter(Number.isFinite));
+    db.addGoalEventItems(id, (Array.isArray(events)?events:[]).map(Number).filter(Number.isFinite));
+    return res.json({ ok: true });
+  } catch { return res.status(500).json({ error: 'add_items_failed' }); }
+});
+
+app.delete('/api/goals/:goalId/items/todo/:todoId', (req, res) => {
+  const gid = parseInt(req.params.goalId, 10);
+  const tid = parseInt(req.params.todoId, 10);
+  if (!Number.isFinite(gid) || !Number.isFinite(tid)) return res.status(400).json({ error: 'invalid_id' });
+  try { db.removeGoalTodoItem(gid, tid); return res.json({ ok: true }); }
+  catch { return res.status(500).json({ error: 'remove_item_failed' }); }
+});
+
+app.delete('/api/goals/:goalId/items/event/:eventId', (req, res) => {
+  const gid = parseInt(req.params.goalId, 10);
+  const eid = parseInt(req.params.eventId, 10);
+  if (!Number.isFinite(gid) || !Number.isFinite(eid)) return res.status(400).json({ error: 'invalid_id' });
+  try { db.removeGoalEventItem(gid, eid); return res.json({ ok: true }); }
+  catch { return res.status(500).json({ error: 'remove_item_failed' }); }
+});
+
+app.post('/api/goals/:id/children', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
+  const children = Array.isArray(req.body) ? req.body : [];
+  try { db.addGoalChildren(id, children.map(Number).filter(Number.isFinite)); return res.json({ ok: true }); }
+  catch { return res.status(500).json({ error: 'add_children_failed' }); }
+});
+
+app.delete('/api/goals/:parentId/children/:childId', (req, res) => {
+  const pid = parseInt(req.params.parentId, 10);
+  const cid = parseInt(req.params.childId, 10);
+  if (!Number.isFinite(pid) || !Number.isFinite(cid)) return res.status(400).json({ error: 'invalid_id' });
+  try { db.removeGoalChild(pid, cid); return res.json({ ok: true }); }
+  catch { return res.status(500).json({ error: 'remove_child_failed' }); }
 });
 
 // Update by id
@@ -504,9 +752,7 @@ app.patch('/api/todos/:id', (req, res) => {
   if (timeOfDay !== undefined) t.timeOfDay = (timeOfDay === '' ? null : timeOfDay);
   if (recurrence !== undefined) { applyRecurrenceMutation(t, recurrence); }
   t.updatedAt = now;
-  saveTodos(todos);
-  try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {}
-  res.json({ todo: t });
+  try { const updated = db.updateTodo(id, t); res.json({ todo: updated }); } catch { res.json({ todo: t }); }
 });
 
 // Occurrence completion for repeating tasks
@@ -516,34 +762,24 @@ app.patch('/api/todos/:id/occurrence', (req, res) => {
   const { occurrenceDate, completed } = req.body || {};
   if (!isYmdString(occurrenceDate)) return res.status(400).json({ error: 'invalid_occurrenceDate' });
   if (completed !== undefined && typeof completed !== 'boolean') return res.status(400).json({ error: 'invalid_completed' });
-  const t = findTodoById(id);
-  if (!t) return res.status(404).json({ error: 'not_found' });
-  if (!(t.recurrence && t.recurrence.type && t.recurrence.type !== 'none')) {
-    return res.status(400).json({ error: 'not_repeating' });
+  try {
+    const updated = db.toggleTodoOccurrence({ id, occurrenceDate, completed: !!completed });
+    return res.json({ todo: updated });
+  } catch (e) {
+    const msg = String(e && e.message ? e.message : e);
+    if (msg === 'not_repeating') return res.status(400).json({ error: 'not_repeating' });
+    if (msg === 'not_found') return res.status(404).json({ error: 'not_found' });
+    return res.status(500).json({ error: 'occurrence_failed' });
   }
-  if (!Array.isArray(t.completedDates)) t.completedDates = [];
-  const idx = t.completedDates.indexOf(occurrenceDate);
-  const shouldComplete = (completed === undefined) ? true : !!completed;
-  if (shouldComplete) {
-    if (idx === -1) t.completedDates.push(occurrenceDate);
-  } else {
-    if (idx !== -1) t.completedDates.splice(idx, 1);
-  }
-  t.updatedAt = new Date().toISOString();
-  saveTodos(todos);
-  try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {}
-  res.json({ todo: t });
 });
 
 // Delete by id
 app.delete('/api/todos/:id', (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
-  const idx = todos.findIndex(t => t.id === id);
-  if (idx === -1) return res.status(404).json({ error: 'not_found' });
-  todos.splice(idx, 1);
-  saveTodos(todos);
-  try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {}
+  const existing = findTodoById(id);
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  db.deleteTodo(id);
   res.json({ ok: true });
 });
 
@@ -556,22 +792,6 @@ const CHAT_THRESHOLD = 0.70;
 const MAX_DELETE_WARNING = 20;
 const MAX_BULK_UPDATE_WARNING = 50;
 
-// Simple in-memory idempotency cache
-const applyIdempotency = {
-  cache: new Map(),
-  ttlMs: 10 * 60 * 1000,
-  get(key) {
-    if (!key) return null;
-    const v = this.cache.get(key);
-    if (!v) return null;
-    if (Date.now() - v.ts > this.ttlMs) { this.cache.delete(key); return null; }
-    return v.response;
-  },
-  set(key, response) {
-    if (!key) return;
-    this.cache.set(key, { ts: Date.now(), response });
-  }
-};
 
 function validateWhere(where) {
   const errors = [];
@@ -597,8 +817,12 @@ function validateWhere(where) {
 function validateOperation(op) {
   const errors = [];
   if (!op || typeof op !== 'object') return ['invalid_operation_object'];
-  const kind = op.op;
-  const allowedKinds = ['create', 'update', 'delete', 'complete', 'complete_occurrence', 'bulk_update', 'bulk_complete', 'bulk_delete'];
+  // V3 only: derive internal op code
+  const kindV3 = op.kind && String(op.kind).toLowerCase();
+  const actionV3 = op.action && String(op.action).toLowerCase();
+  const inferred = inferOperationShape(op);
+  const kind = inferred?.op;
+  const allowedKinds = ['create', 'update', 'delete', 'complete', 'complete_occurrence', 'goal_create', 'goal_update', 'goal_delete', 'goal_add_items', 'goal_remove_item', 'goal_add_child', 'goal_remove_child'];
   if (!allowedKinds.includes(kind)) errors.push('invalid_op');
   if (op.priority !== undefined && !['low','medium','high'].includes(String(op.priority))) errors.push('invalid_priority');
   if (op.scheduledFor !== undefined && !(op.scheduledFor === null || isYmdString(op.scheduledFor))) errors.push('invalid_scheduledFor');
@@ -633,41 +857,16 @@ function validateOperation(op) {
       if (!(anchor && isYmdString(anchor))) errors.push('missing_anchor_for_recurrence');
     }
   }
-  // Bulk ops validation
-  if (kind === 'bulk_update') {
-    const wErrors = validateWhere(op.where);
-    if (wErrors.length) errors.push(...wErrors);
-    if (!(op.set && typeof op.set === 'object')) errors.push('missing_set');
-    // Validate provided set fields shape (but not values beyond basic types)
-    const s = op.set || {};
-    if (s.priority !== undefined && !['low','medium','high'].includes(String(s.priority))) errors.push('invalid_set_priority');
-    if (s.scheduledFor !== undefined && !(s.scheduledFor === null || isYmdString(s.scheduledFor))) errors.push('invalid_set_scheduledFor');
-    if (s.timeOfDay !== undefined && !isValidTimeOfDay(s.timeOfDay === '' ? null : s.timeOfDay)) errors.push('invalid_set_timeOfDay');
-    if (s.recurrence !== undefined && !isValidRecurrence(s.recurrence)) errors.push('invalid_set_recurrence');
-  } else if (kind === 'bulk_complete') {
-    const wErrors = validateWhere(op.where);
-    if (wErrors.length) errors.push(...wErrors);
-    if (op.completed !== undefined && typeof op.completed !== 'boolean') errors.push('invalid_completed');
-    // Optional occurrence selectors for repeating tasks
-    if (op.occurrenceDate !== undefined && !isYmdString(op.occurrenceDate)) errors.push('invalid_occurrenceDate');
-    if (op.occurrence_range !== undefined) {
-      if (typeof op.occurrence_range !== 'object') errors.push('invalid_occurrence_range');
-      else {
-        const r = op.occurrence_range;
-        if (r.from !== undefined && !(r.from === null || isYmdString(r.from))) errors.push('invalid_occurrence_range_from');
-        if (r.to !== undefined && !(r.to === null || isYmdString(r.to))) errors.push('invalid_occurrence_range_to');
-      }
-    }
-  } else if (kind === 'bulk_delete') {
-    const wErrors = validateWhere(op.where);
-    if (wErrors.length) errors.push(...wErrors);
+  // Reject bulk operations in V3
+  if (op.op === 'bulk_update' || op.op === 'bulk_complete' || op.op === 'bulk_delete' || actionV3?.startsWith('bulk')) {
+    errors.push('bulk_operations_removed');
   }
   return errors;
 }
 
 function validateProposal(body) {
   if (!body || typeof body !== 'object') return { errors: ['invalid_body'] };
-  const operations = Array.isArray(body.operations) ? body.operations : [];
+  const operations = Array.isArray(body.operations) ? body.operations.map(o => inferOperationShape(o)).filter(Boolean) : [];
   if (!operations.length) return { errors: ['missing_operations'], operations: [] };
   const results = operations.map(o => ({ op: o, errors: validateOperation(o) }));
   const invalid = results.filter(r => r.errors.length > 0);
@@ -677,13 +876,40 @@ function validateProposal(body) {
 function inferOperationShape(o) {
   if (!o || typeof o !== 'object') return null;
   const op = { ...o };
+  // Map V3 to internal v2-like for execution layer
+  if (op.kind && op.action) {
+    const kind = String(op.kind).toLowerCase();
+    const action = String(op.action).toLowerCase();
+    if (kind === 'todo') {
+      if (action === 'create') op.op = 'create';
+      else if (action === 'update') op.op = 'update';
+      else if (action === 'delete') op.op = 'delete';
+      else if (action === 'complete') op.op = 'complete';
+      else if (action === 'complete_occurrence') op.op = 'complete_occurrence';
+    } else if (kind === 'event') {
+      // For now, map event ops to todo pipeline placeholders (server uses todo paths); extend later
+      if (action === 'create') op.op = 'create';
+      else if (action === 'update') op.op = 'update';
+      else if (action === 'delete') op.op = 'delete';
+      else if (action === 'complete') op.op = 'complete';
+      else if (action === 'complete_occurrence') op.op = 'complete_occurrence';
+    } else if (kind === 'goal') {
+      if (action === 'create') op.op = 'goal_create';
+      else if (action === 'update') op.op = 'goal_update';
+      else if (action === 'delete') op.op = 'goal_delete';
+      else if (action === 'add_items') op.op = 'goal_add_items';
+      else if (action === 'remove_item') op.op = 'goal_remove_item';
+      else if (action === 'add_child') op.op = 'goal_add_child';
+      else if (action === 'remove_child') op.op = 'goal_remove_child';
+    }
+  }
   if (!op.op) {
     const hasId = Number.isFinite(op.id);
     const hasCompleted = typeof op.completed === 'boolean';
     const hasTitleOrNotesOrSchedOrPrio = !!(op.title || op.notes || (op.scheduledFor !== undefined) || op.priority);
     if (!hasId && (op.title || op.scheduledFor !== undefined || op.priority)) {
       op.op = 'create';
-      delete op.id; // ignore LLM-provided id on create
+      delete op.id;
     } else if (hasId && hasCompleted && !hasTitleOrNotesOrSchedOrPrio) {
       op.op = 'complete';
     } else if (hasId && hasTitleOrNotesOrSchedOrPrio) {
@@ -836,17 +1062,18 @@ function parseJsonLenient(text) {
 }
 
 function buildSchemaV2Excerpt() {
+  // Repurposed for V3 reminder text (no bulk operations)
   return [
-    'Schema v2:',
-    '- create/update/delete/complete/complete_occurrence (existing)',
-    '- bulk_update: { op: "bulk_update", where: { ids?, title_contains?, overdue?, scheduled_range?{from?,to?}, priority?, completed?, repeating? }, set: { title?, notes?, scheduledFor?, timeOfDay?, priority?, completed?, recurrence? }, reason? }',
-    '- bulk_complete: { op: "bulk_complete", where: { ... }, completed: true|false, occurrenceDate?: YYYY-MM-DD, occurrence_range?: { from?: YYYY-MM-DD|null, to?: YYYY-MM-DD|null }, reason? }',
-    '- bulk_delete: { op: "bulk_delete", where: { ... }, reason? }',
-    'Strict rules:',
-    '- For create/update, include a recurrence object. Use {"type":"none"} if non-repeating.',
-    '- For repeating tasks, an anchor scheduledFor is REQUIRED on create/update.',
-    '- For repeating tasks, do not use complete. Use complete_occurrence with occurrenceDate.',
-    '- Prefer bulk_* when many items match a simple filter; otherwise target by id.'
+    'Schema v3:',
+    '- Wrapper: { kind: "todo"|"event"|"goal", action: string, ...payload }',
+    '- todo actions: create|update|delete|complete|complete_occurrence',
+    '- event actions: create|update|delete|complete|complete_occurrence',
+    '- goal actions: create|update|delete|add_items|remove_item|add_child|remove_child',
+    'Rules:',
+    '- For todo/event create/update, include a recurrence object (use {"type":"none"} for non-repeating).',
+    '- For repeating tasks/events (recurrence.type != none), an anchor scheduledFor is REQUIRED.',
+    '- For repeating items, do not use master complete; use complete_occurrence with occurrenceDate.',
+    '- No bulk operations; emit independent ops, ≤20 per apply.'
   ].join('\n');
 }
 
@@ -873,12 +1100,12 @@ function buildRouterPrompt({ instruction, transcript, clarify }) {
   const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
   const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
   const system = `You are an intent router for a todo assistant. Output JSON only with fields:\n` +
-    `decision: one of [\"chat\", \"plan\", \"clarify\"],\n` +
-    `category: one of [\"habit\", \"goal\", \"task\", \"event\"],\n` +
+    `decision: one of ["chat", "plan", "clarify"],\n` +
+    `category: one of ["habit", "goal", "task", "event"],\n` +
     `entities: object, missing: array, confidence: number 0..1, question: string (required when decision=clarify).\n` +
     `If the instruction is ambiguous about time/date or target, choose clarify and ask ONE short question. No prose.\n` +
-    `If the user asks to change all items in a clear scope (e.g., \"all today\", \"all of them\", \"everything this week\"), prefer plan.\n` +
-    `If a prior clarify question is present, interpret short answers like \"all of them\", \"yes\", \"all today\" as resolving that question and prefer plan.\n` +
+    `If the user asks to change all items in a clear scope (e.g., "all today", "all of them", "everything this week"), prefer plan.\n` +
+    `If a prior clarify question is present, interpret short answers like "all of them", "yes", "all today" as resolving that question and prefer plan.\n` +
     `Use the Context section below (this week Mon–Sun anchored to today, backlog sample, completed=false).`;
   const prior = clarify && clarify.question ? `\nPrior clarify question: ${clarify.question}` : '';
   const snapshots = buildRouterSnapshots();
@@ -924,7 +1151,7 @@ async function runRouter({ instruction, transcript, clarify }) {
           const cands = topClarifyCandidates(instruction, snapshots, 5);
           if (cands.length) {
             const bullets = cands
-              .map(c => `#${c.id} “${String(c.title).slice(0, 40)}”${c.scheduledFor ? ` @${c.scheduledFor}` : ''}`)
+              .map(c => `#${c.id} "${String(c.title).slice(0, 40)}"${c.scheduledFor ? ` @${c.scheduledFor}` : ''}`)
               .join('; ');
             const q = result.question && String(result.question).trim().length > 0
               ? result.question
@@ -945,50 +1172,107 @@ function buildProposalPrompt({ instruction, todosSnapshot, transcript }) {
   const today = new Date();
   const todayYmd = ymdInTimeZone(today, TIMEZONE);
   const system = `You are an assistant for a todo app. Output ONLY a single JSON object with key "operations" as an array. No prose.\n` +
-    `Each operation MUST include field "op" which is one of: "create", "update", "delete", "complete", "complete_occurrence".\n` +
-    `Allowed fields: op, id (int for update/delete/complete/complete_occurrence), title, notes, scheduledFor (YYYY-MM-DD or null), priority (low|medium|high), completed (bool), timeOfDay (HH:MM or null), recurrence (object with keys: type, intervalDays, until [YYYY-MM-DD or null]).\n` +
-    `For EVERY create or update you MUST include a "recurrence" object. Use {"type":"none"} for non-repeating tasks.\n` +
-    `For repeating tasks (recurrence.type != none), an anchor scheduledFor is REQUIRED.\n` +
-    `For complete_occurrence, include: id (masterId), occurrenceDate (YYYY-MM-DD), and optional completed (bool).\n` +
-    `When many items share a simple filter, you MAY use bulk operations: bulk_update, bulk_complete, bulk_delete.\n` +
-    `Bulk operations shape: { op: "bulk_update|bulk_complete|bulk_delete", where: { ids?, title_contains?, overdue?, scheduled_range?{from?,to?}, priority?, completed?, repeating? }, set?: { title?, notes?, scheduledFor?, timeOfDay?, priority?, completed?, recurrence? }, occurrenceDate?: YYYY-MM-DD, occurrence_range?: { from?: YYYY-MM-DD|null, to?: YYYY-MM-DD|null } }. Prefer bulk_* when targets > 5.\n` +
+    `Each operation MUST include fields: kind (todo|event|goal) and action.\n` +
+    `todo actions: create|update|delete|complete|complete_occurrence.\n` +
+    `event actions: create|update|delete|complete|complete_occurrence.\n` +
+    `goal actions: create|update|delete|add_items|remove_item|add_child|remove_child.\n` +
+    `For todo/event create/update include recurrence (use {"type":"none"} for non-repeating). If recurrence.type != none, scheduledFor is REQUIRED.\n` +
+    `For complete_occurrence include id (masterId) and occurrenceDate (YYYY-MM-DD).\n` +
+    `No bulk operations. Emit independent operations; limit to ≤20 per apply.\n` +
     `Today's date is ${todayYmd}. Do NOT invent invalid IDs. Prefer fewer changes over hallucination.\n` +
     `You may reason internally, but the final output MUST be a single JSON object exactly as specified. Do not include your reasoning or any prose.`;
   const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
   const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
   const context = JSON.stringify({ todos: todosSnapshot }, null, 2);
-  const user = `Conversation (last 3 turns):\n${convo}\n\nTimezone: ${TIMEZONE}\nInstruction:\n${instruction}\n\nContext:\n${context}\n\nRespond with JSON ONLY that matches this exact example format:\n{\n  "operations": [\n    {"op": "create", "title": "Buy milk", "scheduledFor": "${todayYmd}", "priority": "high"}\n  ]\n}`;
+  const user = `Conversation (last 3 turns):\n${convo}\n\nTimezone: ${TIMEZONE}\nInstruction:\n${instruction}\n\nContext:\n${context}\n\nRespond with JSON ONLY that matches this exact example format:\n{\n  "operations": [\n    {"kind":"todo","action":"create","title":"Buy milk","scheduledFor":"${todayYmd}","priority":"high","recurrence":{"type":"none"}}\n  ]\n}`;
   return `${system}\n\n${user}`;
 }
 
 // /api/llm/propose removed — superseded by /api/assistant/message two-call pipeline
 
-const AUDIT_FILE = path.join(DATA_DIR, 'audit.jsonl');
 function appendAudit(entry) {
-  try { fs.appendFileSync(AUDIT_FILE, JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n'); } catch {}
+  try { db.logAudit(entry); } catch {}
 }
 
-let applyMutex = Promise.resolve();
-function withApplyLock(fn) { applyMutex = applyMutex.then(() => fn()).catch(() => {}).then(() => {}); return applyMutex; }
+async function withDbTransaction(fn) { return db.runInTransaction(fn); }
 
 app.post('/api/llm/apply', async (req, res) => {
   const { operations } = req.body || {};
   const idempoKey = req.headers['idempotency-key'] || req.body?.idempotencyKey;
-  const cached = applyIdempotency.get(idempoKey);
-  if (cached) return res.json(cached);
-  const validation = validateProposal({ operations });
+  if (Array.isArray(operations) && operations.length > 20) {
+    return res.status(400).json({ error: 'too_many_operations', max: 20 });
+  }
+  const requestHash = (() => { try { return Buffer.from(JSON.stringify(operations || [])).toString('base64'); } catch { return ''; } })();
+  try {
+    const cached = (idempoKey && requestHash) ? db.getIdempotentResponse({ idempotencyKey: idempoKey, requestHash }) : null;
+    if (cached) { try { return res.json(JSON.parse(cached)); } catch { return res.json(cached); } }
+  } catch {}
+  // Map V3 ops before validation
+  const shapedOps = Array.isArray(operations) ? operations.map(o => inferOperationShape(o)).filter(Boolean) : [];
+  const validation = validateProposal({ operations: shapedOps });
   if (validation.errors.length) {
     return res.status(400).json({ error: 'invalid_operations', detail: validation, message: 'Some operations were invalid. The assistant may be attempting unsupported or inconsistent changes.' });
   }
   const results = [];
   let created = 0, updated = 0, deleted = 0, completed = 0;
-  await withApplyLock(async () => {
+  await withDbTransaction(async () => {
     let mutatedSinceRefresh = false;
-    for (const op of operations) {
+    for (const op of shapedOps) {
       try {
-        if (op.op === 'create') {
-          const t = createTodo({ title: String(op.title || '').trim(), notes: op.notes || '', scheduledFor: op.scheduledFor ?? null, priority: op.priority || 'medium', timeOfDay: (op.timeOfDay === '' ? null : op.timeOfDay) ?? null, recurrence: op.recurrence });
-          todos.push(t); mutatedSinceRefresh = true; results.push({ ok: true, op, todo: t }); created++;
+        // Event-kind V3 handling
+        if (op.kind && String(op.kind).toLowerCase() === 'event' && op.op === 'create') {
+          const ev = db.createEvent({
+            title: String(op.title || '').trim(),
+            notes: op.notes || '',
+            scheduledFor: op.scheduledFor ?? null,
+            startTime: (op.startTime === '' ? null : op.startTime) ?? null,
+            endTime: (op.endTime === '' ? null : op.endTime) ?? null,
+            location: op.location ?? null,
+            priority: op.priority || 'medium',
+            recurrence: op.recurrence,
+            completed: false,
+          });
+          results.push({ ok: true, op, event: ev });
+          appendAudit({ action: 'event_create', op, result: 'ok', id: ev.id });
+        } else if (op.kind && String(op.kind).toLowerCase() === 'event' && op.op === 'update') {
+          const id = parseInt(op.id, 10);
+          if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
+          const ev = db.updateEvent(id, {
+            title: op.title,
+            notes: op.notes,
+            scheduledFor: op.scheduledFor,
+            startTime: (op.startTime === '' ? null : op.startTime),
+            endTime: (op.endTime === '' ? null : op.endTime),
+            location: op.location,
+            priority: op.priority,
+            completed: op.completed,
+            recurrence: op.recurrence,
+          });
+          results.push({ ok: true, op, event: ev });
+          appendAudit({ action: 'event_update', op, result: 'ok', id });
+        } else if (op.kind && String(op.kind).toLowerCase() === 'event' && op.op === 'delete') {
+          const id = parseInt(op.id, 10);
+          if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
+          db.deleteEvent(id);
+          results.push({ ok: true, op });
+          appendAudit({ action: 'event_delete', op, result: 'ok', id });
+        } else if (op.kind && String(op.kind).toLowerCase() === 'event' && op.op === 'complete') {
+          const id = parseInt(op.id, 10);
+          if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
+          const current = db.getEventById(id);
+          if (!current) throw new Error('not_found');
+          const ev = db.updateEvent(id, { completed: (op.completed === undefined) ? true : !!op.completed });
+          results.push({ ok: true, op, event: ev });
+          appendAudit({ action: 'event_complete', op, result: 'ok', id });
+        } else if (op.kind && String(op.kind).toLowerCase() === 'event' && op.op === 'complete_occurrence') {
+          const id = parseInt(op.id, 10);
+          if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
+          const ev = db.toggleEventOccurrence({ id, occurrenceDate: op.occurrenceDate, completed: (op.completed === undefined) ? true : !!op.completed });
+          results.push({ ok: true, op, event: ev });
+          appendAudit({ action: 'event_complete_occurrence', op, result: 'ok', id });
+        } else if (op.op === 'create') {
+          const t = createTodoDb({ title: String(op.title || '').trim(), notes: op.notes || '', scheduledFor: op.scheduledFor ?? null, priority: op.priority || 'medium', timeOfDay: (op.timeOfDay === '' ? null : op.timeOfDay) ?? null, recurrence: op.recurrence });
+          mutatedSinceRefresh = true; results.push({ ok: true, op, todo: t }); created++;
           appendAudit({ action: 'create', op, result: 'ok', id: t.id });
         } else if (op.op === 'update') {
           const t = findTodoById(op.id); if (!t) throw new Error('not_found');
@@ -1003,9 +1287,9 @@ app.post('/api/llm/apply', async (req, res) => {
           t.updatedAt = now; mutatedSinceRefresh = true; results.push({ ok: true, op, todo: t }); updated++;
           appendAudit({ action: 'update', op, result: 'ok', id: t.id });
         } else if (op.op === 'delete') {
-          const idx = todos.findIndex(t => t.id === op.id); if (idx === -1) throw new Error('not_found');
-          const removed = todos.splice(idx, 1)[0]; mutatedSinceRefresh = true; results.push({ ok: true, op }); deleted++;
-          appendAudit({ action: 'delete', op, result: 'ok', id: removed?.id });
+          const existing = findTodoById(op.id); if (!existing) throw new Error('not_found');
+          db.deleteTodo(op.id); mutatedSinceRefresh = true; results.push({ ok: true, op }); deleted++;
+          appendAudit({ action: 'delete', op, result: 'ok', id: existing?.id });
         } else if (op.op === 'complete') {
           const t = findTodoById(op.id); if (!t) throw new Error('not_found');
           t.completed = op.completed === undefined ? true : !!op.completed; t.updatedAt = new Date().toISOString(); mutatedSinceRefresh = true; results.push({ ok: true, op, todo: t }); completed++;
@@ -1021,9 +1305,9 @@ app.post('/api/llm/apply', async (req, res) => {
           t.updatedAt = new Date().toISOString(); mutatedSinceRefresh = true; results.push({ ok: true, op, todo: t }); completed++;
           appendAudit({ action: 'complete_occurrence', op, result: 'ok', id: t.id });
         } else if (op.op === 'bulk_update') {
-          if (mutatedSinceRefresh) { saveTodos(todos); try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {} ; mutatedSinceRefresh = false; }
+          // DB-backed; no JSON refresh needed
           // Expand where to concrete ids, then apply updates item-wise
-          const targets = todosIndex.filterByWhere(op.where || {});
+          const targets = filterTodosByWhere(op.where || {});
           const set = op.set || {};
           for (const t of targets) {
             const tt = findTodoById(t.id); if (!tt) continue;
@@ -1037,13 +1321,13 @@ app.post('/api/llm/apply', async (req, res) => {
             if (set.recurrence !== undefined) { applyRecurrenceMutation(tt, set.recurrence); }
             tt.updatedAt = now2;
           }
-          saveTodos(todos); try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {} ; mutatedSinceRefresh = false;
+          // DB-backed; no JSON refresh needed
           results.push({ ok: true, op, count: targets.length, expandedIds: targets.map(t => t.id) });
           updated += targets.length;
           appendAudit({ action: 'bulk_update', op, result: 'ok', expandedIds: targets.map(t => t.id) });
         } else if (op.op === 'bulk_complete') {
-          if (mutatedSinceRefresh) { saveTodos(todos); try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {} ; mutatedSinceRefresh = false; }
-          const targets = todosIndex.filterByWhere(op.where || {});
+          // DB-backed; no JSON refresh needed
+          const targets = filterTodosByWhere(op.where || {});
           const shouldComplete = (op.completed === undefined) ? true : !!op.completed;
           const dateFromWhere = (() => {
             try {
@@ -1098,22 +1382,75 @@ app.post('/api/llm/apply', async (req, res) => {
             // Fallback: if no date hints provided, set master completed for consistency
             tt.completed = shouldComplete; tt.updatedAt = new Date().toISOString();
           }
-          saveTodos(todos); try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {} ; mutatedSinceRefresh = false;
+          // DB-backed; no JSON refresh needed
           results.push({ ok: true, op, count: targets.length, expandedIds: targets.map(t => t.id) });
           completed += targets.length;
           appendAudit({ action: 'bulk_complete', op, result: 'ok', expandedIds: targets.map(t => t.id) });
         } else if (op.op === 'bulk_delete') {
-          if (mutatedSinceRefresh) { saveTodos(todos); try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {} ; mutatedSinceRefresh = false; }
-          const targets = todosIndex.filterByWhere(op.where || {});
+          // DB-backed; no JSON refresh needed
+          const targets = filterTodosByWhere(op.where || {});
           const ids = new Set(targets.map(t => t.id));
           let removedCount = 0;
-          for (let i = todos.length - 1; i >= 0; i--) {
-            if (ids.has(todos[i].id)) { todos.splice(i, 1); removedCount++; }
-          }
-          saveTodos(todos); try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {} ; mutatedSinceRefresh = false;
+          for (const id of ids) { try { db.deleteTodo(id); removedCount++; } catch {} }
+          // DB-backed; no JSON refresh needed
           results.push({ ok: true, op, count: removedCount, expandedIds: Array.from(ids) });
           deleted += removedCount;
           appendAudit({ action: 'bulk_delete', op, result: 'ok', expandedIds: Array.from(ids) });
+        } else if (
+          op.op === 'goal_create' || op.op === 'goal_update' || op.op === 'goal_delete' ||
+          op.op === 'goal_add_items' || op.op === 'goal_remove_item' ||
+          op.op === 'goal_add_child' || op.op === 'goal_remove_child'
+        ) {
+          if (op.op === 'goal_create') {
+            const g = db.createGoal({ title: String(op.title || '').trim(), notes: op.notes || '', status: op.status || 'active', currentProgressValue: op.currentProgressValue ?? null, targetProgressValue: op.targetProgressValue ?? null, progressUnit: op.progressUnit ?? null });
+            results.push({ ok: true, op, goal: g });
+            appendAudit({ action: 'goal_create', op, result: 'ok', id: g.id });
+          } else if (op.op === 'goal_update') {
+            const id = parseInt(op.id, 10);
+            if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
+            const g = db.updateGoal(id, { title: op.title, notes: op.notes, status: op.status, currentProgressValue: op.currentProgressValue, targetProgressValue: op.targetProgressValue, progressUnit: op.progressUnit });
+            results.push({ ok: true, op, goal: g });
+            appendAudit({ action: 'goal_update', op, result: 'ok', id });
+          } else if (op.op === 'goal_delete') {
+            const id = parseInt(op.id, 10);
+            if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
+            db.deleteGoal(id);
+            results.push({ ok: true, op });
+            appendAudit({ action: 'goal_delete', op, result: 'ok', id });
+          } else if (op.op === 'goal_add_items') {
+            const id = parseInt(op.id, 10);
+            if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
+            const todoIds = Array.isArray(op.todos) ? op.todos.map(x => parseInt((x && x.id) ?? x, 10)).filter(Number.isFinite) : [];
+            const eventIds = Array.isArray(op.events) ? op.events.map(x => parseInt((x && x.id) ?? x, 10)).filter(Number.isFinite) : [];
+            if (todoIds.length) db.addGoalTodoItems(id, todoIds);
+            if (eventIds.length) db.addGoalEventItems(id, eventIds);
+            results.push({ ok: true, op, added: { todos: todoIds.length, events: eventIds.length } });
+            appendAudit({ action: 'goal_add_items', op, result: 'ok', id });
+          } else if (op.op === 'goal_remove_item') {
+            const id = parseInt(op.id, 10);
+            if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
+            if (Number.isFinite(op.todoId)) db.removeGoalTodoItem(id, parseInt(op.todoId, 10));
+            else if (Number.isFinite(op.eventId)) db.removeGoalEventItem(id, parseInt(op.eventId, 10));
+            else throw new Error('missing_item_id');
+            results.push({ ok: true, op });
+            appendAudit({ action: 'goal_remove_item', op, result: 'ok', id });
+          } else if (op.op === 'goal_add_child') {
+            const id = parseInt(op.id, 10);
+            if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
+            const childId = parseInt(op.childId, 10);
+            if (!Number.isFinite(childId)) throw new Error('missing_child_id');
+            db.addGoalChildren(id, [childId]);
+            results.push({ ok: true, op });
+            appendAudit({ action: 'goal_add_child', op, result: 'ok', id });
+          } else if (op.op === 'goal_remove_child') {
+            const id = parseInt(op.id, 10);
+            if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
+            const childId = parseInt(op.childId, 10);
+            if (!Number.isFinite(childId)) throw new Error('missing_child_id');
+            db.removeGoalChild(id, childId);
+            results.push({ ok: true, op });
+            appendAudit({ action: 'goal_remove_child', op, result: 'ok', id });
+          }
         } else {
           results.push({ ok: false, op, error: 'invalid_op' });
           appendAudit({ action: 'invalid', op, result: 'invalid' });
@@ -1123,13 +1460,9 @@ app.post('/api/llm/apply', async (req, res) => {
         appendAudit({ action: op?.op || 'unknown', op, result: 'error', error: String(e && e.message ? e.message : e) });
       }
     }
-    if (mutatedSinceRefresh) {
-      saveTodos(todos);
-      try { todosIndex.refresh(todos); todosIndex.setTimeZone(TIMEZONE); } catch {}
-    }
   });
   const response = { results, summary: { created, updated, deleted, completed } };
-  applyIdempotency.set(idempoKey, response);
+  try { if (idempoKey && requestHash) db.saveIdempotentResponse({ idempotencyKey: idempoKey, requestHash, response }); } catch {}
   res.json(response);
 });
 
@@ -1141,7 +1474,7 @@ function buildConversationalSummaryPrompt({ instruction, operations, todosSnapsh
     const parts = [];
     parts.push(op.op);
     if (Number.isFinite(op.id)) parts.push(`#${op.id}`);
-    if (op.title) parts.push(`“${String(op.title).slice(0, 60)}”`);
+    if (op.title) parts.push(`"${String(op.title).slice(0, 60)}"`);
     if (op.scheduledFor !== undefined) parts.push(`@${op.scheduledFor === null ? 'unscheduled' : op.scheduledFor}`);
     if (op.priority) parts.push(`prio:${op.priority}`);
     if (typeof op.completed === 'boolean') parts.push(op.completed ? '[done]' : '[undone]');
@@ -1187,8 +1520,8 @@ function buildDeterministicSummaryText(operations) {
 // Shared helper: propose → validate → (attempt repair) → return ops and annotations
 async function runProposalAndRepair({ instruction, transcript, focusedWhere, mode = 'post', onValidating, onOps, onRepairing }) {
   // Snapshot selection
-  const aggregates = todosIndex.getAggregates();
-  const topK = focusedWhere ? todosIndex.filterByWhere(focusedWhere).slice(0, 50) : todosIndex.searchByQuery('', { k: 40 });
+  const aggregates = getAggregatesFromDb();
+  const topK = focusedWhere ? filterTodosByWhere(focusedWhere).slice(0, 50) : listAllTodosRaw().slice(0, 40);
   const snapshot = focusedWhere ? { focused: topK, aggregates } : { topK, aggregates };
 
   // Propose
@@ -1309,7 +1642,7 @@ app.post('/api/assistant/message', async (req, res) => {
     let text;
     let usedFallback = false;
     try {
-      const prompt2 = buildConversationalSummaryPrompt({ instruction: message.trim(), operations: ops, todosSnapshot: todos, transcript });
+      const prompt2 = buildConversationalSummaryPrompt({ instruction: message.trim(), operations: ops, todosSnapshot: listAllTodosRaw(), transcript });
       const raw2 = await runOllamaWithThinkingIfGranite({ userContent: prompt2 });
       // Extract a clean plain-text summary
       let s2 = stripGraniteTags(String(raw2 || ''));
@@ -1418,7 +1751,7 @@ app.get('/api/assistant/message/stream', async (req, res) => {
     let text;
     try {
       send('stage', JSON.stringify({ stage: 'summarizing' }));
-      const prompt2 = buildConversationalSummaryPrompt({ instruction: message.trim(), operations: validOps, todosSnapshot: todos, transcript });
+      const prompt2 = buildConversationalSummaryPrompt({ instruction: message.trim(), operations: validOps, todosSnapshot: listAllTodosRaw(), transcript });
       const raw2 = await runOllamaWithThinkingIfGranite({ userContent: prompt2 });
       let s2 = stripGraniteTags(String(raw2 || ''));
       s2 = s2.replace(/```[\s\S]*?```/g, '').trim();
@@ -1445,6 +1778,9 @@ app.get('/api/assistant/message/stream', async (req, res) => {
 app.post('/api/llm/dryrun', async (req, res) => {
   try {
     const { operations } = req.body || {};
+    if (Array.isArray(operations) && operations.length > 20) {
+      return res.status(400).json({ error: 'too_many_operations', max: 20 });
+    }
     const validation = validateProposal({ operations });
     const results = [];
     let created = 0, updated = 0, deleted = 0, completed = 0;
@@ -1453,11 +1789,10 @@ app.post('/api/llm/dryrun', async (req, res) => {
       const errs = r.errors;
       const entry = { op, valid: errs.length === 0, errors: errs };
       if (entry.valid) {
-        if (op.op === 'create') created++;
+        if (op.op === 'create' || op.op?.startsWith('goal_')) updated++;
         else if (op.op === 'update') updated++;
         else if (op.op === 'delete') deleted++;
-        else if (op.op === 'complete' || op.op === 'complete_occurrence' || op.op === 'bulk_complete') completed++;
-        else if (op.op === 'bulk_update' || op.op === 'bulk_delete') updated++;
+        else if (op.op === 'complete' || op.op === 'complete_occurrence') completed++;
       }
       results.push(entry);
     }
@@ -1466,10 +1801,10 @@ app.post('/api/llm/dryrun', async (req, res) => {
       for (const r of (validation.results || [])) {
         const op = r.op;
         if (op.op === 'bulk_delete') {
-          const targets = todosIndex.filterByWhere(op.where || {});
+          const targets = filterTodosByWhere(op.where || {});
           if (targets.length > MAX_DELETE_WARNING) warnings.push(`bulk_delete will remove ${targets.length} items`);
         } else if (op.op === 'bulk_update') {
-          const targets = todosIndex.filterByWhere(op.where || {});
+          const targets = filterTodosByWhere(op.where || {});
           if (targets.length > MAX_BULK_UPDATE_WARNING) warnings.push(`bulk_update will affect ${targets.length} items`);
         }
       }
