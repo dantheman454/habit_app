@@ -28,6 +28,8 @@ class Sidebar extends StatelessWidget {
               _tile('All', 'all', Icons.inbox, count: counters['all']),
               _tile('Flagged', 'flagged', Icons.flag, count: counters['flagged']),
               _tile('Backlog', 'backlog', Icons.list_alt, count: counters['backlog']),
+              const Divider(height: 1),
+              _tile('Goals', 'goals', Icons.flag_circle),
             ],
           ),
         ),

@@ -68,6 +68,14 @@ function listAllTodosRaw() {
   try { return db.searchTodos({ q: ' ' }); } catch { return []; }
 }
 
+function listAllEventsRaw() {
+  try { return db.searchEvents({ q: ' ' }); } catch { return []; }
+}
+
+function listAllHabitsRaw() {
+  try { return db.searchHabits({ q: ' ' }); } catch { return []; }
+}
+
 function filterTodosByWhere(where = {}) {
   const items = listAllTodosRaw().slice();
   let filtered = items;
@@ -120,6 +128,50 @@ function filterTodosByWhere(where = {}) {
   return filtered;
 }
 
+function filterItemsByWhere(items, where = {}) {
+  let filtered = (Array.isArray(items) ? items.slice() : []);
+  if (Array.isArray(where.ids) && where.ids.length) {
+    const set = new Set(where.ids.map((id) => parseInt(id, 10)));
+    filtered = filtered.filter((t) => set.has(t.id));
+  }
+  if (typeof where.title_contains === 'string' && where.title_contains.trim()) {
+    const q = where.title_contains.toLowerCase();
+    filtered = filtered.filter((t) => String(t.title || '').toLowerCase().includes(q));
+  }
+  if (typeof where.overdue === 'boolean') {
+    const todayY = ymd(new Date());
+    const isOverdue = (t) => { if (t.completed) return false; if (!t.scheduledFor) return false; return String(t.scheduledFor) < String(todayY); };
+    filtered = filtered.filter((t) => isOverdue(t) === where.overdue);
+  }
+  if (where.scheduled_range && (where.scheduled_range.from || where.scheduled_range.to)) {
+    const from = where.scheduled_range.from ? parseYMD(where.scheduled_range.from) : null;
+    const to = where.scheduled_range.to ? parseYMD(where.scheduled_range.to) : null;
+    filtered = filtered.filter((t) => {
+      if (!t.scheduledFor) return false;
+      const d = parseYMD(t.scheduledFor);
+      if (!d) return false;
+      if (from && d < from) return false;
+      if (to) {
+        const inclusiveEnd = new Date(to.getFullYear(), to.getMonth(), to.getDate() + 1);
+        if (d >= inclusiveEnd) return false;
+      }
+      return true;
+    });
+  }
+  if (typeof where.priority === 'string') {
+    const p = where.priority.toLowerCase();
+    filtered = filtered.filter((t) => String(t.priority || '').toLowerCase() === p);
+  }
+  if (typeof where.completed === 'boolean') {
+    filtered = filtered.filter((t) => !!t.completed === where.completed);
+  }
+  if (typeof where.repeating === 'boolean') {
+    const isRepeating = (x) => !!(x?.recurrence && x.recurrence.type && x.recurrence.type !== 'none');
+    filtered = filtered.filter((t) => isRepeating(t) === where.repeating);
+  }
+  return filtered;
+}
+
 function getAggregatesFromDb() {
   const items = listAllTodosRaw();
   const today = new Date();
@@ -142,9 +194,12 @@ function getAggregatesFromDb() {
 
 function buildRouterSnapshots() {
   const { fromYmd, toYmd } = weekRangeFromToday(TIMEZONE);
-  const weekItems = filterTodosByWhere({ scheduled_range: { from: fromYmd, to: toYmd }, completed: false });
-  const backlogAll = filterTodosByWhere({ completed: false });
-  const backlogSample = backlogAll.filter(t => t.scheduledFor === null).slice(0, 40);
+  const todosWeek = filterTodosByWhere({ scheduled_range: { from: fromYmd, to: toYmd }, completed: false });
+  const eventsWeek = filterItemsByWhere(listAllEventsRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false });
+  const habitsWeek = filterItemsByWhere(listAllHabitsRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false });
+  const weekItems = [...todosWeek, ...eventsWeek, ...habitsWeek];
+  const backlogTodos = filterTodosByWhere({ completed: false });
+  const backlogSample = backlogTodos.filter(t => t.scheduledFor === null).slice(0, 40);
   const compact = (t) => ({ id: t.id, title: t.title, scheduledFor: t.scheduledFor, priority: t.priority });
   return { week: { from: fromYmd, to: toYmd, items: weekItems.map(compact) }, backlog: backlogSample.map(compact) };
 }
@@ -200,6 +255,27 @@ function normalizeTodo(todo) {
     return t;
   } catch {
     return todo;
+  }
+}
+
+function normalizeHabit(habit) {
+  try {
+    const h = { ...habit };
+    if (h.timeOfDay === undefined) h.timeOfDay = null;
+    if (!h || typeof h.recurrence !== 'object') {
+      // For habits, default to daily to enforce repeating semantics
+      h.recurrence = { type: 'daily', until: endOfCurrentYearYmd() };
+    } else {
+      if (!h.recurrence.type) h.recurrence.type = 'daily';
+      if (h.recurrence.until === undefined) h.recurrence.until = endOfCurrentYearYmd();
+    }
+    if (h.recurrence.type !== 'none') {
+      if (!Array.isArray(h.completedDates)) h.completedDates = [];
+    }
+    if (typeof h.completed !== 'boolean') h.completed = false;
+    return h;
+  } catch {
+    return habit;
   }
 }
 
@@ -308,6 +384,40 @@ function expandOccurrences(todo, fromDate, toDate) {
         recurrence: todo.recurrence,
         createdAt: todo.createdAt,
         updatedAt: todo.updatedAt,
+      });
+    }
+  }
+  return occurrences;
+}
+
+// Expand repeating events into per-day occurrences within [from,to]
+function expandEventOccurrences(event, fromDate, toDate) {
+  const occurrences = [];
+  const anchor = event.scheduledFor ? parseYMD(event.scheduledFor) : null;
+  if (!anchor) return occurrences;
+  const untilYmd = event.recurrence?.until ?? undefined; // null = no cap
+  const untilDate = (untilYmd && isYmdString(untilYmd)) ? parseYMD(untilYmd) : null;
+  const start = new Date(Math.max(fromDate.getTime(), anchor.getTime()));
+  const inclusiveEnd = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate() + 1);
+  for (let d = new Date(start); d < inclusiveEnd; d = addDays(d, 1)) {
+    if (untilDate && d > untilDate) break;
+    if (matchesRule(d, anchor, event.recurrence)) {
+      const dateStr = ymd(d);
+      const occCompleted = Array.isArray(event.completedDates) && event.completedDates.includes(dateStr);
+      occurrences.push({
+        id: event.id,
+        masterId: event.id,
+        title: event.title,
+        notes: event.notes,
+        scheduledFor: dateStr,
+        startTime: event.startTime ?? null,
+        endTime: event.endTime ?? null,
+        location: event.location ?? null,
+        priority: event.priority,
+        completed: !!occCompleted,
+        recurrence: event.recurrence,
+        createdAt: event.createdAt,
+        updatedAt: event.updatedAt,
       });
     }
   }
@@ -511,6 +621,162 @@ app.post('/api/events', (req, res) => {
   } catch (e) { return res.status(500).json({ error: 'create_failed' }); }
 });
 
+// Habits (mirror Todos but must be repeating)
+app.post('/api/habits', (req, res) => {
+  const { title, notes, scheduledFor, priority, timeOfDay, recurrence } = req.body || {};
+  if (typeof title !== 'string' || title.trim() === '') return res.status(400).json({ error: 'invalid_title' });
+  if (!(scheduledFor !== null && isYmdString(scheduledFor))) return res.status(400).json({ error: 'missing_anchor_for_recurrence' });
+  if (!isValidTimeOfDay(timeOfDay === '' ? null : timeOfDay)) return res.status(400).json({ error: 'invalid_timeOfDay' });
+  // require recurrence and forbid none
+  if (!(recurrence && typeof recurrence === 'object' && typeof recurrence.type === 'string')) return res.status(400).json({ error: 'missing_recurrence' });
+  if (!isValidRecurrence(recurrence) || recurrence.type === 'none') return res.status(400).json({ error: 'invalid_recurrence' });
+  try {
+    const h = db.createHabit({ title: title.trim(), notes: notes || '', scheduledFor, timeOfDay: (timeOfDay === '' ? null : timeOfDay) ?? null, priority: priority || 'medium', recurrence, completed: false });
+    return res.json({ habit: h });
+  } catch { return res.status(500).json({ error: 'create_failed' }); }
+});
+
+app.get('/api/habits', (req, res) => {
+  const { from, to, priority, completed } = req.query;
+  if (from !== undefined && !isYmdString(from)) return res.status(400).json({ error: 'invalid_from' });
+  if (to !== undefined && !isYmdString(to)) return res.status(400).json({ error: 'invalid_to' });
+  if (priority !== undefined && !['low','medium','high'].includes(String(priority))) return res.status(400).json({ error: 'invalid_priority' });
+  let completedBool;
+  if (completed !== undefined) {
+    if (completed === 'true' || completed === true) completedBool = true;
+    else if (completed === 'false' || completed === false) completedBool = false;
+    else return res.status(400).json({ error: 'invalid_completed' });
+  }
+  const fromDate = from ? parseYMD(from) : null;
+  const toDate = to ? parseYMD(to) : null;
+  let items = db.listHabits({ from: null, to: null }).filter(h => h.scheduledFor !== null);
+  if (priority) items = items.filter(h => String(h.priority).toLowerCase() === String(priority).toLowerCase());
+  const doExpand = !!(fromDate && toDate);
+  if (!doExpand) {
+    if (fromDate || toDate) {
+      items = items.filter(h => {
+        if (!h.scheduledFor) return false;
+        const hd = parseYMD(h.scheduledFor);
+        if (!hd) return false;
+        if (fromDate && hd < fromDate) return false;
+        if (toDate) {
+          const inclusiveEnd = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate() + 1);
+          if (hd >= inclusiveEnd) return false;
+        }
+        return true;
+      });
+    }
+    if (completedBool !== undefined) items = items.filter(h => h.completed === completedBool);
+    // Sort like todos
+    const sorted = items.slice().sort((a, b) => {
+      const sfa = String(a.scheduledFor || '');
+      const sfb = String(b.scheduledFor || '');
+      if (sfa !== sfb) return sfa.localeCompare(sfb);
+      const at = a.timeOfDay || '';
+      const bt = b.timeOfDay || '';
+      if (at === '' && bt !== '') return -1;
+      if (at !== '' && bt === '') return 1;
+      if (at !== bt) return at.localeCompare(bt);
+      return (a.id || 0) - (b.id || 0);
+    });
+    return res.json({ habits: sorted });
+  }
+  // Must expand (habits are always repeating); reuse todo expansion
+  const expanded = [];
+  for (const h of items) {
+    expanded.push(...expandOccurrences(h, fromDate, toDate));
+  }
+  let out = expanded;
+  if (completedBool !== undefined) out = out.filter(x => x && typeof x.completed === 'boolean' && (x.completed === completedBool));
+  // Sort
+  out = out.slice().sort((a, b) => {
+    const sfa = String(a.scheduledFor || '');
+    const sfb = String(b.scheduledFor || '');
+    if (sfa !== sfb) return sfa.localeCompare(sfb);
+    const at = a.timeOfDay || '';
+    const bt = b.timeOfDay || '';
+    if (at === '' && bt !== '') return -1;
+    if (at !== '' && bt === '') return 1;
+    if (at !== bt) return at.localeCompare(bt);
+    return (a.id || 0) - (b.id || 0);
+  });
+  return res.json({ habits: out });
+});
+
+app.get('/api/habits/search', (req, res) => {
+  const qRaw = String(req.query.query || '');
+  const q = qRaw.trim();
+  if (q.length === 0) return res.status(400).json({ error: 'invalid_query' });
+  let completedBool;
+  if (req.query.completed !== undefined) {
+    if (req.query.completed === 'true' || req.query.completed === true) completedBool = true;
+    else if (req.query.completed === 'false' || req.query.completed === false) completedBool = false;
+    else return res.status(400).json({ error: 'invalid_completed' });
+  }
+  try {
+    let items = db.searchHabits({ q, completed: completedBool });
+    if (q.length < 2) {
+      const ql = q.toLowerCase();
+      items = items.filter(h => String(h.title || '').toLowerCase().includes(ql) || String(h.notes || '').toLowerCase().includes(ql));
+    }
+    return res.json({ habits: items });
+  } catch (e) {
+    return res.status(500).json({ error: 'search_failed' });
+  }
+});
+
+app.get('/api/habits/:id', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
+  const h = db.getHabitById(id);
+  if (!h) return res.status(404).json({ error: 'not_found' });
+  return res.json({ habit: h });
+});
+
+app.patch('/api/habits/:id', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
+  const { title, notes, scheduledFor, priority, completed, timeOfDay, recurrence } = req.body || {};
+  if (title !== undefined && typeof title !== 'string') return res.status(400).json({ error: 'invalid_title' });
+  if (notes !== undefined && typeof notes !== 'string') return res.status(400).json({ error: 'invalid_notes' });
+  if (!(scheduledFor === undefined || scheduledFor === null || isYmdString(scheduledFor))) return res.status(400).json({ error: 'invalid_scheduledFor' });
+  if (priority !== undefined && !['low','medium','high'].includes(String(priority))) return res.status(400).json({ error: 'invalid_priority' });
+  if (completed !== undefined && typeof completed !== 'boolean') return res.status(400).json({ error: 'invalid_completed' });
+  if (timeOfDay !== undefined && !isValidTimeOfDay(timeOfDay === '' ? null : timeOfDay)) return res.status(400).json({ error: 'invalid_timeOfDay' });
+  if (recurrence !== undefined && !isValidRecurrence(recurrence)) return res.status(400).json({ error: 'invalid_recurrence' });
+  // Strict: require recurrence and forbid none for habits
+  if (!(recurrence && typeof recurrence === 'object' && typeof recurrence.type === 'string')) return res.status(400).json({ error: 'missing_recurrence' });
+  if (recurrence && recurrence.type === 'none') return res.status(400).json({ error: 'invalid_recurrence' });
+  if (recurrence && recurrence.type && recurrence.type !== 'none') {
+    const anchor = (scheduledFor !== undefined) ? scheduledFor : (db.getHabitById(id)?.scheduledFor ?? null);
+    if (!(anchor !== null && isYmdString(anchor))) return res.status(400).json({ error: 'missing_anchor_for_recurrence' });
+  }
+  try {
+    const h = db.updateHabit(id, { title, notes, scheduledFor, timeOfDay, priority, completed, recurrence });
+    return res.json({ habit: h });
+  } catch (e) {
+    const msg = String(e && e.message ? e.message : e);
+    if (msg === 'not_found') return res.status(404).json({ error: 'not_found' });
+    return res.status(500).json({ error: 'update_failed' });
+  }
+});
+
+app.patch('/api/habits/:id/occurrence', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const { occurrenceDate, completed } = req.body || {};
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
+  if (!isYmdString(occurrenceDate)) return res.status(400).json({ error: 'invalid_occurrenceDate' });
+  if (completed !== undefined && typeof completed !== 'boolean') return res.status(400).json({ error: 'invalid_completed' });
+  try {
+    const updated = db.toggleHabitOccurrence({ id, occurrenceDate, completed: !!completed });
+    return res.json({ habit: updated });
+  } catch (e) {
+    const msg = String(e && e.message ? e.message : e);
+    if (msg === 'not_repeating') return res.status(400).json({ error: 'not_repeating' });
+    if (msg === 'not_found') return res.status(404).json({ error: 'not_found' });
+    return res.status(500).json({ error: 'occurrence_failed' });
+  }
+});
 app.get('/api/events', (req, res) => {
   const { from, to, priority, completed } = req.query;
   if (from !== undefined && !isYmdString(from)) return res.status(400).json({ error: 'invalid_from' });
@@ -523,8 +789,75 @@ app.get('/api/events', (req, res) => {
     else return res.status(400).json({ error: 'invalid_completed' });
   }
   try {
-    const list = db.listEvents({ from: from || null, to: to || null, priority: priority || null, completed: completedBool });
-    return res.json({ events: list });
+    const fromDate = from ? parseYMD(from) : null;
+    const toDate = to ? parseYMD(to) : null;
+    // Load scheduled masters; filter priority pre-expansion
+    let items = db.listEvents({ from: null, to: null, priority: null, completed: null }).filter(e => e.scheduledFor !== null);
+    if (priority) items = items.filter(e => String(e.priority).toLowerCase() === String(priority).toLowerCase());
+
+    const doExpand = !!(fromDate && toDate);
+    if (!doExpand) {
+      // If either from or to provided without both, filter masters by range
+      if (fromDate || toDate) {
+        items = items.filter(e => {
+          if (!e.scheduledFor) return false;
+          const ed = parseYMD(e.scheduledFor);
+          if (!ed) return false;
+          if (fromDate && ed < fromDate) return false;
+          if (toDate) {
+            const inclusiveEnd = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate() + 1);
+            if (ed >= inclusiveEnd) return false;
+          }
+          return true;
+        });
+      }
+      if (completedBool !== undefined) items = items.filter(e => e.completed === completedBool);
+      // Keep ordering by scheduledFor ASC, startTime ASC nulls-first, id ASC
+      const sorted = items.slice().sort((a, b) => {
+        const sfa = String(a.scheduledFor || '');
+        const sfb = String(b.scheduledFor || '');
+        if (sfa !== sfb) return sfa.localeCompare(sfb);
+        const at = a.startTime || '';
+        const bt = b.startTime || '';
+        if (at === '' && bt !== '') return -1;
+        if (at !== '' && bt === '') return 1;
+        if (at !== bt) return at.localeCompare(bt);
+        return (a.id || 0) - (b.id || 0);
+      });
+      return res.json({ events: sorted });
+    }
+
+    // Expand repeating events into per-day occurrences within [from,to]
+    const expanded = [];
+    for (const e of items) {
+      const isRepeating = (e.recurrence && e.recurrence.type && e.recurrence.type !== 'none');
+      if (!isRepeating) {
+        const ed = e.scheduledFor ? parseYMD(e.scheduledFor) : null;
+        if (ed && (!fromDate || ed >= fromDate) && (!toDate || ed < new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate() + 1))) {
+          expanded.push(e);
+        }
+      } else {
+        expanded.push(...expandEventOccurrences(e, fromDate, toDate));
+      }
+    }
+    // Apply completed filter post-expansion when provided
+    let out = expanded;
+    if (completedBool !== undefined) {
+      out = expanded.filter(x => x && typeof x.completed === 'boolean' && (x.completed === completedBool));
+    }
+    // Order: scheduledFor ASC, startTime ASC nulls-first, id ASC
+    out = out.slice().sort((a, b) => {
+      const sfa = String(a.scheduledFor || '');
+      const sfb = String(b.scheduledFor || '');
+      if (sfa !== sfb) return sfa.localeCompare(sfb);
+      const at = a.startTime || '';
+      const bt = b.startTime || '';
+      if (at === '' && bt !== '') return -1;
+      if (at !== '' && bt === '') return 1;
+      if (at !== bt) return at.localeCompare(bt);
+      return (a.id || 0) - (b.id || 0);
+    });
+    return res.json({ events: out });
   } catch (e) { return res.status(500).json({ error: 'db_error' }); }
 });
 
@@ -616,6 +949,182 @@ app.get('/api/events/search', (req, res) => {
     return res.json({ events: items });
   } catch (e) {
     return res.status(500).json({ error: 'search_failed' });
+  }
+});
+
+// Unified schedule (todos + events; habits added once implemented)
+app.get('/api/schedule', (req, res) => {
+  const { from, to, kinds, completed, priority } = req.query || {};
+  if (!isYmdString(from)) return res.status(400).json({ error: 'invalid_from' });
+  if (!isYmdString(to)) return res.status(400).json({ error: 'invalid_to' });
+  let completedBool;
+  if (completed !== undefined) {
+    if (completed === 'true' || completed === true) completedBool = true;
+    else if (completed === 'false' || completed === false) completedBool = false;
+    else return res.status(400).json({ error: 'invalid_completed' });
+  }
+  if (priority !== undefined && !['low','medium','high'].includes(String(priority))) return res.status(400).json({ error: 'invalid_priority' });
+
+  const requestedKinds = (() => {
+    const csv = String(kinds || 'todo,event').trim();
+    const parts = csv.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+    const set = new Set(parts.length ? parts : ['todo','event','habit']);
+    // Support habit now that it exists
+    return ['todo','event','habit'].filter(k => set.has(k));
+  })();
+
+  try {
+    const fromDate = parseYMD(from);
+    const toDate = parseYMD(to);
+    const inclusiveEnd = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate() + 1);
+    const inRange = (d) => {
+      if (!d) return false;
+      return (d >= fromDate) && (d < inclusiveEnd);
+    };
+
+    const items = [];
+
+    if (requestedKinds.includes('todo')) {
+      let todos = db.listTodos({ from: null, to: null }).filter(t => t.scheduledFor !== null);
+      if (priority) todos = todos.filter(t => String(t.priority).toLowerCase() === String(priority).toLowerCase());
+      // Expand where needed
+      for (const t of todos) {
+        const isRepeating = (t.recurrence && t.recurrence.type && t.recurrence.type !== 'none');
+        if (isRepeating) {
+          for (const occ of expandOccurrences(t, fromDate, toDate)) {
+            if (completedBool === undefined || occ.completed === completedBool) {
+              items.push({
+                kind: 'todo',
+                id: occ.id,
+                masterId: occ.masterId,
+                title: occ.title,
+                notes: occ.notes,
+                scheduledFor: occ.scheduledFor,
+                priority: occ.priority,
+                completed: occ.completed,
+                timeOfDay: occ.timeOfDay ?? null,
+                recurrence: occ.recurrence,
+                createdAt: occ.createdAt,
+                updatedAt: occ.updatedAt,
+              });
+            }
+          }
+        } else {
+          const td = t.scheduledFor ? parseYMD(t.scheduledFor) : null;
+          if (inRange(td) && (completedBool === undefined || t.completed === completedBool)) {
+            items.push({
+              kind: 'todo',
+              id: t.id,
+              title: t.title,
+              notes: t.notes,
+              scheduledFor: t.scheduledFor,
+              priority: t.priority,
+              completed: t.completed,
+              timeOfDay: t.timeOfDay ?? null,
+              recurrence: t.recurrence,
+              createdAt: t.createdAt,
+              updatedAt: t.updatedAt,
+            });
+          }
+        }
+      }
+    }
+
+    if (requestedKinds.includes('event')) {
+      let events = db.listEvents({ from: null, to: null }).filter(e => e.scheduledFor !== null);
+      if (priority) events = events.filter(e => String(e.priority).toLowerCase() === String(priority).toLowerCase());
+      for (const e of events) {
+        const isRepeating = (e.recurrence && e.recurrence.type && e.recurrence.type !== 'none');
+        if (isRepeating) {
+          for (const occ of expandEventOccurrences(e, fromDate, toDate)) {
+            if (completedBool === undefined || occ.completed === completedBool) {
+              items.push({
+                kind: 'event',
+                id: occ.id,
+                masterId: occ.masterId,
+                title: occ.title,
+                notes: occ.notes,
+                scheduledFor: occ.scheduledFor,
+                priority: occ.priority,
+                completed: occ.completed,
+                startTime: occ.startTime ?? null,
+                endTime: occ.endTime ?? null,
+                location: occ.location ?? null,
+                recurrence: occ.recurrence,
+                createdAt: occ.createdAt,
+                updatedAt: occ.updatedAt,
+              });
+            }
+          }
+        } else {
+          const ed = e.scheduledFor ? parseYMD(e.scheduledFor) : null;
+          if (inRange(ed) && (completedBool === undefined || e.completed === completedBool)) {
+            items.push({
+              kind: 'event',
+              id: e.id,
+              title: e.title,
+              notes: e.notes,
+              scheduledFor: e.scheduledFor,
+              priority: e.priority,
+              completed: e.completed,
+              startTime: e.startTime ?? null,
+              endTime: e.endTime ?? null,
+              location: e.location ?? null,
+              recurrence: e.recurrence,
+              createdAt: e.createdAt,
+              updatedAt: e.updatedAt,
+            });
+          }
+        }
+      }
+    }
+
+    if (requestedKinds.includes('habit')) {
+      let habits = db.listHabits({ from: null, to: null }).filter(h => h.scheduledFor !== null);
+      if (priority) habits = habits.filter(h => String(h.priority).toLowerCase() === String(priority).toLowerCase());
+      for (const h of habits) {
+        // habits must be repeating; always expand
+        for (const occ of expandOccurrences(h, fromDate, toDate)) {
+          if (completedBool === undefined || occ.completed === completedBool) {
+            items.push({
+              kind: 'habit',
+              id: occ.id,
+              masterId: occ.masterId,
+              title: occ.title,
+              notes: occ.notes,
+              scheduledFor: occ.scheduledFor,
+              priority: occ.priority,
+              completed: occ.completed,
+              timeOfDay: occ.timeOfDay ?? null,
+              recurrence: occ.recurrence,
+              createdAt: occ.createdAt,
+              updatedAt: occ.updatedAt,
+            });
+          }
+        }
+      }
+    }
+
+    // Sort: (scheduledFor ASC, time ASC nulls-first, kind order event<todo<habit, id ASC)
+    const kindOrder = { event: 0, todo: 1, habit: 2 };
+    items.sort((a, b) => {
+      const da = String(a.scheduledFor || '');
+      const dbs = String(b.scheduledFor || '');
+      if (da !== dbs) return da.localeCompare(dbs);
+      const ta = (a.kind === 'event') ? (a.startTime || '') : (a.timeOfDay || '');
+      const tb = (b.kind === 'event') ? (b.startTime || '') : (b.timeOfDay || '');
+      if (ta === '' && tb !== '') return -1;
+      if (ta !== '' && tb === '') return 1;
+      if (ta !== tb) return ta.localeCompare(tb);
+      const ka = kindOrder[a.kind] ?? 99;
+      const kb = kindOrder[b.kind] ?? 99;
+      if (ka !== kb) return ka - kb;
+      return (a.id || 0) - (b.id || 0);
+    });
+
+    return res.json({ items });
+  } catch (e) {
+    return res.status(500).json({ error: 'schedule_error' });
   }
 });
 
@@ -835,6 +1344,10 @@ function validateOperation(op) {
     if (!(op.recurrence && typeof op.recurrence === 'object' && 'type' in op.recurrence)) {
       errors.push('missing_recurrence');
     }
+    // Habits must be repeating
+    if (kindV3 === 'habit' && op.recurrence && op.recurrence.type === 'none') {
+      errors.push('invalid_recurrence');
+    }
   }
   if ((kind === 'update' || kind === 'delete' || kind === 'complete' || kind === 'complete_occurrence')) {
     if (!(Number.isFinite(op.id))) {
@@ -852,7 +1365,11 @@ function validateOperation(op) {
   // Strict: if op targets a repeating task, forbid master complete and require anchor when recurrence changes
   if (kind === 'complete') {
     const t = Number.isFinite(op.id) ? findTodoById(op.id) : null;
-    if (t && t.recurrence && t.recurrence.type && t.recurrence.type !== 'none') {
+    const e = Number.isFinite(op.id) ? db.getEventById(op.id) : null;
+    const h = Number.isFinite(op.id) ? db.getHabitById?.(op.id) : null;
+    if ((t && t.recurrence && t.recurrence.type && t.recurrence.type !== 'none') ||
+        (e && e.recurrence && e.recurrence.type && e.recurrence.type !== 'none') ||
+        (h && h.recurrence && h.recurrence.type && h.recurrence.type !== 'none')) {
       errors.push('use_complete_occurrence_for_repeating');
     }
   }
@@ -895,6 +1412,12 @@ function inferOperationShape(o) {
       else if (action === 'complete_occurrence') op.op = 'complete_occurrence';
     } else if (kind === 'event') {
       // For now, map event ops to todo pipeline placeholders (server uses todo paths); extend later
+      if (action === 'create') op.op = 'create';
+      else if (action === 'update') op.op = 'update';
+      else if (action === 'delete') op.op = 'delete';
+      else if (action === 'complete') op.op = 'complete';
+      else if (action === 'complete_occurrence') op.op = 'complete_occurrence';
+    } else if (kind === 'habit') {
       if (action === 'create') op.op = 'create';
       else if (action === 'update') op.op = 'update';
       else if (action === 'delete') op.op = 'delete';
@@ -1277,6 +1800,52 @@ app.post('/api/llm/apply', async (req, res) => {
           const ev = db.toggleEventOccurrence({ id, occurrenceDate: op.occurrenceDate, completed: (op.completed === undefined) ? true : !!op.completed });
           results.push({ ok: true, op, event: ev });
           appendAudit({ action: 'event_complete_occurrence', op, result: 'ok', id });
+        } else if (op.kind && String(op.kind).toLowerCase() === 'habit' && op.op === 'create') {
+          const h = db.createHabit({
+            title: String(op.title || '').trim(),
+            notes: op.notes || '',
+            scheduledFor: op.scheduledFor ?? null,
+            timeOfDay: (op.timeOfDay === '' ? null : op.timeOfDay) ?? null,
+            priority: op.priority || 'medium',
+            recurrence: op.recurrence,
+            completed: false,
+          });
+          results.push({ ok: true, op, habit: h });
+          appendAudit({ action: 'habit_create', op, result: 'ok', id: h.id });
+        } else if (op.kind && String(op.kind).toLowerCase() === 'habit' && op.op === 'update') {
+          const id = parseInt(op.id, 10);
+          if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
+          const h = db.updateHabit(id, {
+            title: op.title,
+            notes: op.notes,
+            scheduledFor: op.scheduledFor,
+            timeOfDay: (op.timeOfDay === '' ? null : op.timeOfDay),
+            priority: op.priority,
+            completed: op.completed,
+            recurrence: op.recurrence,
+          });
+          results.push({ ok: true, op, habit: h });
+          appendAudit({ action: 'habit_update', op, result: 'ok', id });
+        } else if (op.kind && String(op.kind).toLowerCase() === 'habit' && op.op === 'delete') {
+          const id = parseInt(op.id, 10);
+          if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
+          db.deleteHabit(id);
+          results.push({ ok: true, op });
+          appendAudit({ action: 'habit_delete', op, result: 'ok', id });
+        } else if (op.kind && String(op.kind).toLowerCase() === 'habit' && op.op === 'complete') {
+          const id = parseInt(op.id, 10);
+          if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
+          const current = db.getHabitById(id);
+          if (!current) throw new Error('not_found');
+          const h = db.updateHabit(id, { completed: (op.completed === undefined) ? true : !!op.completed });
+          results.push({ ok: true, op, habit: h });
+          appendAudit({ action: 'habit_complete', op, result: 'ok', id });
+        } else if (op.kind && String(op.kind).toLowerCase() === 'habit' && op.op === 'complete_occurrence') {
+          const id = parseInt(op.id, 10);
+          if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
+          const h = db.toggleHabitOccurrence({ id, occurrenceDate: op.occurrenceDate, completed: (op.completed === undefined) ? true : !!op.completed });
+          results.push({ ok: true, op, habit: h });
+          appendAudit({ action: 'habit_complete_occurrence', op, result: 'ok', id });
         } else if (op.op === 'create') {
           const t = createTodoDb({ title: String(op.title || '').trim(), notes: op.notes || '', scheduledFor: op.scheduledFor ?? null, priority: op.priority || 'medium', timeOfDay: (op.timeOfDay === '' ? null : op.timeOfDay) ?? null, recurrence: op.recurrence });
           mutatedSinceRefresh = true; results.push({ ok: true, op, todo: t }); created++;

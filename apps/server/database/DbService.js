@@ -126,6 +126,103 @@ export class DbService {
     return this.getEventById(info.lastInsertRowid);
   }
 
+  // Habits (parity with todos)
+  createHabit({ title, notes = '', scheduledFor = null, timeOfDay = null, priority = 'medium', recurrence = { type: 'daily' }, completed = false }) {
+    this.openIfNeeded();
+    const now = new Date().toISOString();
+    const stmt = this.db.prepare(`
+      INSERT INTO habits(title, notes, scheduled_for, time_of_day, priority, completed, recurrence, completed_dates, created_at, updated_at)
+      VALUES (@title, @notes, @scheduled_for, @time_of_day, @priority, @completed, @recurrence, NULL, @created_at, @updated_at)
+    `);
+    const info = stmt.run({
+      title,
+      notes,
+      scheduled_for: scheduledFor,
+      time_of_day: timeOfDay,
+      priority,
+      completed: completed ? 1 : 0,
+      recurrence: JSON.stringify(recurrence || { type: 'daily' }),
+      created_at: now,
+      updated_at: now,
+    });
+    return this.getHabitById(info.lastInsertRowid);
+  }
+
+  getHabitById(id) {
+    this.openIfNeeded();
+    const row = this.db.prepare('SELECT * FROM habits WHERE id = ?').get(id);
+    if (!row) return null;
+    return this._mapHabit(row);
+  }
+
+  updateHabit(id, patch) {
+    this.openIfNeeded();
+    const h = this.getHabitById(id);
+    if (!h) throw new Error('not_found');
+    const merged = { ...h, ...patch };
+    const now = new Date().toISOString();
+    this.db.prepare(`UPDATE habits SET title=@title, notes=@notes, scheduled_for=@scheduled_for, time_of_day=@time_of_day, priority=@priority, completed=@completed, recurrence=@recurrence, updated_at=@updated_at WHERE id=@id`).run({
+      id,
+      title: merged.title,
+      notes: merged.notes,
+      scheduled_for: merged.scheduledFor ?? null,
+      time_of_day: merged.timeOfDay ?? null,
+      priority: merged.priority,
+      completed: merged.completed ? 1 : 0,
+      recurrence: JSON.stringify(merged.recurrence || { type: 'daily' }),
+      updated_at: now,
+    });
+    return this.getHabitById(id);
+  }
+
+  deleteHabit(id) {
+    this.openIfNeeded();
+    this.db.prepare('DELETE FROM habits WHERE id = ?').run(id);
+  }
+
+  listHabits({ from = null, to = null, priority = null, completed = null } = {}) {
+    this.openIfNeeded();
+    const cond = ['scheduled_for IS NOT NULL'];
+    const params = {};
+    if (from) { cond.push('scheduled_for >= @from'); params.from = from; }
+    if (to) { cond.push("scheduled_for < date(@to, '+1 day')"); params.to = to; }
+    if (priority) { cond.push('priority = @priority'); params.priority = priority; }
+    if (completed !== null && completed !== undefined) { cond.push('completed = @completed'); params.completed = completed ? 1 : 0; }
+    const sql = `SELECT * FROM habits WHERE ${cond.join(' AND ')} ORDER BY scheduled_for ASC, time_of_day ASC NULLS FIRST, id ASC`;
+    const rows = this.db.prepare(sql).all(params);
+    return rows.map(r => this._mapHabit(r));
+  }
+
+  searchHabits({ q, completed = null }) {
+    this.openIfNeeded();
+    if (!q || String(q).length < 2) {
+      const rows = this.db.prepare('SELECT * FROM habits ORDER BY id ASC').all();
+      let items = rows.map(r => this._mapHabit(r));
+      if (completed !== null && completed !== undefined) items = items.filter(h => !!h.completed === !!completed);
+      return items;
+    }
+    const rows = this.db.prepare('SELECT h.* FROM habits h JOIN habits_fts f ON f.rowid = h.id WHERE habits_fts MATCH @q').all({ q: String(q) });
+    let items = rows.map(r => this._mapHabit(r));
+    if (completed !== null && completed !== undefined) items = items.filter(h => !!h.completed === !!completed);
+    return items;
+  }
+
+  toggleHabitOccurrence({ id, occurrenceDate, completed }) {
+    this.openIfNeeded();
+    const h = this.getHabitById(id);
+    if (!h) throw new Error('not_found');
+    const type = h.recurrence && h.recurrence.type;
+    if (!type || type === 'none') throw new Error('not_repeating');
+    const arr = Array.isArray(h.completedDates) ? h.completedDates.slice() : [];
+    const idx = arr.indexOf(occurrenceDate);
+    const shouldComplete = (completed === undefined) ? true : !!completed;
+    if (shouldComplete) { if (idx === -1) arr.push(occurrenceDate); }
+    else if (idx !== -1) { arr.splice(idx, 1); }
+    const now = new Date().toISOString();
+    this.db.prepare('UPDATE habits SET completed_dates=@completed_dates, updated_at=@updated_at WHERE id=@id').run({ id, completed_dates: JSON.stringify(arr), updated_at: now });
+    return this.getHabitById(id);
+  }
+
   getEventById(id) {
     this.openIfNeeded();
     const row = this.db.prepare('SELECT * FROM events WHERE id = ?').get(id);
@@ -295,6 +392,22 @@ export class DbService {
       priority: r.priority,
       completed: !!r.completed,
       recurrence: (() => { try { return JSON.parse(r.recurrence || '{"type":"none"}'); } catch { return { type: 'none' }; } })(),
+      completedDates: (() => { try { return r.completed_dates ? JSON.parse(r.completed_dates) : null; } catch { return null; } })(),
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    };
+  }
+
+  _mapHabit(r) {
+    return {
+      id: r.id,
+      title: r.title,
+      notes: r.notes,
+      scheduledFor: r.scheduled_for,
+      timeOfDay: r.time_of_day,
+      priority: r.priority,
+      completed: !!r.completed,
+      recurrence: (() => { try { return JSON.parse(r.recurrence || '{"type":"daily"}'); } catch { return { type: 'daily' }; } })(),
       completedDates: (() => { try { return r.completed_dates ? JSON.parse(r.completed_dates) : null; } catch { return null; } })(),
       createdAt: r.created_at,
       updatedAt: r.updated_at,

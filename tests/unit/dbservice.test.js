@@ -83,6 +83,30 @@ test('events: create/get/update/list/search/toggle occurrence/delete', () => {
   assert.equal(db.getEventById(e1.id), null);
 });
 
+test('habits: CRUD + list/search/toggle occurrence', () => {
+  const today = ymd();
+  // create repeating habit
+  const h1 = db.createHabit({ title: 'Meditate', scheduledFor: today, priority: 'medium', recurrence: { type: 'daily' } });
+  assert.ok(h1 && h1.id);
+  const g = db.getHabitById(h1.id);
+  assert.equal(g.title, 'Meditate');
+  // update
+  const up = db.updateHabit(h1.id, { notes: '10 min' });
+  assert.equal(up.notes, '10 min');
+  // list within range
+  const list = db.listHabits({ from: today, to: today });
+  assert.ok(list.find(x => x.id === h1.id));
+  // search
+  const s = db.searchHabits({ q: 'meditate' });
+  assert.ok(s.some(x => x.id === h1.id));
+  // toggle occurrence
+  const toggled = db.toggleHabitOccurrence({ id: h1.id, occurrenceDate: today, completed: true });
+  assert.ok(Array.isArray(toggled.completedDates) && toggled.completedDates.includes(today));
+  // delete
+  db.deleteHabit(h1.id);
+  assert.equal(db.getHabitById(h1.id), null);
+});
+
 test('goals: CRUD + items/children linking + cascades', () => {
   const g1 = db.createGoal({ title: 'Goal A' });
   const g2 = db.createGoal({ title: 'Goal B' });

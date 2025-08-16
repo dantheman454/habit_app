@@ -4,6 +4,7 @@ class TodoLike {
   final int id;
   final String title;
   final String notes;
+  final String? kind; // 'todo'|'event'|'habit'
   final String? timeOfDay;
   final String priority;
   final bool completed;
@@ -12,6 +13,7 @@ class TodoLike {
     required this.id,
     required this.title,
     required this.notes,
+    this.kind,
     this.timeOfDay,
     required this.priority,
     required this.completed,
@@ -55,6 +57,24 @@ class TodoRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(children: [
+                  if (todo.kind != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: Colors.grey.shade300),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _kindIcon(todo.kind!),
+                          const SizedBox(width: 4),
+                          Text(todo.kind!, style: const TextStyle(fontSize: 11, color: Colors.black87)),
+                        ],
+                      ),
+                    ),
+                  if (todo.kind != null) const SizedBox(width: 6),
                   _priorityBadge(todo.priority),
                   const SizedBox(width: 6),
                   Flexible(
@@ -99,6 +119,14 @@ class TodoRow extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Widget _kindIcon(String kind) {
+    IconData icon;
+    if (kind == 'event') icon = Icons.event;
+    else if (kind == 'habit') icon = Icons.repeat;
+    else icon = Icons.check_circle_outline;
+    return Icon(icon, size: 12, color: Colors.black54);
   }
 
   Widget _priorityBadge(String p) {

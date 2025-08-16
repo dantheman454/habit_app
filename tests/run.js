@@ -126,6 +126,21 @@ async function main() {
   const capDry = await request('POST', '/api/llm/dryrun', { operations: tooMany });
   assert.equal(capDry.status, 400);
 
+  // Unified schedule basic sanity (todos+events)
+  const today = ymd();
+  // Create a one-off todo and event for today
+  await request('POST', '/api/llm/apply', { operations: [ { kind: 'todo', action: 'create', title: 'Sched T', scheduledFor: today, recurrence: { type: 'none' } } ] });
+  await request('POST', '/api/llm/apply', { operations: [ { kind: 'event', action: 'create', title: 'Sched E', scheduledFor: today, startTime: '08:00', endTime: '09:00', recurrence: { type: 'none' } } ] });
+  // Create a daily habit for today anchor
+  const habitCreate = await request('POST', '/api/habits', { title: 'Sched H', scheduledFor: today, recurrence: { type: 'daily' } });
+  if (habitCreate.status === 200) {
+    const sched = await request('GET', `/api/schedule?from=${today}&to=${today}`);
+    assert.equal(sched.status, 200);
+    assert.ok(Array.isArray(sched.body.items));
+    const kinds = new Set(sched.body.items.map(x => x.kind));
+    assert.ok(kinds.has('todo') || kinds.has('event') || kinds.has('habit'));
+  }
+
   console.log('OK');
 }
 
