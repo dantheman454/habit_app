@@ -1,80 +1,67 @@
 ## Backend Algorithms and Policies
 
-This document enumerates server-side algorithms and strict policies with file/line references.
+This document enumerates server-side algorithms and strict policies. References map to functions/behaviors to reduce churn.
 
 ### Validation and normalization
 
 - Primitive validators
-  - `isYmdString(value)` → regex `^\d{4}-\d{2}-\d{2}$` (server 219:221)
-  - `isValidTimeOfDay(value)` → regex `^([01]\d|2[0-3]):[0-5]\d$` or null/undefined (server 223:227)
-  - `isValidRecurrence(rec)` → type guard, allowed types, `intervalDays>=1`, `until` shape (server 229:241)
+  - `isYmdString(value)`: `^\d{4}-\d{2}-\d{2}$`
+  - `isValidTimeOfDay(value)`: `^([01]\d|2[0-3]):[0-5]\d$` or null/undefined
+  - `isValidRecurrence(rec)`: allowed types (`none|daily|weekdays|weekly|every_n_days`), `intervalDays>=1` for every_n_days, `until` shape nullable or YYYY-MM-DD
 
-- Todo normalization (server 142:160)
-  - Default `timeOfDay` to null
-  - Ensure `recurrence` has `type` and default `until`
-  - Ensure `completedDates` array exists for repeating
-  - Ensure `completed` boolean
+- Normalization helpers
+  - Todos/Habits: default `timeOfDay` to null; ensure `recurrence.type` and default `until` to end-of-year; ensure `completedDates` exists for repeating; `completed` is boolean
+  - `applyRecurrenceMutation(target, incoming)`: merges recurrence, ensures defaults, and clears `completedDates` when switching repeating→none
 
 - Endpoint-level strictness
-  - Create and Update require a `recurrence` object; use `{type:'none'}` for non-repeating (server 339:341, 485:487)
-  - Repeating create/update must include a valid anchor `scheduledFor` (server 357:361, 489:493)
-  - Completing a repeating task via master `complete` is forbidden in apply validation (use `complete_occurrence`) (server 622:626)
+  - Todos Create/Update require a `recurrence` object; use `{type:'none'}` for non-repeating
+  - Repeating create/update must include an anchor `scheduledFor`
+  - Habits: must be repeating when `recurrence` provided (and on create); anchor required
+  - Events: time validation for `startTime/endTime` and anchor when repeating
+  - Occurrence endpoints toggle `completedDates` by `occurrenceDate`
 
-- Operation-level validation (apply path)
-  - `validateProposal` enforces presence of `operations` array (server 867:874)
-  - `validateOperation` guards op kind, field shapes, and recurrence/time/date constraints; bulk operations are rejected (server 817:865, 860:864)
-  - For `complete_occurrence`, requires valid `occurrenceDate` and boolean `completed` if provided (server 841:844)
+- Operation-level validation (apply/dryrun)
+  - `validateProposal` requires `operations` array; maps V3 `{kind,action,...}` via `inferOperationShape`
+  - Guards op kind, field shapes, recurrence/time/date constraints; rejects bulk operations; enforces recurrence + anchor rules
+  - `complete_occurrence` requires `occurrenceDate` and optional boolean `completed`
+  - For repeating targets, forbids master `complete` in favor of `complete_occurrence`
 
 ### Recurrence and occurrences
 
-- Rule evaluation: `matchesRule(date, anchor, recurrence)` — see types in Data Model (server 252:269)
-- Expansion: `expandOccurrences(master, fromDate, toDate)` builds per-day instances with `completed` flag derived from `completedDates` (server 271:300)
-- List handler expands whenever `from,to` are provided (server 410:423). Without a range, returns scheduled masters optionally filtered (server 392:407). Post-expansion filter honors `completed` (server 424:429).
+- Rule evaluation: `matchesRule(date, anchor, recurrence)` implements: daily; weekdays (Mon–Fri); weekly (weekday equality); every_n_days (diff%step==0, diff>=0)
+- Expansion: `expandOccurrences(master, fromDate, toDate)` builds per-day instances with `completed` from `completedDates.includes(date)`
+- List handlers expand when both `from` and `to` are provided; otherwise filter masters; completed filter runs post-expansion
 
 Edge behaviors:
-- `weekdays` uses JS weekday 1..5 (Mon..Fri) (server 256:258)
-- `weekly` matches `getDay()` equality with anchor (server 260:262)
-- `every_n_days` computes `daysBetween(anchor,date) % step == 0` and `diff >= 0` (server 263:268)
+- `until` caps expansion (null/undefined means no cap)
+- Time ordering: null/empty time sorts before a set time
 
 ### Snapshots and aggregates
 
-- Aggregates: counts from DB-backed search used for assistant prompts (server 125:143)
-- Router snapshots: Mon–Sun week range + backlog sample derived from DB, not an in-memory index (server 145:152)
-
-Router snapshots builder:
-- Computes Mon–Sun week range in given timezone (server 42:60)
-- Snapshot contents: compact `{ id, title, scheduledFor, priority }` for week and backlog sample (server 62:75)
-- Clarify candidates scored by token inclusion plus small high-priority bonus (server 78:95)
+- Aggregates for prompts: computed from DB (overdue, next7Days, backlog, scheduled)
+- Router snapshots: Mon–Sun week range + backlog sample from DB (not an in-memory index), with compact `{id,title,scheduledFor,priority}`
+- Clarify candidate ranking: token inclusion plus small high-priority bonus
 
 ### Assistant router and proposal pipeline
 
-- Router thresholds: `CLARIFY_THRESHOLD = 0.45`, `CHAT_THRESHOLD = 0.70` (server 554:556)
-- Router prompt construction embeds Monday–Sunday snapshot and backlog sample; when low confidence, rewrites to `clarify` (server 870:887)
-- Clarify augmentation: attaches concise options of top candidates (server 921:937)
-- Proposal prompt: instructs LLM to output JSON-only operations; enforces recurrence requirements; includes aggregates/topK snapshot; use `complete_occurrence` for repeating items (server 1171:1183)
-- Operation inference: `inferOperationShape` sets `op` when omitted (server 677:696)
-- Validation pass: `validateProposal` + `validateOperation` returns per-op errors (server 668:675, 597:665)
-- Single repair attempt: builds a repair prompt with schema excerpt and last-3 transcript; re-validate (server 853:867, 1231:1263)
-- Conversational summary: plain-text post-plan summary; Granite tags stripped; deterministic fallback available (server 1137:1156, 1420:1431)
-
-Determinisic summary details:
-- Counts created/updated/deleted/completed; previews created titles (up to 2) and dates (up to 2) (server 1159:1181)
+- Router thresholds: `CLARIFY_THRESHOLD = 0.45`, `CHAT_THRESHOLD = 0.70`
+- Router prompt includes week snapshot + backlog and last-3 transcript; low confidence → `clarify` with structured `options`
+- Clarify feedback: client may pass `options.clarify.selection` with `ids/date/priority` to seed `where` and bias planning
+- Proposal prompt: outputs JSON-only operations; enforces recurrence and anchor; includes topK/focused snapshot and aggregates
+- Operation inference: `inferOperationShape` sets `op` when omitted; normalizes priority and `scheduledFor: ''→null`
+- Validation + single repair attempt: `buildRepairPrompt` uses schema excerpt and last-3 transcript; re-validate and fall back to valid subset
+- Summarization: chat-style plain text; Granite tags stripped; deterministic fallback when LLM fails
 
 ### Idempotency and auditing
 
-- Idempotency cache: header `Idempotency-Key` (or body `idempotencyKey`) deduplicates apply responses (server 1201:1210, 1465:1466)
-- Audit: entries recorded via DB (`audit_log`); assistant/apply path emits audit entries throughout apply (server 1235:1453)
+- Idempotency cache: `Idempotency-Key` header (or `idempotencyKey` in body) + request hash stores/returns cached apply response
+- Audit: DB `audit_log` receives entries across router, repair attempts, apply results, and errors
+- Coverage: create/update/delete/complete/complete_occurrence for todos/events/habits and all `goal_*` operations
 
-Audit coverage per op (apply path): create/update/delete/complete/complete_occurrence (todo/event) and goal operations write audit entries; invalid ops and caught errors are logged with `result: 'invalid'|'error'`.
 ### Error messages catalog (quick reference)
 
-- Endpoints: `invalid_title`, `missing_recurrence`, `invalid_notes`, `invalid_scheduledFor`, `invalid_priority`, `invalid_timeOfDay`, `invalid_recurrence`, `missing_anchor_for_recurrence`, `invalid_completed`, `invalid_id`, `not_found`, `not_repeating`, `invalid_occurrenceDate`
-- Apply/validate: `invalid_op`, `missing_or_invalid_id`, `id_not_found`, `use_complete_occurrence_for_repeating`, bulk where/set invalidations
+- Endpoints: `invalid_title`, `missing_recurrence`, `invalid_notes`, `invalid_scheduledFor`, `invalid_priority`, `invalid_timeOfDay`, `invalid_recurrence`, `missing_anchor_for_recurrence`, `invalid_completed`, `invalid_id`, `not_found`, `not_repeating`, `invalid_occurrenceDate`, plus event-specific `invalid_start_time`, `invalid_end_time`, `invalid_time_range`
+- Apply/Dry-run: `invalid_operations`, `invalid_op`, `missing_or_invalid_id`, `id_not_found`, `use_complete_occurrence_for_repeating`, `bulk_operations_removed`, `too_many_operations`
 
-
-### Error taxonomy (selected)
-
-- Proposal/validation errors: `invalid_op`, `invalid_priority`, `invalid_scheduledFor`, `invalid_timeOfDay`, `invalid_recurrence`, `missing_recurrence`, `missing_anchor_for_recurrence`, `missing_or_invalid_id`, `id_not_found`, `invalid_occurrenceDate`, `invalid_completed`, `use_complete_occurrence_for_repeating` (server 590:649)
-- CRUD-level errors on endpoints mirror the above; see create/update/occurrence handlers (server 320:355, 446:503, 506:529)
 
 

@@ -1,81 +1,78 @@
-## LLM Pipeline (Router → Propose → Repair → Summarize)
+## LLM Pipeline (router → propose → repair → summarize)
 
-This document details control flow, prompts, thresholds, parsing, and streaming.
+This document explains modes, prompts, thresholds, parsing, streaming, and apply/dryrun boundaries. It reflects the current server and client code without fragile line references.
 
 ### Modes
 
-- `plan` (default): Generate operations, validate/repair, summarize; no routing step
-- `chat`: Bypass operations and return a concise chat answer
-- `auto`: Router decides `clarify|chat|plan`; may insert a clarification turn
+- plan (default): Generate operations, validate/repair, summarize.
+- chat: Bypass operations and return a concise chat answer.
+- auto: Router decides clarify | chat | plan; may insert a clarification turn.
 
-Entrypoints: POST `/api/assistant/message` and GET `/api/assistant/message/stream` (server 1601:1665, 1668:1775)
+Entrypoints: POST `/api/assistant/message` and GET `/api/assistant/message/stream`.
+
+### Model runtime
+
+- Local model via Ollama; model name is configurable. Default is `deepcoder:14b` in code today.
+- JSON-first: tries Ollama HTTP `/api/generate` with `format: 'json'`, falls back to CLI.
+- Granite compatibility: if the model outputs `<think>...</think><response>...</response>`, the server extracts `<response>` before JSON parsing and strips tags for summaries.
 
 ### Router (auto mode)
 
-- Decision JSON: `{ decision: 'chat'|'plan'|'clarify', category, entities, missing, confidence, question? }`
-- Thresholds: `CLARIFY_THRESHOLD = 0.45`, `CHAT_THRESHOLD = 0.70` (server 790:792)
-- Context snapshot: week range (Mon–Sun) and backlog sample derived from DB queries (server 145:152, 173:178, 1098:1115)
-- Clarify decoration: adds `question` and structured `options` with `(id,title,scheduledFor)` (server 1148:1163)
-
-Clarify selection feedback:
-- Client may pass `options.clarify.selection` with `ids`, `date`, `priority` to bias routing toward `plan` with a seeded `where` (server 1137:1146)
+- Output JSON: `{ decision: 'chat'|'plan'|'clarify', category, entities, missing, confidence, question? }`.
+- Thresholds: `CLARIFY_THRESHOLD = 0.45`, `CHAT_THRESHOLD = 0.70`.
+- Context grounding: A Mon–Sun week snapshot (completed=false) and a backlog sample, built from DB queries.
+- Clarify decoration: Server adds a concise `question` and structured `options: [{id,title,scheduledFor|null}]` ranked by fuzzy title tokens and priority.
+- Selection feedback: Client may send `options.clarify.selection` with `ids`, `date`, `priority` to bias routing toward plan with a seeded `where`.
 
 ### Proposal generation
 
-- Snapshot seeding: use focused selection when router provides it; else top-K (server 1521:1526)
-- Prompt schema constraints: require `recurrence` for create/update; require anchor when repeating; no bulk operations are supported. Use `complete_occurrence` to act on repeating items.
+- Prompt includes a schema excerpt with strict rules:
+  - For todo/event/habit create|update include `recurrence` (use `{type:'none'}` for non-repeating for todo/event; habits must not be `none`).
+  - If `recurrence.type != 'none'`, an anchor `scheduledFor` is required.
+  - Use `complete_occurrence` for repeating items rather than master `complete`.
+  - No bulk operations; limit proposals to ≤20 independent ops.
+- Context: Uses focused selection from router when present; otherwise a compact snapshot.
 - Parsing robustness:
-  - Prefer JSON (`/api/generate` with `format: 'json'`) fallback to CLI
-  - Extract `<response>...</response>` if Granite tags present (server 1009:1016)
-  - Strip code fences or brace-match first JSON object (server 1030:1062)
-- Operation shaping: `inferOperationShape` fills `op` when omitted; normalizes priority and `''→null` for scheduledFor (server 876:923)
-
-Proposal context:
-- Includes aggregates and either `topK` or `focused` snapshot based on router narrowing (server 1521:1526)
-- Example JSON scaffold provided in prompt to constrain format (server 1171:1188)
+  - Prefer JSON response; if fenced code blocks are present, fences are removed.
+  - If free-form text, brace-match the first top-level `{...}` JSON object.
+  - Granite `<response>` extraction precedes parsing.
+- Operation shaping: `inferOperationShape` normalizes partially specified ops, sets `op` (create|update|delete|complete|complete_occurrence|goal_*), lowercases priority, and coerces empty strings to `null` for nullable fields.
 
 ### Validation and repair
 
-- `validateProposal` returns per-op errors from `validateOperation` (server 867:874, 817:865)
-- One repair attempt via `buildRepairPrompt` using schema excerpt and last-3 transcript (server 1080:1094)
-- If repair fails, fall back to valid subset of first pass (server 1590:1594)
-
-Common validation failures and repairs:
-- Missing `recurrence` on create/update → insert `{type:'none'}` or propagate provided structure
-- Repeating without anchor → inject/retain `scheduledFor` anchor
-- Use `complete_occurrence` for repeating instead of `complete`
+- `validateProposal` runs per-op checks (recurrence presence/shape, anchors for repeating, time formats, allowed kinds, no bulk, etc.).
+- One repair attempt uses a dedicated prompt with the invalid ops plus error reasons; if still invalid, the valid subset of the first pass is kept.
+- Common repairs: inject `{type:'none'}` for missing recurrence (todo/event), add missing anchors for repeating, convert master `complete` to `complete_occurrence`.
 
 ### Summarization
 
-- Conversational summary via LLM with strict plain-text cleanup (strip Granite tags, remove code blocks, collapse whitespace) (server 1645:1653, 1753:1761)
-- Deterministic fallback summary when LLM fails: counts and targets (server 1492:1514, 1762:1764)
-
-Granite cleanup specifics:
-- Strip `<think>...</think>` entirely; unwrap `<response>...</response>` (server 1018:1026, 1009:1016)
-- Remove code blocks via regex and collapse whitespace
+- LLM summary: short, plain text (no markdown or JSON). Granite tags are stripped; code blocks removed; whitespace collapsed.
+- Deterministic fallback: If the model fails, server emits a compact, rule-based summary from the proposed ops.
 
 ### Streaming (SSE)
 
-- Events:
-  - `stage`: routing → proposing → validating → repairing → summarizing
-  - `clarify`: `{ question, options[] }` emitted early in auto mode
-  - `ops`: `{ version, operations: [{ op, errors[] }], validCount, invalidCount }`
-  - `summary`: `{ text }`
-  - `result`: final payload including operations array
-  - `done`: terminal event
-- Heartbeat: every 10s (server 1735:1737)
-- Chat-only: when router decides `chat`, only `summary` and `done` are emitted (server 1689:1716)
+- Events emitted by GET `/api/assistant/message/stream`:
+  - `stage`: routing → proposing → validating → repairing → summarizing.
+  - `clarify`: `{ question, options[] }` (auto mode ambiguity).
+  - `ops`: `{ version, operations[], validCount, invalidCount }` (post-validate/repair).
+  - `summary`: `{ text }`.
+  - `result`: final payload including operations array.
+  - `heartbeat`: emitted periodically to keep the connection warm.
+  - `done`: terminal event; the server then closes the stream.
+- Chat-only path: when router decides `chat`, only `summary` and `done` are sent.
+- Client integration: Flutter Web uses EventSource; callbacks handle `stage|clarify|ops|summary|result`. Heartbeats are ignored; close() occurs after `done`.
 
-Client integration:
-- `api.dart` uses `dart:html` EventSource, maps events to callbacks, and falls back to POST on error (api.dart 95:176)
+### Apply and dryrun
 
-### Idempotent apply (separate call)
+- Dryrun: POST `/api/llm/dryrun` returns validation results for a supplied operations array without changing state.
+- Apply: POST `/api/llm/apply` executes validated operations in a DB transaction. Caps at 20 ops. Writes audit entries for each action.
+- Idempotency: Optional `Idempotency-Key` header plus request-hash caching returns the cached response for repeats.
+- Supported kinds: todo, event, habit, goal. Goal operations include `goal_create|goal_update|goal_delete|goal_add_items|goal_remove_item|goal_add_child|goal_remove_child`.
 
-- POST `/api/llm/apply` with optional `Idempotency-Key` header caches response (server 1199:1210, 1464:1466)
-- Dry-run `/api/llm/dryrun` returns validation results; bulk warnings removed and bulk ops are rejected by validation (server 1777:1816)
+### Safety boundaries
 
-Safety boundaries:
-- No bulk operations; proposals attempting `bulk_*` receive `bulk_operations_removed` during validation (server 860:864)
+- Bulk operations are not supported and are rejected during validation.
+- Repeating semantics are enforced: anchors required; master `complete` forbidden (use `complete_occurrence`).
 
 
 

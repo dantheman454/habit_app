@@ -5,14 +5,18 @@ import 'package:flutter_app/widgets/tabs_header.dart';
 void main() {
   testWidgets('TabsHeader renders and onChanged fires', (tester) async {
     AppTab? changed;
-    await tester.pumpWidget(MaterialApp(
-      home: Scaffold(
-        body: TabsHeader(
-          selected: AppTab.todos,
-          onChanged: (t) { changed = t; },
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TabsHeader(
+            selected: AppTab.todos,
+            onChanged: (t) {
+              changed = t;
+            },
+          ),
         ),
       ),
-    ));
+    );
 
     // Expect four segments with text labels
     expect(find.text('Todos'), findsOneWidget);
@@ -31,5 +35,3 @@ void main() {
     expect(changed, AppTab.habits);
   });
 }
-
-

@@ -5,13 +5,18 @@ class HabitRowData {
   final int id;
   final String title;
   final String priority; // low|medium|high
-  const HabitRowData({required this.id, required this.title, required this.priority});
+  const HabitRowData({
+    required this.id,
+    required this.title,
+    required this.priority,
+  });
 }
 
 class HabitsTracker extends StatelessWidget {
   final List<HabitRowData> habits;
   final List<String> weekYmd; // Mon..Sun YYYY-MM-DD
-  final Map<int, Map<String, dynamic>> statsById; // id -> {weekHeatmap:[{date,completed}], currentStreak, longestStreak}
+  final Map<int, Map<String, dynamic>>
+  statsById; // id -> {weekHeatmap:[{date,completed}], currentStreak, longestStreak}
   final void Function(int habitId, String ymd, bool newCompleted) onToggle;
 
   const HabitsTracker({
@@ -35,44 +40,68 @@ class HabitsTracker extends StatelessWidget {
             itemBuilder: (context, idx) {
               final h = habits[idx];
               final stats = statsById[h.id] ?? const <String, dynamic>{};
-              final heat = (stats['weekHeatmap'] as List<dynamic>?) ?? const <dynamic>[];
+              final heat =
+                  (stats['weekHeatmap'] as List<dynamic>?) ?? const <dynamic>[];
               final completedSet = <String>{
                 for (final d in heat)
-                  if (d is Map && d['date'] is String && d['completed'] == true) d['date'] as String
+                  if (d is Map && d['date'] is String && d['completed'] == true)
+                    d['date'] as String,
               };
               final today = DateTime.now();
-              final todayY = '${today.year.toString().padLeft(4,'0')}-${today.month.toString().padLeft(2,'0')}-${today.day.toString().padLeft(2,'0')}';
+              final todayY =
+                  '${today.year.toString().padLeft(4, '0')}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
               return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
                 child: Row(
                   children: [
                     // Left: title and streak
                     Expanded(
                       flex: 2,
-                      child: Row(children: [
-                        pc.priorityChip(h.priority, Theme.of(context).colorScheme),
-                        const SizedBox(width: 6),
-                        Expanded(child: Text(h.title, overflow: TextOverflow.ellipsis)),
-                        const SizedBox(width: 8),
-                        _streakBadge(context, stats),
-                      ]),
+                      child: Row(
+                        children: [
+                          pc.priorityChip(
+                            h.priority,
+                            Theme.of(context).colorScheme,
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              h.title,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          _streakBadge(context, stats),
+                        ],
+                      ),
                     ),
                     // Right: 7-day cells
                     Expanded(
                       flex: 5,
-                      child: Row(children: [
-                        for (final y in weekYmd)
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 3),
-                            child: _dayCell(
-                              context,
-                              dateYmd: y,
-                              isToday: y == todayY,
-                              completed: completedSet.contains(y),
-                              onTap: () => onToggle(h.id, y, !completedSet.contains(y)),
+                      child: Row(
+                        children: [
+                          for (final y in weekYmd)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 3,
+                              ),
+                              child: _dayCell(
+                                context,
+                                dateYmd: y,
+                                isToday: y == todayY,
+                                completed: completedSet.contains(y),
+                                onTap: () => onToggle(
+                                  h.id,
+                                  y,
+                                  !completedSet.contains(y),
+                                ),
+                              ),
                             ),
-                          ),
-                      ]),
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -85,24 +114,43 @@ class HabitsTracker extends StatelessWidget {
   }
 
   Widget _weekdayHeader(BuildContext context) {
-    final labels = const ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    final labels = const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Row(children: [
-        const Expanded(flex: 2, child: SizedBox()),
-        Expanded(
-          flex: 5,
-          child: Row(children: [
-            for (int i = 0; i < 7; i++)
-              Expanded(child: Center(child: Text(labels[i], style: const TextStyle(fontWeight: FontWeight.w600)))),
-          ]),
-        ),
-      ]),
+      child: Row(
+        children: [
+          const Expanded(flex: 2, child: SizedBox()),
+          Expanded(
+            flex: 5,
+            child: Row(
+              children: [
+                for (int i = 0; i < 7; i++)
+                  Expanded(
+                    child: Center(
+                      child: Text(
+                        labels[i],
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _dayCell(BuildContext context, {required String dateYmd, required bool isToday, required bool completed, required VoidCallback onTap}) {
-    final bg = completed ? Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.8) : Colors.transparent;
+  Widget _dayCell(
+    BuildContext context, {
+    required String dateYmd,
+    required bool isToday,
+    required bool completed,
+    required VoidCallback onTap,
+  }) {
+    final bg = completed
+        ? Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.8)
+        : Colors.transparent;
     final borderColor = Theme.of(context).colorScheme.outlineVariant;
     return InkWell(
       onTap: onTap,
@@ -114,12 +162,18 @@ class HabitsTracker extends StatelessWidget {
           borderRadius: BorderRadius.circular(6),
           border: Border.all(color: borderColor),
         ),
-        child: isToday ? Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: Theme.of(context).colorScheme.primary.withOpacity(0.3)),
-          ),
-        ) : null,
+        child: isToday
+            ? Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.primary.withOpacity(0.3),
+                  ),
+                ),
+              )
+            : null,
       ),
     );
   }
@@ -134,11 +188,15 @@ class HabitsTracker extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: Theme.of(context).colorScheme.outline),
       ),
-      child: Text('🔥 $current / $longest', style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+      child: Text(
+        '🔥 $current / $longest',
+        style: TextStyle(
+          fontSize: 11,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+      ),
     );
   }
 
   // Priority chip now centralized in priority_chip.dart
 }
-
-

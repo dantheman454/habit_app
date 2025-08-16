@@ -1,17 +1,19 @@
 ## Data Model and Persistence
 
-This document specifies the Todo/Event/Goal schemas, recurrence semantics, occurrence expansion, and SQLite persistence.
+This document specifies the Todo/Event/Habit/Goal schemas, recurrence semantics, occurrence expansion, and SQLite persistence.
 
 ### Persistence (SQLite)
 
 - Database file: `data/app.db` (created on demand)
 - Schema: `apps/server/database/schema.sql`
 - Tables (selected):
-  - `todos(id, title, notes, scheduled_for, time_of_day, priority, completed, recurrence JSON, completed_dates JSON, created_at, updated_at)`
-  - `events(id, title, notes, scheduled_for, start_time, end_time, location, priority, completed, recurrence JSON, completed_dates JSON, created_at, updated_at)`
+  - `todos(id, title, notes, scheduled_for, time_of_day, priority, completed, recurrence TEXT(JSON), completed_dates TEXT(JSON), created_at, updated_at)`
+  - `events(id, title, notes, scheduled_for, start_time, end_time, location, priority, completed, recurrence TEXT(JSON), completed_dates TEXT(JSON), created_at, updated_at)`
+  - `habits(id, title, notes, scheduled_for, time_of_day, priority, completed, recurrence TEXT(JSON), completed_dates TEXT(JSON), created_at, updated_at)`
   - `goals(id, title, notes, status, current_progress_value, target_progress_value, progress_unit, created_at, updated_at)`
-  - Linking tables: `goal_todo_items(goal_id, todo_id)`, `goal_event_items(goal_id, event_id)`, `goal_hierarchy(parent_goal_id, child_goal_id)`
+  - Linking tables: `habit_todo_items(habit_id, todo_id)`, `habit_event_items(habit_id, event_id)`, `goal_todo_items(goal_id, todo_id)`, `goal_event_items(goal_id, event_id)`, `goal_hierarchy(parent_goal_id, child_goal_id)`
   - Supporting: `audit_log(ts, action, entity, entity_id, payload)`, `idempotency(idempotency_key, request_hash, response, ts)`
+  - FTS5 virtual tables: `todos_fts(title,notes)`, `events_fts(title,notes,location)`, `habits_fts(title,notes)` with triggers
 
 ### Todo schema (normalized)
 
@@ -23,15 +25,13 @@ This document specifies the Todo/Event/Goal schemas, recurrence semantics, occur
 - `priority: 'low'|'medium'|'high'`
 - `completed: boolean`
 - `recurrence: Recurrence` — `{ type: 'none'|'daily'|'weekdays'|'weekly'|'every_n_days', intervalDays?: number, until?: YYYY-MM-DD|null }`
-- `completedDates?: string[]` — only on repeating masters
+- `completedDates?: string[]|null` — present on repeating masters; null or `[]` otherwise
 - `createdAt: ISO-8601 string`
 - `updatedAt: ISO-8601 string`
 
 Normalization highlights:
-- Default `timeOfDay` to null
-- Ensure `recurrence` has `type`; default `until` when absent
-- For repeating, ensure `completedDates` array exists
-- Ensure `completed` boolean
+- Default `timeOfDay` to null; ensure `recurrence` with `type`; default `until` when absent
+- For repeating, ensure `completedDates` array exists; ensure `completed` is boolean
 
 ### Event schema (normalized)
 
@@ -40,36 +40,42 @@ Normalization highlights:
   - `endTime: string|null` (HH:MM)
   - `location: string|null`
 
+### Habit schema (normalized)
+
+- Mirrors Todo with `timeOfDay`; recurrence should be repeating (API enforces non-`none` on create/update)
+- Stats: derived fields when listing with a range `from`/`to` — `currentStreak: number`, `longestStreak: number`, `weekHeatmap: Array<{date, completed}>`
+
 ### Goal schema (normalized)
 
 - `id, title, notes, status: 'active'|'completed'|'archived'`
 - `currentProgressValue?: number|null`, `targetProgressValue?: number|null`, `progressUnit?: string|null`
-- Optional `items` and `children` via joins
+- Optional `items` (`{todos, events}`) and `children` via joins
 
 ### Recurrence
 
 - Types: `'none'|'daily'|'weekdays'|'weekly'|'every_n_days'`
 - Anchor: `scheduledFor` is REQUIRED when `type != 'none'`
-- `until?: YYYY-MM-DD|null`: cap expansion; `null` means no cap
+- `until?: YYYY-MM-DD|null`: cap expansion; `null` or `undefined` means no cap
 - `intervalDays` for `every_n_days` must be integer >= 1
 
 ### Occurrence expansion
 
-- Functionally: expand occurrences per day between `[from, to]` when listing with a range
-- Each expanded occurrence uses the master `id` for `id` and sets `masterId = id`
-- Completion state for repeating is derived from `completedDates.includes(occurrenceDate)`
+- Expand occurrences per day between `[from, to]` when listing with a range
+- Each expanded occurrence uses the master `id` and sets `masterId = id`
+- Completion for repeating derived from `completedDates`
+- Unified schedule items add `kind: 'todo'|'event'|'habit'` and appropriate time field (`timeOfDay` or `startTime`)
 
 ### Aggregates and snapshots
 
 - Aggregates: counts over DB-backed queries (overdue, next 7 days, backlog, scheduled)
-- Router snapshots: Mon–Sun week window plus backlog sample derived from DB (no in-memory index)
+- Router snapshots: Mon–Sun window + backlog sample from DB (no in-memory index)
 
 ### Invariants
 
-- For repeating: master `completed` does not mark occurrences; use `completedDates` or `complete_occurrence`
+- For repeating: master `completed` does not mark occurrences; use `completedDates` or occurrence endpoints/ops
 - Switching repeating→none clears `completedDates`
-- `timeOfDay` accepts `HH:MM` or null
-- `id` stable across edits; expanded occurrences are view-layer constructs
+- `timeOfDay`/`startTime` accept `HH:MM` or null
+- `id` stable across edits; expanded occurrences are view constructs
 
 ### Durability and idempotency
 

@@ -3,6 +3,6 @@ import 'dart:html' as html;
 
 String? getItem(String key) => html.window.localStorage[key];
 
-void setItem(String key, String value) { html.window.localStorage[key] = value; }
-
-
+void setItem(String key, String value) {
+  html.window.localStorage[key] = value;
+}

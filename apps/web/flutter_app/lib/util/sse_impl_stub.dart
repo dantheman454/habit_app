@@ -11,5 +11,3 @@ CloseFn startSse({
   Future.microtask(onError);
   return () {};
 }
-
-

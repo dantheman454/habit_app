@@ -30,7 +30,8 @@ class TodoRow extends StatelessWidget {
   final bool highlighted;
   final Widget? extraBadge; // optional, placed in the header row after priority
   final void Function(String newTitle)? onTitleEdited;
-  final void Function(String newPriority)? onPriorityEdited; // expects 'low'|'medium'|'high'
+  final void Function(String newPriority)?
+  onPriorityEdited; // expects 'low'|'medium'|'high'
   final void Function(String? newTimeOfDay)? onTimeEdited; // 'HH:MM' or null
 
   const TodoRow({
@@ -51,7 +52,12 @@ class TodoRow extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        border: Border.all(color: highlighted ? Theme.of(context).colorScheme.primary : Colors.grey.shade300, width: highlighted ? 2 : 1),
+        border: Border.all(
+          color: highlighted
+              ? Theme.of(context).colorScheme.primary
+              : Colors.grey.shade300,
+          width: highlighted ? 2 : 1,
+        ),
         borderRadius: BorderRadius.circular(6),
         color: highlighted
             ? Theme.of(context).colorScheme.primary.withOpacity(0.06)
@@ -59,103 +65,166 @@ class TodoRow extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Checkbox(value: todo.completed, onChanged: (_) => onToggleCompleted()),
+          Checkbox(
+            value: todo.completed,
+            onChanged: (_) => onToggleCompleted(),
+          ),
           const SizedBox(width: 6),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(children: [
-                  GestureDetector(
-                    onTap: () {
-                      if (onPriorityEdited == null) return;
-                      final next = (todo.priority == 'low') ? 'medium' : (todo.priority == 'medium') ? 'high' : 'low';
-                      onPriorityEdited!(next);
-                    },
-                    child: pc.priorityChip(todo.priority, Theme.of(context).colorScheme),
-                  ),
-                  if (extraBadge != null) ...[
+                Row(
+                  children: [
+                    GestureDetector(
+                      onTap: () {
+                        if (onPriorityEdited == null) return;
+                        final next = (todo.priority == 'low')
+                            ? 'medium'
+                            : (todo.priority == 'medium')
+                            ? 'high'
+                            : 'low';
+                        onPriorityEdited!(next);
+                      },
+                      child: pc.priorityChip(
+                        todo.priority,
+                        Theme.of(context).colorScheme,
+                      ),
+                    ),
+                    if (extraBadge != null) ...[
+                      const SizedBox(width: 6),
+                      extraBadge!,
+                    ],
                     const SizedBox(width: 6),
-                    extraBadge!,
-                  ],
-                  const SizedBox(width: 6),
-                  Flexible(
-                    child: InkWell(
-                      onTap: onTitleEdited == null ? null : () async {
-                        final ctrl = TextEditingController(text: todo.title);
-                        final ok = await showDialog<bool>(
-                          context: context,
-                          builder: (c) => AlertDialog(
-                            title: const Text('Edit title'),
-                            content: TextField(controller: ctrl, autofocus: true),
-                            actions: [
-                              TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
-                              FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Save')),
-                            ],
-                          ),
-                        );
-                        if (ok == true) onTitleEdited!(ctrl.text.trim());
-                      },
-                      child: Text(
-                        todo.title,
-                        style: TextStyle(
-                          decoration: todo.completed ? TextDecoration.lineThrough : null,
-                        ),
-                      ),
-                    ),
-                  ),
-                  if (todo.timeOfDay != null) ...[
-                    const SizedBox(width: 8),
-                    InkWell(
-                      onTap: onTimeEdited == null ? null : () async {
-                        final ctrl = TextEditingController(text: todo.timeOfDay ?? '');
-                        final ok = await showDialog<bool>(
-                          context: context,
-                          builder: (c) => AlertDialog(
-                            title: const Text('Edit time (HH:MM)'),
-                            content: TextField(controller: ctrl, autofocus: true),
-                            actions: [
-                              TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
-                              FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Save')),
-                            ],
-                          ),
-                        );
-                        if (ok == true) {
-                          final v = ctrl.text.trim();
-                          onTimeEdited!(v.isEmpty ? null : v);
-                        }
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.surfaceContainerHigh,
-                          borderRadius: BorderRadius.circular(999),
-                          border: Border.all(color: Theme.of(context).colorScheme.outline),
-                        ),
+                    Flexible(
+                      child: InkWell(
+                        onTap: onTitleEdited == null
+                            ? null
+                            : () async {
+                                final ctrl = TextEditingController(
+                                  text: todo.title,
+                                );
+                                final ok = await showDialog<bool>(
+                                  context: context,
+                                  builder: (c) => AlertDialog(
+                                    title: const Text('Edit title'),
+                                    content: TextField(
+                                      controller: ctrl,
+                                      autofocus: true,
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(c, false),
+                                        child: const Text('Cancel'),
+                                      ),
+                                      FilledButton(
+                                        onPressed: () => Navigator.pop(c, true),
+                                        child: const Text('Save'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                                if (ok == true)
+                                  onTitleEdited!(ctrl.text.trim());
+                              },
                         child: Text(
-                          todo.timeOfDay!,
+                          todo.title,
                           style: TextStyle(
-                            fontSize: 12,
-                            color: todo.overdue ? Theme.of(context).colorScheme.error : Theme.of(context).colorScheme.onSurfaceVariant,
+                            decoration: todo.completed
+                                ? TextDecoration.lineThrough
+                                : null,
                           ),
                         ),
                       ),
                     ),
+                    if (todo.timeOfDay != null) ...[
+                      const SizedBox(width: 8),
+                      InkWell(
+                        onTap: onTimeEdited == null
+                            ? null
+                            : () async {
+                                final ctrl = TextEditingController(
+                                  text: todo.timeOfDay ?? '',
+                                );
+                                final ok = await showDialog<bool>(
+                                  context: context,
+                                  builder: (c) => AlertDialog(
+                                    title: const Text('Edit time (HH:MM)'),
+                                    content: TextField(
+                                      controller: ctrl,
+                                      autofocus: true,
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(c, false),
+                                        child: const Text('Cancel'),
+                                      ),
+                                      FilledButton(
+                                        onPressed: () => Navigator.pop(c, true),
+                                        child: const Text('Save'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                                if (ok == true) {
+                                  final v = ctrl.text.trim();
+                                  onTimeEdited!(v.isEmpty ? null : v);
+                                }
+                              },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.surfaceContainerHigh,
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: Theme.of(context).colorScheme.outline,
+                            ),
+                          ),
+                          child: Text(
+                            todo.timeOfDay!,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: todo.overdue
+                                  ? Theme.of(context).colorScheme.error
+                                  : Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
-                ]),
+                ),
                 if (todo.notes.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 2),
-                    child: Text(todo.notes, style: TextStyle(color: Colors.grey.shade700, fontSize: 12)),
+                    child: Text(
+                      todo.notes,
+                      style: TextStyle(
+                        color: Colors.grey.shade700,
+                        fontSize: 12,
+                      ),
+                    ),
                   ),
               ],
             ),
           ),
           const SizedBox(width: 8),
-          Wrap(spacing: 6, children: [
-            OutlinedButton(onPressed: onEdit, child: const Text('Edit')),
-            OutlinedButton(onPressed: onDelete, child: const Text('Delete')),
-          ]),
+          Wrap(
+            spacing: 6,
+            children: [
+              OutlinedButton(onPressed: onEdit, child: const Text('Edit')),
+              OutlinedButton(onPressed: onDelete, child: const Text('Delete')),
+            ],
+          ),
         ],
       ),
     );
@@ -163,11 +232,12 @@ class TodoRow extends StatelessWidget {
 
   Widget _kindIcon(String kind) {
     IconData icon;
-    if (kind == 'event') icon = Icons.event;
-    else if (kind == 'habit') icon = Icons.repeat;
-    else icon = Icons.check_circle_outline;
+    if (kind == 'event')
+      icon = Icons.event;
+    else if (kind == 'habit')
+      icon = Icons.repeat;
+    else
+      icon = Icons.check_circle_outline;
     return Icon(icon, size: 12, color: Colors.black54);
   }
 }
-
-

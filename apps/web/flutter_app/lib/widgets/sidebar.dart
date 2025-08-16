@@ -3,16 +3,12 @@ import 'package:flutter/material.dart';
 class Sidebar extends StatelessWidget {
   final String selectedKey; // 'today' | 'scheduled' | 'all' | 'backlog'
   final void Function(String) onSelect;
-  final bool showCompleted;
-  final void Function(bool) onToggleShowCompleted;
   final Map<String, int> counters;
 
   const Sidebar({
     super.key,
     required this.selectedKey,
     required this.onSelect,
-    required this.showCompleted,
-    required this.onToggleShowCompleted,
     this.counters = const <String, int>{},
   });
 
@@ -24,25 +20,19 @@ class Sidebar extends StatelessWidget {
           child: ListView(
             children: [
               _tile('Today', 'today', Icons.today, count: counters['today']),
-              _tile('Scheduled', 'scheduled', Icons.calendar_month, count: counters['scheduled']),
+              _tile(
+                'Scheduled',
+                'scheduled',
+                Icons.calendar_month,
+                count: counters['scheduled'],
+              ),
               _tile('All', 'all', Icons.inbox, count: counters['all']),
-              _tile('Backlog', 'backlog', Icons.list_alt, count: counters['backlog']),
-              // Duplicate domain switching removed: rely on header tabs only
-              // _tile('Flagged', 'flagged', Icons.flag, count: counters['flagged']),
-              // const Divider(height: 1),
-              // _tile('Habits', 'habits', Icons.repeat, count: counters['habits']),
-              // const Divider(height: 1),
-              // _tile('Goals', 'goals', Icons.flag_circle),
-            ],
-          ),
-        ),
-        const Divider(height: 1),
-        Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            children: [
-              const Expanded(child: Text('Show completed', overflow: TextOverflow.ellipsis)),
-              Switch(value: showCompleted, onChanged: onToggleShowCompleted),
+              _tile(
+                'Backlog',
+                'backlog',
+                Icons.list_alt,
+                count: counters['backlog'],
+              ),
             ],
           ),
         ),
@@ -75,5 +65,3 @@ class Sidebar extends StatelessWidget {
     return '$n';
   }
 }
-
-

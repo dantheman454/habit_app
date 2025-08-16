@@ -6,7 +6,11 @@ class TabsHeader extends StatelessWidget {
   final AppTab selected;
   final void Function(AppTab) onChanged;
 
-  const TabsHeader({super.key, required this.selected, required this.onChanged});
+  const TabsHeader({
+    super.key,
+    required this.selected,
+    required this.onChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -19,11 +23,7 @@ class TabsHeader extends StatelessWidget {
       ],
       selected: <AppTab>{selected},
       onSelectionChanged: (s) => onChanged(s.first),
-      style: const ButtonStyle(
-        visualDensity: VisualDensity.compact,
-      ),
+      style: const ButtonStyle(visualDensity: VisualDensity.compact),
     );
   }
 }
-
-

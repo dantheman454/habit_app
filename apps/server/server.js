@@ -552,8 +552,15 @@ app.get('/api/todos', (req, res) => {
 });
 
 // Backlog (unscheduled only)
-app.get('/api/todos/backlog', (_req, res) => {
-  const items = listAllTodosRaw().filter(t => t.scheduledFor === null);
+app.get('/api/todos/backlog', (req, res) => {
+  const { priority } = req.query || {};
+  if (priority !== undefined && !['low','medium','high'].includes(String(priority))) {
+    return res.status(400).json({ error: 'invalid_priority' });
+  }
+  let items = listAllTodosRaw().filter(t => t.scheduledFor === null);
+  if (priority) {
+    items = items.filter(t => String(t.priority || '').toLowerCase() === String(priority).toLowerCase());
+  }
   res.json({ todos: items });
 });
 

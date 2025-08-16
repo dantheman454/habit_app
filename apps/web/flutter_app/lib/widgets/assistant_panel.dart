@@ -31,7 +31,8 @@ String defaultOpLabel(LlmOperationLike op) {
 
 class AssistantPanel extends StatelessWidget {
   final List<Map<String, String>> transcript;
-  final List<dynamic> operations; // Accepts domain type with fields used above (supports annotated ops)
+  final List<dynamic>
+  operations; // Accepts domain type with fields used above (supports annotated ops)
   final List<bool> operationsChecked;
   final bool sending;
   final String? model; // raw model id (badge)
@@ -59,7 +60,6 @@ class AssistantPanel extends StatelessWidget {
   final Set<int>? selectedClarifyIds;
   final String? selectedClarifyDate;
   final String? selectedClarifyPriority;
-  
 
   const AssistantPanel({
     super.key,
@@ -86,163 +86,229 @@ class AssistantPanel extends StatelessWidget {
     this.todayYmd,
     this.selectedClarifyIds,
     this.selectedClarifyDate,
-    this.selectedClarifyPriority
+    this.selectedClarifyPriority,
   });
 
   @override
   Widget build(BuildContext context) {
-    final labeler = opLabel ?? (dynamic op) {
-      // Support annotated ops: { op: {...}, errors: [...] }
-      final candidate = op is Map<String, dynamic> && op.containsKey('op') ? (op['op'] as dynamic) : op;
-      final opStr = _getString(candidate, 'op') ?? '';
-      final kind = _getString(candidate, 'kind');
-      final action = _getString(candidate, 'action');
-      final id = _getInt(candidate, 'id');
-      final title = _getString(candidate, 'title');
-      final sched = _getString(candidate, 'scheduledFor');
-      final prio = _getString(candidate, 'priority');
-      final done = _getBool(candidate, 'completed');
-      // Prefer V3 label when present
-      if (kind != null && action != null) {
-        final parts = <String>[kind, action];
-        if (id != null) parts.add('#$id');
-        if (title != null) parts.add('– $title');
-        if (prio != null) parts.add('(prio $prio)');
-        if (sched != null) parts.add('@$sched');
-        if (done != null) parts.add(done ? '[done]' : '[undone]');
-        return parts.join(' ');
-      }
-      final like = LlmOperationLike(op: opStr, id: id, title: title, notes: _getString(candidate, 'notes'), scheduledFor: sched, priority: prio, completed: done);
-      return defaultOpLabel(like);
-    };
+    final labeler =
+        opLabel ??
+        (dynamic op) {
+          // Support annotated ops: { op: {...}, errors: [...] }
+          final candidate = op is Map<String, dynamic> && op.containsKey('op')
+              ? (op['op'] as dynamic)
+              : op;
+          final opStr = _getString(candidate, 'op') ?? '';
+          final kind = _getString(candidate, 'kind');
+          final action = _getString(candidate, 'action');
+          final id = _getInt(candidate, 'id');
+          final title = _getString(candidate, 'title');
+          final sched = _getString(candidate, 'scheduledFor');
+          final prio = _getString(candidate, 'priority');
+          final done = _getBool(candidate, 'completed');
+          // Prefer V3 label when present
+          if (kind != null && action != null) {
+            final parts = <String>[kind, action];
+            if (id != null) parts.add('#$id');
+            if (title != null) parts.add('– $title');
+            if (prio != null) parts.add('(prio $prio)');
+            if (sched != null) parts.add('@$sched');
+            if (done != null) parts.add(done ? '[done]' : '[undone]');
+            return parts.join(' ');
+          }
+          final like = LlmOperationLike(
+            op: opStr,
+            id: id,
+            title: title,
+            notes: _getString(candidate, 'notes'),
+            scheduledFor: sched,
+            priority: prio,
+            completed: done,
+          );
+          return defaultOpLabel(like);
+        };
 
     return Container(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.15),
+      color: Theme.of(
+        context,
+      ).colorScheme.surfaceContainerHighest.withOpacity(0.15),
       child: Column(
         children: [
-        // Header controls
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-          child: Row(
-            children: [
-              if (model != null && model!.isNotEmpty)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surface,
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: Theme.of(context).colorScheme.outline.withOpacity(0.5)),
-                  ),
-                  child: Row(children: [
-                    const Icon(Icons.memory, size: 14),
-                    const SizedBox(width: 6),
-                    Text(model!, style: const TextStyle(fontSize: 12)),
-                  ]),
-                ),
-              const SizedBox(width: 8),
-              const Spacer(),
-              if (onClearChat != null)
-                TextButton.icon(
-                  onPressed: onClearChat,
-                  icon: const Icon(Icons.clear_all, size: 16),
-                  label: const Text('Clear'),
-                ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: ListView(
-            padding: const EdgeInsets.all(8),
-            children: [
-              for (final turn in transcript) _buildTurnBubble(context, turn),
-              if ((clarifyQuestion != null && clarifyQuestion!.isNotEmpty) || clarifyOptions.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                _buildClarifySection(context),
-              ],
-              if (sending)
-                _buildTypingBubble(context),
-              if (sending && (progressStage != null && progressStage!.isNotEmpty))
-                Padding(
-                  padding: const EdgeInsets.only(left: 6, bottom: 6),
-                  child: Text('Progress: ${progressStage!}', style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.8))),
-                ),
-              if (operations.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                const Text('Proposed operations', style: TextStyle(fontWeight: FontWeight.w600)),
-                const SizedBox(height: 4),
-                if (operations.any((o) => _getErrors(o).isNotEmpty)) ...[
-                  const SizedBox(height: 6),
+          // Header controls
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Row(
+              children: [
+                if (model != null && model!.isNotEmpty)
                   Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.amberAccent.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: Colors.amber.withOpacity(0.6)),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
                     ),
-                    child: const Text(
-                      'Some proposed operations are invalid and cannot be applied. Please review the errors below.',
-                      style: TextStyle(fontSize: 12),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surface,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.outline.withOpacity(0.5),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.memory, size: 14),
+                        const SizedBox(width: 6),
+                        Text(model!, style: const TextStyle(fontSize: 12)),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 6),
-                ],
-                ..._buildGroupedOperationList(context, operations, operationsChecked, labeler),
-                const SizedBox(height: 8),
-                Wrap(spacing: 8, runSpacing: 8, children: [
-                  FilledButton(onPressed: onApplySelected, child: const Text('Apply Selected')),
-                  OutlinedButton(onPressed: onToggleDiff, child: Text(showDiff ? 'Hide changes' : 'Review changes')),
-                  TextButton(onPressed: onDiscard, child: const Text('Discard')),
-                ]),
-                if (showDiff) ...[
+                const SizedBox(width: 8),
+                const Spacer(),
+                if (onClearChat != null)
+                  TextButton.icon(
+                    onPressed: onClearChat,
+                    icon: const Icon(Icons.clear_all, size: 16),
+                    label: const Text('Clear'),
+                  ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.all(8),
+              children: [
+                for (final turn in transcript) _buildTurnBubble(context, turn),
+                if ((clarifyQuestion != null && clarifyQuestion!.isNotEmpty) ||
+                    clarifyOptions.isNotEmpty) ...[
                   const SizedBox(height: 8),
-                  _buildOpsDiffView(operations, labeler, context),
+                  _buildClarifySection(context),
+                ],
+                if (sending) _buildTypingBubble(context),
+                if (sending &&
+                    (progressStage != null && progressStage!.isNotEmpty))
+                  Padding(
+                    padding: const EdgeInsets.only(left: 6, bottom: 6),
+                    child: Text(
+                      'Progress: ${progressStage!}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.onSurfaceVariant.withOpacity(0.8),
+                      ),
+                    ),
+                  ),
+                if (operations.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Proposed operations',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 4),
+                  if (operations.any((o) => _getErrors(o).isNotEmpty)) ...[
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.amberAccent.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: Colors.amber.withOpacity(0.6),
+                        ),
+                      ),
+                      child: const Text(
+                        'Some proposed operations are invalid and cannot be applied. Please review the errors below.',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                  ],
+                  ..._buildGroupedOperationList(
+                    context,
+                    operations,
+                    operationsChecked,
+                    labeler,
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      FilledButton(
+                        onPressed: onApplySelected,
+                        child: const Text('Apply Selected'),
+                      ),
+                      OutlinedButton(
+                        onPressed: onToggleDiff,
+                        child: Text(
+                          showDiff ? 'Hide changes' : 'Review changes',
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: onDiscard,
+                        child: const Text('Discard'),
+                      ),
+                    ],
+                  ),
+                  if (showDiff) ...[
+                    const SizedBox(height: 8),
+                    _buildOpsDiffView(operations, labeler, context),
+                  ],
                 ],
               ],
-            ],
+            ),
           ),
-        ),
-        const Divider(height: 1),
-        Padding(
-          padding: const EdgeInsets.all(8.0),
-          child: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: inputController,
-                  decoration: InputDecoration(
-                    hintText: 'Ask Away...',
-                    filled: true,
-                    fillColor: Theme.of(context).colorScheme.surface,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(24),
-                      borderSide: BorderSide.none,
+          const Divider(height: 1),
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: inputController,
+                    decoration: InputDecoration(
+                      hintText: 'Ask Away...',
+                      filled: true,
+                      fillColor: Theme.of(context).colorScheme.surface,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                        borderSide: BorderSide.none,
+                      ),
                     ),
+                    onSubmitted: (_) => onSend(),
                   ),
-                  onSubmitted: (_) => onSend(),
                 ),
-              ),
-              const SizedBox(width: 8),
-              FilledButton(
-                onPressed: sending ? null : onSend,
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                  shape: const StadiumBorder(),
+                const SizedBox(width: 8),
+                FilledButton(
+                  onPressed: sending ? null : onSend,
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 12,
+                    ),
+                    shape: const StadiumBorder(),
+                  ),
+                  child: const Text('Send'),
                 ),
-                child: const Text('Send'),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-      ],
-    ));
+        ],
+      ),
+    );
   }
 
   Widget _buildTurnBubble(BuildContext context, Map<String, String> turn) {
     final isUser = (turn['role'] == 'user');
     final Color bg = isUser
         ? Theme.of(context).colorScheme.primary
-        : Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.6);
+        : Theme.of(
+            context,
+          ).colorScheme.surfaceContainerHighest.withOpacity(0.6);
     final Color fg = isUser
         ? Theme.of(context).colorScheme.onPrimary
         : Theme.of(context).colorScheme.onSurfaceVariant;
@@ -255,15 +321,16 @@ class AssistantPanel extends StatelessWidget {
           color: bg,
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Text(
-          turn['text'] ?? '',
-          style: TextStyle(color: fg),
-        ),
+        child: Text(turn['text'] ?? '', style: TextStyle(color: fg)),
       ),
     );
   }
 
-  Widget _buildOpsDiffView(List<dynamic> ops, String Function(dynamic) labeler, BuildContext context) {
+  Widget _buildOpsDiffView(
+    List<dynamic> ops,
+    String Function(dynamic) labeler,
+    BuildContext context,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -282,18 +349,32 @@ class AssistantPanel extends StatelessWidget {
   }
 
   static String? _getString(dynamic obj, String key) {
-    try { final v = (obj as dynamic)[key]; return v is String ? v : null; } catch (_) { return null; }
+    try {
+      final v = (obj as dynamic)[key];
+      return v is String ? v : null;
+    } catch (_) {
+      return null;
+    }
   }
+
   static int? _getInt(dynamic obj, String key) {
     try {
       final v = (obj as dynamic)[key];
       if (v is int) return v;
       if (v is String) return int.tryParse(v);
       return null;
-    } catch (_) { return null; }
+    } catch (_) {
+      return null;
+    }
   }
+
   static bool? _getBool(dynamic obj, String key) {
-    try { final v = (obj as dynamic)[key]; return v is bool ? v : null; } catch (_) { return null; }
+    try {
+      final v = (obj as dynamic)[key];
+      return v is bool ? v : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   static List<String> _getErrors(dynamic obj) {
@@ -314,7 +395,9 @@ class AssistantPanel extends StatelessWidget {
 
   String _kindOf(dynamic obj) {
     try {
-      final candidate = obj is Map<String, dynamic> && obj.containsKey('op') ? (obj['op'] as dynamic) : obj;
+      final candidate = obj is Map<String, dynamic> && obj.containsKey('op')
+          ? (obj['op'] as dynamic)
+          : obj;
       final k = (candidate as dynamic)['kind'];
       if (k is String && k.isNotEmpty) return k.toLowerCase();
     } catch (_) {}
@@ -332,57 +415,93 @@ class AssistantPanel extends StatelessWidget {
     }
   }
 
-  List<Widget> _buildGroupedOperationList(BuildContext context, List<dynamic> ops, List<bool> checked, String Function(dynamic) labeler) {
+  List<Widget> _buildGroupedOperationList(
+    BuildContext context,
+    List<dynamic> ops,
+    List<bool> checked,
+    String Function(dynamic) labeler,
+  ) {
     // Build ordered kinds by first appearance
     final kinds = <String>[];
     final byKind = <String, List<int>>{};
     for (var i = 0; i < ops.length; i++) {
       final k = _kindOf(ops[i]);
-      if (!byKind.containsKey(k)) { byKind[k] = <int>[]; kinds.add(k); }
+      if (!byKind.containsKey(k)) {
+        byKind[k] = <int>[];
+        kinds.add(k);
+      }
       byKind[k]!.add(i);
     }
     final theme = Theme.of(context);
     final widgets = <Widget>[];
     for (final k in kinds) {
-      widgets.add(Padding(
-        padding: const EdgeInsets.only(top: 8, bottom: 4),
-        child: Row(children: [
-          _kindIcon(k), const SizedBox(width: 6), Text(k.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.w600)),
-        ]),
-      ));
+      widgets.add(
+        Padding(
+          padding: const EdgeInsets.only(top: 8, bottom: 4),
+          child: Row(
+            children: [
+              _kindIcon(k),
+              const SizedBox(width: 6),
+              Text(
+                k.toUpperCase(),
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+        ),
+      );
       for (final i in byKind[k]!) {
         final op = ops[i];
         final errs = _getErrors(op);
         final isInvalid = errs.isNotEmpty;
-        widgets.add(Row(children: [
-          Tooltip(
-            message: isInvalid ? 'This operation is invalid and cannot be applied.' : '',
-            preferBelow: false,
-            child: Checkbox(
-              value: checked[i],
-              onChanged: isInvalid ? null : (v) => onToggleOperation(i, v ?? true),
-            ),
-          ),
-          _kindIcon(k), const SizedBox(width: 6),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(labeler(op)),
-            if (isInvalid)
-              Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Text(
-                  errs.join(', '),
-                  style: TextStyle(color: theme.colorScheme.error, fontSize: 12),
+        widgets.add(
+          Row(
+            children: [
+              Tooltip(
+                message: isInvalid
+                    ? 'This operation is invalid and cannot be applied.'
+                    : '',
+                preferBelow: false,
+                child: Checkbox(
+                  value: checked[i],
+                  onChanged: isInvalid
+                      ? null
+                      : (v) => onToggleOperation(i, v ?? true),
                 ),
               ),
-          ])),
-        ]));
+              _kindIcon(k),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(labeler(op)),
+                    if (isInvalid)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          errs.join(', '),
+                          style: TextStyle(
+                            color: theme.colorScheme.error,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
       }
     }
     return widgets;
   }
 
   Widget _buildTypingBubble(BuildContext context) {
-    final bg = Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.6);
+    final bg = Theme.of(
+      context,
+    ).colorScheme.surfaceContainerHighest.withOpacity(0.6);
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 4),
       alignment: Alignment.centerLeft,
@@ -411,7 +530,10 @@ class AssistantPanel extends StatelessWidget {
           if (clarifyQuestion != null && clarifyQuestion!.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(bottom: 6),
-              child: Text(clarifyQuestion!, style: const TextStyle(fontWeight: FontWeight.w600)),
+              child: Text(
+                clarifyQuestion!,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
             ),
           if (clarifyOptions.isNotEmpty)
             Wrap(
@@ -420,37 +542,56 @@ class AssistantPanel extends StatelessWidget {
               children: [
                 for (final o in clarifyOptions)
                   FilterChip(
-                    label: Text('#${o['id']} ${o['title']}${o['scheduledFor'] == null ? '' : ' @${o['scheduledFor']}'}'),
-                    selected: (selectedClarifyIds ?? const <int>{}).contains(o['id'] as int),
-                    onSelected: (_) => onToggleClarifyId?.call((o['id'] as int)),
-                  )
+                    label: Text(
+                      '#${o['id']} ${o['title']}${o['scheduledFor'] == null ? '' : ' @${o['scheduledFor']}'}',
+                    ),
+                    selected: (selectedClarifyIds ?? const <int>{}).contains(
+                      o['id'] as int,
+                    ),
+                    onSelected: (_) =>
+                        onToggleClarifyId?.call((o['id'] as int)),
+                  ),
               ],
             ),
           const SizedBox(height: 8),
-          Wrap(spacing: 6, runSpacing: 6, children: [
-            OutlinedButton.icon(
-              icon: const Icon(Icons.today, size: 16),
-              onPressed: () => onSelectClarifyDate?.call(todayYmd),
-              label: Text('Today${(selectedClarifyDate != null && selectedClarifyDate == todayYmd) ? ' ✓' : ''}'),
-            ),
-            OutlinedButton.icon(
-              icon: const Icon(Icons.calendar_today, size: 16),
-              onPressed: () => onSelectClarifyDate?.call(null),
-              label: Text('Unscheduled${(selectedClarifyDate == null) ? ' ✓' : ''}'),
-            ),
-            OutlinedButton(
-              onPressed: () => onSelectClarifyPriority?.call('high'),
-              child: Text('prio: high${(selectedClarifyPriority == 'high') ? ' ✓' : ''}'),
-            ),
-            OutlinedButton(
-              onPressed: () => onSelectClarifyPriority?.call('medium'),
-              child: Text('prio: medium${(selectedClarifyPriority == 'medium') ? ' ✓' : ''}'),
-            ),
-            OutlinedButton(
-              onPressed: () => onSelectClarifyPriority?.call('low'),
-              child: Text('prio: low${(selectedClarifyPriority == 'low') ? ' ✓' : ''}'),
-            ),
-          ]),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              OutlinedButton.icon(
+                icon: const Icon(Icons.today, size: 16),
+                onPressed: () => onSelectClarifyDate?.call(todayYmd),
+                label: Text(
+                  'Today${(selectedClarifyDate != null && selectedClarifyDate == todayYmd) ? ' ✓' : ''}',
+                ),
+              ),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.calendar_today, size: 16),
+                onPressed: () => onSelectClarifyDate?.call(null),
+                label: Text(
+                  'Unscheduled${(selectedClarifyDate == null) ? ' ✓' : ''}',
+                ),
+              ),
+              OutlinedButton(
+                onPressed: () => onSelectClarifyPriority?.call('high'),
+                child: Text(
+                  'prio: high${(selectedClarifyPriority == 'high') ? ' ✓' : ''}',
+                ),
+              ),
+              OutlinedButton(
+                onPressed: () => onSelectClarifyPriority?.call('medium'),
+                child: Text(
+                  'prio: medium${(selectedClarifyPriority == 'medium') ? ' ✓' : ''}',
+                ),
+              ),
+              OutlinedButton(
+                onPressed: () => onSelectClarifyPriority?.call('low'),
+                child: Text(
+                  'prio: low${(selectedClarifyPriority == 'low') ? ' ✓' : ''}',
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -464,13 +605,17 @@ class _TypingDots extends StatefulWidget {
   State<_TypingDots> createState() => _TypingDotsState();
 }
 
-class _TypingDotsState extends State<_TypingDots> with SingleTickerProviderStateMixin {
+class _TypingDotsState extends State<_TypingDots>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _c;
 
   @override
   void initState() {
     super.initState();
-    _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 900))..repeat();
+    _c = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat();
   }
 
   @override
@@ -498,7 +643,10 @@ class _TypingDotsState extends State<_TypingDots> with SingleTickerProviderState
                 child: Container(
                   width: 6,
                   height: 6,
-                  decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
+                  ),
                 ),
               ),
             );
@@ -508,5 +656,3 @@ class _TypingDotsState extends State<_TypingDots> with SingleTickerProviderState
     );
   }
 }
-
-
