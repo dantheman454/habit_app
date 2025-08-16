@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'dart:async';
-import 'dart:html' as html; // For EventSource in Flutter Web
+import 'util/storage.dart' as storage;
+import 'util/sse.dart' as sse;
 import 'dart:convert';
 
 String _computeApiBase() {
@@ -98,7 +99,7 @@ Future<Map<String, dynamic>> assistantMessage(
     }
     return map;
   }
-  // Flutter Web: use EventSource against GET streaming endpoint
+  // Flutter Web: use EventSource via platform abstraction; non-web falls back to POST
   final uri = Uri.parse('${api.options.baseUrl}/api/assistant/message/stream').replace(queryParameters: {
     'message': message,
     'transcript': transcript.isEmpty ? '[]' : jsonEncode(transcript),
@@ -107,70 +108,47 @@ Future<Map<String, dynamic>> assistantMessage(
 
   final completer = Completer<Map<String, dynamic>>();
   try {
-    final es = html.EventSource(uri);
     Map<String, dynamic>? result;
-    // Clarify listener with structured options
-    es.addEventListener('clarify', (event) {
-      try {
-        final data = (event as html.MessageEvent).data as String;
-        final obj = jsonDecode(data) as Map<String, dynamic>;
-        final q = (obj['question'] as String?) ?? '';
-        final optsRaw = obj['options'];
-        final opts = (optsRaw is List)
-            ? optsRaw.map((e) => Map<String, dynamic>.from(e as Map)).toList()
-            : const <Map<String, dynamic>>[];
-        if (onClarify != null && q.isNotEmpty) onClarify(q, opts);
-      } catch (_) {}
-    });
-    // Stage listener
-    es.addEventListener('stage', (event) {
-      try {
-        final data = (event as html.MessageEvent).data as String;
-        final obj = jsonDecode(data) as Map<String, dynamic>;
-        final st = (obj['stage'] as String?) ?? '';
-        if (onStage != null && st.isNotEmpty) onStage(st);
-      } catch (_) {}
-    });
-    // Ops listener (versioned)
-    es.addEventListener('ops', (event) {
-      try {
-        final data = (event as html.MessageEvent).data as String;
-        final obj = jsonDecode(data) as Map<String, dynamic>;
-        final opsRaw = obj['operations'];
-        final version = (obj['version'] is int) ? (obj['version'] as int) : 1;
-        final validCount = (obj['validCount'] is int) ? (obj['validCount'] as int) : 0;
-        final invalidCount = (obj['invalidCount'] is int) ? (obj['invalidCount'] as int) : 0;
-        final ops = (opsRaw is List)
-            ? opsRaw.map((e) => Map<String, dynamic>.from(e as Map)).toList()
-            : const <Map<String, dynamic>>[];
-        if (onOps != null) onOps(ops, version, validCount, invalidCount);
-      } catch (_) {}
-    });
-    es.addEventListener('summary', (event) {
-      try {
-        final data = (event as html.MessageEvent).data as String;
-        final obj = jsonDecode(data) as Map<String, dynamic>;
-        final text = (obj['text'] as String?) ?? '';
-        if (onSummary != null && text.isNotEmpty) {
-          onSummary(text);
-        }
-      } catch (_) {}
-    });
-    es.addEventListener('result', (event) {
-      try {
-        final data = (event as html.MessageEvent).data as String;
-        result = Map<String, dynamic>.from(jsonDecode(data) as Map);
-      } catch (_) {}
-    });
-    es.addEventListener('done', (event) {
-      es.close();
-      completer.complete(result ?? {'text': '', 'operations': []});
-    });
-    es.addEventListener('error', (event) async {
-      try { es.close(); } catch (_) {}
-      if (!completer.isCompleted) {
+    final close = sse.startSse(
+      uri: uri,
+      onEvent: (event, data) {
         try {
-          // Fallback to non-streaming POST on SSE error
+          final obj = jsonDecode(data) as Map<String, dynamic>;
+          if (event == 'clarify') {
+            if (onClarify != null) {
+              final q = (obj['question'] as String?) ?? '';
+              final optsRaw = obj['options'];
+              final opts = (optsRaw is List) ? optsRaw.map((e) => Map<String, dynamic>.from(e as Map)).toList() : const <Map<String, dynamic>>[];
+              if (q.isNotEmpty) onClarify(q, opts);
+            }
+          } else if (event == 'stage') {
+            if (onStage != null) {
+              final st = (obj['stage'] as String?) ?? '';
+              if (st.isNotEmpty) onStage(st);
+            }
+          } else if (event == 'ops') {
+            if (onOps != null) {
+              final opsRaw = obj['operations'];
+              final version = (obj['version'] is int) ? (obj['version'] as int) : 1;
+              final validCount = (obj['validCount'] is int) ? (obj['validCount'] as int) : 0;
+              final invalidCount = (obj['invalidCount'] is int) ? (obj['invalidCount'] as int) : 0;
+              final ops = (opsRaw is List) ? opsRaw.map((e) => Map<String, dynamic>.from(e as Map)).toList() : const <Map<String, dynamic>>[];
+              onOps(ops, version, validCount, invalidCount);
+            }
+          } else if (event == 'summary') {
+            if (onSummary != null) {
+              final text = (obj['text'] as String?) ?? '';
+              if (text.isNotEmpty) onSummary(text);
+            }
+          } else if (event == 'result') {
+            result = Map<String, dynamic>.from(obj);
+          }
+        } catch (_) {}
+      },
+      onDone: () { completer.complete(result ?? {'text': '', 'operations': []}); },
+      onError: () async {
+        // Fallback to non-streaming POST on SSE error
+        try {
           final res = await api.post('/api/assistant/message', data: {
             'message': message,
             'transcript': transcript,
@@ -180,8 +158,9 @@ Future<Map<String, dynamic>> assistantMessage(
         } catch (e) {
           completer.completeError(Exception('sse_error'));
         }
-      }
-    });
+      },
+    );
+    return completer.future.whenComplete(() { try { close(); } catch (_) {} });
   } catch (_) {
     // Fallback to non-streaming on any error
     final res = await api.post('/api/assistant/message', data: {
@@ -191,7 +170,6 @@ Future<Map<String, dynamic>> assistantMessage(
     });
     return Map<String, dynamic>.from(res.data as Map);
   }
-  return completer.future;
 }
 
 Future<Map<String, dynamic>> applyOperations(List<Map<String, dynamic>> ops) async {

@@ -1301,9 +1301,9 @@ app.delete('/api/todos/:id', (req, res) => {
 });
 
 // --- LLM proposal-and-verify (Ollama) ---
-const OLLAMA_MODEL = 'gemma3:12b';
+const OLLAMA_MODEL = 'deepcoder:14b';
 const OLLAMA_TEMPERATURE = 0.1;
-const GLOBAL_TIMEOUT_SECS = parseInt(process.env.OLLAMA_TIMEOUT_SECS || '300', 10);
+const GLOBAL_TIMEOUT_SECS = parseInt('300', 10);
 const CLARIFY_THRESHOLD = 0.45;
 const CHAT_THRESHOLD = 0.70;
 // Note: bulk operations are not supported; validation rejects them.

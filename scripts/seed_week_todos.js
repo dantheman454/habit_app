@@ -78,7 +78,7 @@ function randomRecurrence(forDate) {
 function randomTitle(i) {
   const verbs = ['Plan', 'Write', 'Review', 'Clean', 'Organize', 'Call', 'Email', 'Draft', 'Buy', 'Prepare'];
   const objs = ['report', 'inbox', 'workspace', 'groceries', 'notes', 'proposal', 'schedule', 'budget', 'tests', 'backup'];
-  return `${randomChoice(verbs)} ${randomChoice(objs)} #${i + 1}`;
+  return `${randomChoice(verbs)} ${randomChoice(objs)}`;
 }
 
 function pickDateWithinWeek(fromYmd, toYmd) {

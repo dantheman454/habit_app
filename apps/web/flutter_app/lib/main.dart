@@ -3,18 +3,25 @@ import 'dart:async';
 import 'widgets/assistant_panel.dart';
 import 'widgets/sidebar.dart' as sb;
 import 'widgets/todo_row.dart' as row;
-import 'widgets/fab_actions.dart' as fab;
+import 'widgets/habits_tracker.dart' as ht;
+import 'widgets/tabs_header.dart' as th;
 import 'api.dart' as api;
 import 'package:dio/dio.dart';
 import 'package:flutter/services.dart';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
+import 'util/storage.dart' as storage;
 
+// --- Test hooks and injectable API (local single-user context) ---
+class TestHooks { static bool skipRefresh = false; }
+var createTodoFn = api.createTodo;
+var createEventFn = api.createEvent;
+var createHabitFn = api.createHabit;
+var createGoalFn = api.createGoal;
 void main() {
   runApp(const App());
 }
 
-// Networking moved to api.dart
 
 // ----- Models -----
 class Todo {
@@ -144,7 +151,7 @@ class DateRange {
 
 enum View { day, week, month }
 
-enum SmartList { today, scheduled, all, flagged, backlog }
+enum SmartList { today, scheduled, all, backlog }
 enum MainView { tasks, habits, goals }
 
  
@@ -160,6 +167,15 @@ class App extends StatelessWidget {
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
         useMaterial3: true,
+        visualDensity: VisualDensity.compact,
+        listTileTheme: const ListTileThemeData(dense: true, visualDensity: VisualDensity.compact),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8)),
+        ),
+        checkboxTheme: const CheckboxThemeData(visualDensity: VisualDensity.compact),
       ),
       home: const HomePage(),
     );
@@ -214,6 +230,8 @@ class _HomePageState extends State<HomePage> {
   // Sidebar state
   SmartList selected = SmartList.today;
   MainView mainView = MainView.tasks;
+  String? _priorityFilter; // null=all | 'low'|'medium'|'high'
+  String? _goalsStatusFilter; // null=all | 'active'|'completed'|'archived'
 
   // Data
   List<Todo> scheduled = [];
@@ -223,6 +241,11 @@ class _HomePageState extends State<HomePage> {
   Map<String, int> sidebarCounts = {};
   // Habit stats for current range (by habit id)
   Map<int, Map<String, dynamic>> habitStatsById = {};
+  // Goal badges mapping: key `${kind}:${masterOrId}` -> { goalId, title }
+  Map<String, Map<String, dynamic>> _itemGoalByKey = {};
+  // Habits narrow-view state
+  int? _selectedHabitId;
+  int _habitFocusCol = 0; // 0..6
 
   // Unified schedule filters (chips)
   Set<String> _kindFilter = <String>{'todo','event','habit'}; // All by default
@@ -252,13 +275,312 @@ class _HomePageState extends State<HomePage> {
   // Pending smooth-scroll target (YYYY-MM-DD) for Day view
   String? _pendingScrollYmd;
 
+  // Quick-add controllers
+  final TextEditingController _qaTodoTitle = TextEditingController();
+  final TextEditingController _qaTodoTime = TextEditingController();
+  String _qaTodoPriority = 'medium';
+  final TextEditingController _qaEventTitle = TextEditingController();
+  final TextEditingController _qaEventStart = TextEditingController();
+  final TextEditingController _qaEventEnd = TextEditingController();
+  final TextEditingController _qaEventLocation = TextEditingController();
+  String _qaEventPriority = 'medium';
+  final TextEditingController _qaHabitTitle = TextEditingController();
+  final TextEditingController _qaHabitTime = TextEditingController();
+  String _qaHabitPriority = 'medium';
+  // Goals inline quick-add controllers
+  final TextEditingController _qaGoalTitle = TextEditingController();
+  final TextEditingController _qaGoalNotes = TextEditingController();
+  final TextEditingController _qaGoalCurrent = TextEditingController();
+  final TextEditingController _qaGoalTarget = TextEditingController();
+  final TextEditingController _qaGoalUnit = TextEditingController();
+  String _qaGoalStatus = 'active';
+  bool _addingQuick = false;
+  bool _enterSubmitting = false; // transient flag for immediate Enter disable
+  bool _mustPaintDisabledOnce = false; // ensure disabled for at least one frame
+
   
 
   @override
   void initState() {
     super.initState();
-    _refreshAll();
-    _loadAssistantModel();
+    // Restore persisted main tab if available
+    try {
+      final saved = storage.getItem('mainTab') ?? '';
+      if (saved == 'events') { mainView = MainView.tasks; _kindFilter = <String>{'event'}; }
+      else if (saved == 'todos') { mainView = MainView.tasks; _kindFilter = <String>{'todo'}; }
+      else if (saved == 'habits') { mainView = MainView.habits; _kindFilter = <String>{'habit'}; }
+      else if (saved == 'goals') { mainView = MainView.goals; }
+    } catch (_) {}
+    if (!TestHooks.skipRefresh) {
+      _refreshAll();
+      _loadAssistantModel();
+    } else {
+      setState(() => loading = false);
+    }
+  }
+
+  Widget _quickAddInline() {
+    // Decide which inline form to show based on current tab
+    final isGoals = (mainView == MainView.goals);
+    final isHabits = (mainView == MainView.habits);
+    final isEvents = (!isHabits && !isGoals && _kindFilter.length == 1 && _kindFilter.contains('event'));
+    // Default to todos when in tasks view and not events
+    final isTodos = (!isHabits && !isGoals && !isEvents);
+
+    if (isTodos) {
+      return Row(children: [
+        SizedBox(width: 260, child: Focus(
+          onKeyEvent: (node, event) {
+            if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.enter) {
+              setState(() { _enterSubmitting = true; });
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted) return;
+                _submitQuickAddTodo().whenComplete(() {
+                  if (mounted) setState(() { _enterSubmitting = false; });
+                });
+              });
+              return KeyEventResult.handled;
+            }
+            return KeyEventResult.ignored;
+          },
+          child: TextField(key: const Key('qa_todo_title'), controller: _qaTodoTitle, decoration: const InputDecoration(labelText: 'Title *'), textInputAction: TextInputAction.done, onSubmitted: (_) => _submitQuickAddTodo(), onEditingComplete: _submitQuickAddTodo),
+        )),
+        const SizedBox(width: 8),
+        SizedBox(width: 120, child: TextField(key: const Key('qa_todo_time'), controller: _qaTodoTime, decoration: const InputDecoration(labelText: 'Time'))),
+        const SizedBox(width: 8),
+        DropdownButton<String>(
+          value: _qaTodoPriority,
+          items: const [
+            DropdownMenuItem(value: 'low', child: Text('Low')),
+            DropdownMenuItem(value: 'medium', child: Text('Medium')),
+            DropdownMenuItem(value: 'high', child: Text('High')),
+          ],
+          onChanged: (v) => setState(() => _qaTodoPriority = v ?? 'medium'),
+        ),
+        const SizedBox(width: 8),
+        FilledButton(onPressed: (_addingQuick || _enterSubmitting || _mustPaintDisabledOnce) ? null : _submitQuickAddTodo, child: const Text('Add')),
+      ]);
+    }
+    if (isEvents) {
+      return Row(children: [
+        SizedBox(width: 240, child: TextField(key: const Key('qa_event_title'), controller: _qaEventTitle, decoration: const InputDecoration(labelText: 'Title'), textInputAction: TextInputAction.done, onSubmitted: (_) => _submitQuickAddEvent(), onEditingComplete: _submitQuickAddEvent)),
+        const SizedBox(width: 8),
+        SizedBox(width: 110, child: TextField(key: const Key('qa_event_start'), controller: _qaEventStart, decoration: const InputDecoration(labelText: 'Start'))),
+        const SizedBox(width: 8),
+        SizedBox(width: 110, child: TextField(key: const Key('qa_event_end'), controller: _qaEventEnd, decoration: const InputDecoration(labelText: 'End'))),
+        const SizedBox(width: 8),
+        SizedBox(width: 160, child: TextField(key: const Key('qa_event_location'), controller: _qaEventLocation, decoration: const InputDecoration(labelText: 'Location'))),
+        const SizedBox(width: 8),
+        DropdownButton<String>(
+          value: _qaEventPriority,
+          items: const [
+            DropdownMenuItem(value: 'low', child: Text('Low')),
+            DropdownMenuItem(value: 'medium', child: Text('Medium')),
+            DropdownMenuItem(value: 'high', child: Text('High')),
+          ],
+          onChanged: (v) => setState(() => _qaEventPriority = v ?? 'medium'),
+        ),
+        const SizedBox(width: 8),
+        FilledButton(onPressed: _addingQuick ? null : _submitQuickAddEvent, child: const Text('Add')),
+      ]);
+    }
+    if (isHabits) {
+      return Row(children: [
+        SizedBox(width: 260, child: TextField(key: const Key('qa_habit_title'), controller: _qaHabitTitle, decoration: const InputDecoration(labelText: 'Title *'), textInputAction: TextInputAction.done, onSubmitted: (_) => _submitQuickAddHabit(), onEditingComplete: _submitQuickAddHabit)),
+        const SizedBox(width: 8),
+        SizedBox(width: 120, child: TextField(key: const Key('qa_habit_time'), controller: _qaHabitTime, decoration: const InputDecoration(labelText: 'Time'))),
+        const SizedBox(width: 8),
+        DropdownButton<String>(
+          value: _qaHabitPriority,
+          items: const [
+            DropdownMenuItem(value: 'low', child: Text('Low')),
+            DropdownMenuItem(value: 'medium', child: Text('Medium')),
+            DropdownMenuItem(value: 'high', child: Text('High')),
+          ],
+          onChanged: (v) => setState(() => _qaHabitPriority = v ?? 'medium'),
+        ),
+        const SizedBox(width: 8),
+        FilledButton(onPressed: _addingQuick ? null : _submitQuickAddHabit, child: const Text('Add')),
+      ]);
+    }
+    // Default fallback: show Todos quick-add so there is always a visible form
+    return Row(children: [
+      SizedBox(width: 260, child: TextField(key: const Key('qa_todo_title'), controller: _qaTodoTitle, decoration: const InputDecoration(labelText: 'Title *'), textInputAction: TextInputAction.done, onSubmitted: (_) => _submitQuickAddTodo(), onEditingComplete: _submitQuickAddTodo)),
+      const SizedBox(width: 8),
+      SizedBox(width: 120, child: TextField(key: const Key('qa_todo_time'), controller: _qaTodoTime, decoration: const InputDecoration(labelText: 'Time'))),
+      const SizedBox(width: 8),
+      DropdownButton<String>(
+        value: _qaTodoPriority,
+        items: const [
+          DropdownMenuItem(value: 'low', child: Text('Low')),
+          DropdownMenuItem(value: 'medium', child: Text('Medium')),
+          DropdownMenuItem(value: 'high', child: Text('High')),
+        ],
+        onChanged: (v) => setState(() => _qaTodoPriority = v ?? 'medium'),
+      ),
+      const SizedBox(width: 8),
+      FilledButton(onPressed: (_addingQuick || _enterSubmitting || _mustPaintDisabledOnce) ? null : _submitQuickAddTodo, child: const Text('Add')),
+    ]);
+  }
+
+  bool _isValidTime(String s) {
+    if (s.trim().isEmpty) return true; // optional
+    final parts = s.trim().split(':');
+    if (parts.length != 2) return false;
+    final h = int.tryParse(parts[0]);
+    final m = int.tryParse(parts[1]);
+    if (h == null || m == null) return false;
+    if (h < 0 || h > 23) return false;
+    if (m < 0 || m > 59) return false;
+    return true;
+  }
+
+  Future<void> _submitQuickAddTodo() async {
+    if (_addingQuick) return;
+    final title = _qaTodoTitle.text.trim();
+    final time = _qaTodoTime.text.trim();
+    if (title.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter a title.'))); return; }
+    if (!_isValidTime(time)) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Use 24‑hour time, e.g. 09:00.'))); return; }
+    setState(() => _addingQuick = true);
+    // Request a frame so disabled state is paint-visible on next pump (no timers)
+    WidgetsBinding.instance.scheduleFrame();
+    // Guarantee one disabled paint
+    setState(() { _mustPaintDisabledOnce = true; });
+    try {
+      // No extra timers; proceed to API
+      final created = await createTodoFn({
+        'title': title,
+        'scheduledFor': anchor,
+        'timeOfDay': time.isEmpty ? null : time,
+        'priority': _qaTodoPriority,
+        'recurrence': { 'type': 'none' },
+      });
+      setState(() { _qaTodoTitle.clear(); _qaTodoTime.clear(); _qaTodoPriority = 'medium'; });
+      if (!TestHooks.skipRefresh) {
+        try { scheduled.insert(0, Todo.fromJson(created)); } catch (_) {}
+      }
+      if (!TestHooks.skipRefresh) await _refreshAll();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Create failed: $e')));
+    } finally {
+      if (mounted) setState(() { _mustPaintDisabledOnce = false; });
+      if (mounted) setState(() => _addingQuick = false);
+    }
+  }
+
+  Future<void> _submitQuickAddEvent() async {
+    if (_addingQuick) return;
+    final title = _qaEventTitle.text.trim();
+    final start = _qaEventStart.text.trim();
+    final end = _qaEventEnd.text.trim();
+    final location = _qaEventLocation.text.trim();
+    if (title.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter a title.'))); return; }
+    if (!_isValidTime(start) || !_isValidTime(end)) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Use 24‑hour time, e.g. 09:00.'))); return; }
+    setState(() => _addingQuick = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {});
+    await Future<void>.delayed(Duration.zero);
+    try {
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+      await createEventFn({
+        'title': title,
+        'scheduledFor': anchor,
+        'startTime': start.isEmpty ? null : start,
+        'endTime': end.isEmpty ? null : end,
+        'location': location.isEmpty ? null : location,
+        'priority': _qaEventPriority,
+        'recurrence': { 'type': 'none' },
+      });
+      setState(() { _qaEventTitle.clear(); _qaEventStart.clear(); _qaEventEnd.clear(); _qaEventLocation.clear(); _qaEventPriority = 'medium'; });
+      if (!TestHooks.skipRefresh) await _refreshAll();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Create failed: $e')));
+    } finally {
+      await Future<void>.delayed(const Duration(milliseconds: 16));
+      if (mounted) setState(() => _addingQuick = false);
+    }
+  }
+
+  Future<void> _submitQuickAddHabit() async {
+    if (_addingQuick) return;
+    final title = _qaHabitTitle.text.trim();
+    final time = _qaHabitTime.text.trim();
+    if (title.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter a title.'))); return; }
+    if (!_isValidTime(time)) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Use 24‑hour time, e.g. 09:00.'))); return; }
+    setState(() => _addingQuick = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {});
+    await Future<void>.delayed(Duration.zero);
+    try {
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+      await createHabitFn({
+        'title': title,
+        'scheduledFor': anchor,
+        'timeOfDay': time.isEmpty ? null : time,
+        'priority': _qaHabitPriority,
+        'recurrence': { 'type': 'daily' },
+      });
+      setState(() { _qaHabitTitle.clear(); _qaHabitTime.clear(); _qaHabitPriority = 'medium'; });
+      if (!TestHooks.skipRefresh) await _refreshAll();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Create failed: $e')));
+    } finally {
+      await Future<void>.delayed(const Duration(milliseconds: 16));
+      if (mounted) setState(() => _addingQuick = false);
+    }
+  }
+
+  Future<void> _submitQuickAddGoal() async {
+    if (_addingQuick) return;
+    final title = _qaGoalTitle.text.trim();
+    final notes = _qaGoalNotes.text.trim();
+    final cpv = double.tryParse(_qaGoalCurrent.text.trim());
+    final tpv = double.tryParse(_qaGoalTarget.text.trim());
+    final unit = _qaGoalUnit.text.trim();
+    if (title.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter a title.'))); return; }
+    setState(() => _addingQuick = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {});
+    await Future<void>.delayed(Duration.zero);
+    try {
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+      await createGoalFn({
+        'title': title,
+        if (notes.isNotEmpty) 'notes': notes,
+        'status': _qaGoalStatus,
+        if (cpv != null) 'currentProgressValue': cpv,
+        if (tpv != null) 'targetProgressValue': tpv,
+        if (unit.isNotEmpty) 'progressUnit': unit,
+      });
+      setState(() {
+        _qaGoalTitle.clear(); _qaGoalNotes.clear(); _qaGoalCurrent.clear(); _qaGoalTarget.clear(); _qaGoalUnit.clear(); _qaGoalStatus = 'active';
+      });
+      setState(() {});
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Create failed: $e')));
+    } finally {
+      await Future<void>.delayed(const Duration(milliseconds: 16));
+      if (mounted) setState(() => _addingQuick = false);
+    }
+  }
+
+  Future<void> _quickAddTodo() async {}
+
+  Future<void> _quickAddEvent() async {}
+
+  Future<void> _quickAddHabit() async {}
+
+  Widget _tabChip(String label, bool selected, VoidCallback onTap, {Key? key}) {
+    return InkWell(
+      key: key,
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: selected ? Colors.white.withOpacity(0.2) : Colors.white.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: selected ? Colors.white : Colors.white.withOpacity(0.5)),
+        ),
+        child: Text(label, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
+      ),
+    );
   }
 
   @override
@@ -269,6 +591,14 @@ class _HomePageState extends State<HomePage> {
     searchCtrl.dispose();
     _searchFocus.dispose();
     _removeSearchOverlay();
+    _qaTodoTitle.dispose();
+    _qaTodoTime.dispose();
+    _qaEventTitle.dispose();
+    _qaEventStart.dispose();
+    _qaEventEnd.dispose();
+    _qaEventLocation.dispose();
+    _qaHabitTitle.dispose();
+    _qaHabitTime.dispose();
     super.dispose();
   }
 
@@ -283,7 +613,7 @@ class _HomePageState extends State<HomePage> {
         final kinds = (mainView == MainView.habits)
             ? <String>['habit']
             : (_kindFilter.isEmpty ? ['todo','event','habit'] : _kindFilter.toList());
-        final raw = await api.fetchSchedule(from: r.from, to: r.to, kinds: kinds, completed: showCompleted ? null : false);
+        final raw = await api.fetchSchedule(from: r.from, to: r.to, kinds: kinds, completed: showCompleted ? null : false, priority: _priorityFilter);
         sList = raw.map((e) => Todo.fromJson(Map<String, dynamic>.from(e as Map))).toList();
         // Load habit stats for the same range to display streak badges
         try {
@@ -315,20 +645,34 @@ class _HomePageState extends State<HomePage> {
       if (!showCompleted) {
         bList = bList.where((t) => !t.completed).toList();
       }
+      // Sidebar counters are scoped by active tab context only
       final nowYmd = ymd(DateTime.now());
-      final todayCount = sList.where((t) => t.scheduledFor == nowYmd && (t.kind == null || t.kind != 'habit')).length;
-      final habitsTodayCount = sList.where((t) => t.scheduledFor == nowYmd && t.kind == 'habit').length;
-      final scheduledCount = sList.length;
-      final backlogCount = bList.length;
-      final flaggedCount = [...sAllList, ...bList].where((t) => t.priority == 'high').length;
-      final allCount = sAllList.length + backlogCount;
+      int todayCount;
+      int scheduledCount;
+      int backlogCount = bList.length;
+      int flaggedCount;
+      int allCount;
+      if (mainView == MainView.habits) {
+        todayCount = sList.where((t) => t.kind == 'habit' && t.scheduledFor == nowYmd).length;
+        scheduledCount = sList.where((t) => t.kind == 'habit').length;
+        flaggedCount = sList.where((t) => t.kind == 'habit' && t.priority == 'high').length;
+        allCount = scheduledCount + backlogCount; // backlog currently excludes habits; acceptable for tab-scoped count
+      } else if (mainView == MainView.tasks) {
+        todayCount = sList.where((t) => (t.kind == null || t.kind == 'todo' || t.kind == 'event') && t.scheduledFor == nowYmd).length;
+        scheduledCount = sList.where((t) => (t.kind == null || t.kind == 'todo' || t.kind == 'event')).length;
+        flaggedCount = [...sAllList, ...bList].where((t) => (t.kind == null || t.kind == 'todo' || t.kind == 'event') && t.priority == 'high').length;
+        allCount = sAllList.where((t) => (t.kind == null || t.kind == 'todo' || t.kind == 'event')).length + backlogCount;
+      } else { // goals tab
+        todayCount = 0;
+        scheduledCount = 0;
+        flaggedCount = 0;
+        allCount = 0;
+      }
       final counts = <String, int>{
         'today': todayCount,
         'scheduled': scheduledCount,
         'all': allCount,
-        'flagged': flaggedCount,
         'backlog': backlogCount,
-        'habits': habitsTodayCount,
       };
       setState(() {
         scheduled = sList;
@@ -337,11 +681,51 @@ class _HomePageState extends State<HomePage> {
         sidebarCounts = counts;
         message = null;
       });
+      // Load goal badges (non-blocking)
+      _loadGoalBadges();
       _maybeScrollToPendingDate();
     } catch (e) {
       setState(() => message = 'Load failed: $e');
     } finally {
       setState(() => loading = false);
+    }
+  }
+
+  Future<void> _loadGoalBadges() async {
+    try {
+      final goals = await api.listGoals();
+      final Map<String, Map<String, dynamic>> map = {};
+      for (final g in goals) {
+        final gm = Map<String, dynamic>.from(g as Map);
+        final gid = gm['id'] as int?;
+        if (gid == null) continue;
+        final detail = await api.getGoal(gid, includeItems: true, includeChildren: false);
+        if (detail == null) continue;
+        final title = (detail['title'] as String?) ?? '';
+        // Todos
+        if (detail['items'] is Map && detail['items']['todos'] is List) {
+          for (final t in (detail['items']['todos'] as List)) {
+            final tm = Map<String, dynamic>.from(t as Map);
+            final id = tm['id'] as int?;
+            if (id != null) {
+              map['todo:$id'] = { 'goalId': gid, 'title': title };
+            }
+          }
+        }
+        // Events
+        if (detail['items'] is Map && detail['items']['events'] is List) {
+          for (final ev in (detail['items']['events'] as List)) {
+            final em = Map<String, dynamic>.from(ev as Map);
+            final id = em['id'] as int?;
+            if (id != null) {
+              map['event:$id'] = { 'goalId': gid, 'title': title };
+            }
+          }
+        }
+      }
+      if (mounted) setState(() { _itemGoalByKey = map; });
+    } catch (_) {
+      // Non-blocking
     }
   }
 
@@ -420,12 +804,12 @@ class _HomePageState extends State<HomePage> {
                       child: Container(
                         margin: const EdgeInsets.only(left: 0, right: 0),
                         decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.72),
+                          color: Colors.white.withOpacity(0.72),
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.35)),
+                          border: Border.all(color: theme.colorScheme.outline.withOpacity(0.35)),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.08),
+                              color: Colors.black.withOpacity(0.08),
                               blurRadius: 16,
                               offset: const Offset(0, 8),
                             ),
@@ -446,7 +830,7 @@ class _HomePageState extends State<HomePage> {
                                     onTap: () => _selectSearchResult(t as Todo),
                                     onHover: (h) => setState(() => _searchHoverIndex = h ? i : _searchHoverIndex),
                                     child: Container(
-                                      color: selected ? theme.colorScheme.primary.withValues(alpha: 0.08) : Colors.transparent,
+                                      color: selected ? theme.colorScheme.primary.withOpacity(0.08) : Colors.transparent,
                                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                       child: Row(
                                         children: [
@@ -468,7 +852,7 @@ class _HomePageState extends State<HomePage> {
                                     ),
                                   );
                                 },
-                                separatorBuilder: (_, __) => Divider(height: 1, color: theme.colorScheme.outline.withValues(alpha: 0.2)),
+                                separatorBuilder: (_, __) => Divider(height: 1, color: theme.colorScheme.outline.withOpacity(0.2)),
                                 itemCount: results.length,
                               ),
                       ),
@@ -584,374 +968,10 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _openFabSheet() async {
-    final titleCtrl = TextEditingController();
-    final notesCtrl = TextEditingController();
-    final dateCtrl = TextEditingController(text: anchor);
-    final timeCtrl = TextEditingController();
-    final intervalCtrl = TextEditingController(text: '1');
-    String prio = 'medium';
-    String recurType = 'none'; // none|daily|weekdays|weekly|every_n_days
-
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (c) {
-        return StatefulBuilder(builder: (c, setModalState) {
-          return Padding(
-            padding: EdgeInsets.only(bottom: MediaQuery.of(c).viewInsets.bottom),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Create task', style: TextStyle(fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 12),
-                  TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'Title')),
-                  TextField(controller: notesCtrl, decoration: const InputDecoration(labelText: 'Notes')),
-                  TextField(controller: dateCtrl, decoration: const InputDecoration(labelText: 'Scheduled (YYYY-MM-DD or empty)')),
-                  TextField(controller: timeCtrl, decoration: const InputDecoration(labelText: 'Time (HH:MM or empty)')),
-                  const SizedBox(height: 8),
-                  DropdownButtonFormField<String>(
-                    value: prio,
-                    decoration: const InputDecoration(labelText: 'Priority'),
-                    items: const [
-                      DropdownMenuItem(value: 'low', child: Text('low')),
-                      DropdownMenuItem(value: 'medium', child: Text('medium')),
-                      DropdownMenuItem(value: 'high', child: Text('high')),
-                    ],
-                    onChanged: (v) => setModalState(() => prio = v ?? 'medium'),
-                  ),
-                  const SizedBox(height: 8),
-                  DropdownButtonFormField<String>(
-                    value: recurType,
-                    decoration: const InputDecoration(labelText: 'Recurrence'),
-                    items: const [
-                      DropdownMenuItem(value: 'none', child: Text('None')),
-                      DropdownMenuItem(value: 'daily', child: Text('Daily')),
-                      DropdownMenuItem(value: 'weekdays', child: Text('Weekdays (Mon–Fri)')),
-                      DropdownMenuItem(value: 'weekly', child: Text('Weekly (by anchor)')),
-                      DropdownMenuItem(value: 'every_n_days', child: Text('Every N days')),
-                    ],
-                    onChanged: (v) => setModalState(() => recurType = v ?? 'none'),
-                  ),
-                  if (recurType == 'every_n_days')
-                    TextField(controller: intervalCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Every N days (>=1)')),
-                  if (recurType == 'weekly' && dateCtrl.text.trim().isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Text('Repeats weekly on the same weekday as anchor ${dateCtrl.text.trim()}', style: const TextStyle(fontSize: 12, color: Colors.black54)),
-                    ),
-                  const SizedBox(height: 12),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: FilledButton(
-                      onPressed: () async {
-                        final title = titleCtrl.text.trim();
-                        if (title.isEmpty) return;
-                        final sched = dateCtrl.text.trim();
-                        final time = timeCtrl.text.trim();
-                        final data = <String, dynamic>{
-                          'title': title,
-                          'notes': notesCtrl.text,
-                          'scheduledFor': sched.isEmpty ? null : sched,
-                          'priority': prio,
-                        };
-                        if (time.isNotEmpty) data['timeOfDay'] = time;
-                        if (recurType == 'none') {
-                          data['recurrence'] = {'type': 'none'};
-                        } else {
-                          final rec = <String, dynamic>{'type': recurType};
-                          if (recurType == 'every_n_days') {
-                            final n = int.tryParse(intervalCtrl.text.trim());
-                            if (n != null && n >= 1) rec['intervalDays'] = n;
-                          }
-                          data['recurrence'] = rec;
-                        }
-                        await api.createTodo(data);
-                        Navigator.pop(c);
-                        await _refreshAll();
-                      },
-                      child: const Text('Create'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        });
-      },
-    );
-  }
-
-  Future<void> _openEventSheet() async {
-    final titleCtrl = TextEditingController();
-    final notesCtrl = TextEditingController();
-    final dateCtrl = TextEditingController(text: anchor);
-    final startCtrl = TextEditingController();
-    final endCtrl = TextEditingController();
-    final locationCtrl = TextEditingController();
-    String prio = 'medium';
-    String recurType = 'none';
-    final intervalCtrl = TextEditingController(text: '1');
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (c) {
-        return StatefulBuilder(builder: (c, setModalState) {
-          return Padding(
-            padding: EdgeInsets.only(bottom: MediaQuery.of(c).viewInsets.bottom),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Create event', style: TextStyle(fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 12),
-                  TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'Title')),
-                  TextField(controller: notesCtrl, decoration: const InputDecoration(labelText: 'Notes')),
-                  TextField(controller: dateCtrl, decoration: const InputDecoration(labelText: 'Date (YYYY-MM-DD)')),
-                  Row(children: [
-                    Expanded(child: TextField(controller: startCtrl, decoration: const InputDecoration(labelText: 'Start (HH:MM)'))),
-                    const SizedBox(width: 8),
-                    Expanded(child: TextField(controller: endCtrl, decoration: const InputDecoration(labelText: 'End (HH:MM)'))),
-                  ]),
-                  TextField(controller: locationCtrl, decoration: const InputDecoration(labelText: 'Location')),
-                  const SizedBox(height: 8),
-                  DropdownButtonFormField<String>(
-                    value: prio,
-                    decoration: const InputDecoration(labelText: 'Priority'),
-                    items: const [
-                      DropdownMenuItem(value: 'low', child: Text('low')),
-                      DropdownMenuItem(value: 'medium', child: Text('medium')),
-                      DropdownMenuItem(value: 'high', child: Text('high')),
-                    ],
-                    onChanged: (v) => setModalState(() => prio = v ?? 'medium'),
-                  ),
-                  const SizedBox(height: 8),
-                  DropdownButtonFormField<String>(
-                    value: recurType,
-                    decoration: const InputDecoration(labelText: 'Recurrence'),
-                    items: const [
-                      DropdownMenuItem(value: 'none', child: Text('None')),
-                      DropdownMenuItem(value: 'daily', child: Text('Daily')),
-                      DropdownMenuItem(value: 'weekdays', child: Text('Weekdays (Mon–Fri)')),
-                      DropdownMenuItem(value: 'weekly', child: Text('Weekly (by anchor)')),
-                      DropdownMenuItem(value: 'every_n_days', child: Text('Every N days')),
-                    ],
-                    onChanged: (v) => setModalState(() => recurType = v ?? 'none'),
-                  ),
-                  if (recurType == 'every_n_days')
-                    TextField(controller: intervalCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Every N days (>=1)')),
-                  const SizedBox(height: 12),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: FilledButton(
-                      onPressed: () async {
-                        final title = titleCtrl.text.trim();
-                        if (title.isEmpty) return;
-                        final data = <String, dynamic>{
-                          'title': title,
-                          'notes': notesCtrl.text,
-                          'scheduledFor': dateCtrl.text.trim().isEmpty ? null : dateCtrl.text.trim(),
-                          'priority': prio,
-                          'startTime': startCtrl.text.trim().isEmpty ? null : startCtrl.text.trim(),
-                          'endTime': endCtrl.text.trim().isEmpty ? null : endCtrl.text.trim(),
-                          'location': locationCtrl.text.trim().isEmpty ? null : locationCtrl.text.trim(),
-                          'recurrence': recurType == 'none' ? {'type':'none'} : (recurType == 'every_n_days'
-                            ? {'type':'every_n_days','intervalDays': int.tryParse(intervalCtrl.text.trim())}
-                            : {'type': recurType}),
-                        };
-                        await api.createEvent(data);
-                        if (context.mounted) Navigator.pop(c);
-                        await _refreshAll();
-                      },
-                      child: const Text('Create'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        });
-      },
-    );
-  }
-
-  Future<void> _openHabitSheet() async {
-    final titleCtrl = TextEditingController();
-    final notesCtrl = TextEditingController();
-    final dateCtrl = TextEditingController(text: anchor);
-    final timeCtrl = TextEditingController();
-    String prio = 'medium';
-    String recurType = 'daily'; // habits must be repeating; default daily
-    final intervalCtrl = TextEditingController(text: '1');
-    // Link pickers
-    final selectedTodoIds = <int>{};
-    final selectedEventIds = <int>{};
-    final todoSearchCtrl = TextEditingController();
-    final eventSearchCtrl = TextEditingController();
-    List<Map<String, dynamic>> allTodos = [];
-    List<Map<String, dynamic>> allEvents = [];
-
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (c) {
-        return StatefulBuilder(builder: (c, setModalState) {
-          Future<void> _loadLinkables() async {
-            try {
-              final t = await api.fetchScheduledAllTime();
-              final e = await api.listEvents();
-              setModalState(() {
-                allTodos = t.map((x) => Map<String, dynamic>.from(x as Map)).toList();
-                allEvents = e.map((x) => Map<String, dynamic>.from(x as Map)).toList();
-              });
-            } catch (_) {}
-          }
-          if (allTodos.isEmpty && allEvents.isEmpty) {
-            // lazy load once
-            _loadLinkables();
-          }
-
-          return Padding(
-            padding: EdgeInsets.only(bottom: MediaQuery.of(c).viewInsets.bottom),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Create habit', style: TextStyle(fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 12),
-                    TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'Title')),
-                    TextField(controller: notesCtrl, decoration: const InputDecoration(labelText: 'Notes')),
-                    TextField(controller: dateCtrl, decoration: const InputDecoration(labelText: 'Anchor date (YYYY-MM-DD)')),
-                    TextField(controller: timeCtrl, decoration: const InputDecoration(labelText: 'Time (HH:MM or empty)')),
-                    const SizedBox(height: 8),
-                    DropdownButtonFormField<String>(
-                      value: prio,
-                      decoration: const InputDecoration(labelText: 'Priority'),
-                      items: const [
-                        DropdownMenuItem(value: 'low', child: Text('low')),
-                        DropdownMenuItem(value: 'medium', child: Text('medium')),
-                        DropdownMenuItem(value: 'high', child: Text('high')),
-                      ],
-                      onChanged: (v) => setModalState(() => prio = v ?? 'medium'),
-                    ),
-                    const SizedBox(height: 8),
-                    DropdownButtonFormField<String>(
-                      value: recurType,
-                      decoration: const InputDecoration(labelText: 'Recurrence (habits must repeat)'),
-                      items: const [
-                        DropdownMenuItem(value: 'daily', child: Text('Daily')),
-                        DropdownMenuItem(value: 'weekdays', child: Text('Weekdays (Mon–Fri)')),
-                        DropdownMenuItem(value: 'weekly', child: Text('Weekly (by anchor)')),
-                        DropdownMenuItem(value: 'every_n_days', child: Text('Every N days')),
-                      ],
-                      onChanged: (v) => setModalState(() => recurType = v ?? 'daily'),
-                    ),
-                    if (recurType == 'every_n_days')
-                      TextField(controller: intervalCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Every N days (>=1)')),
-                    const SizedBox(height: 12),
-                    // Link pickers
-                    const Text('Link existing todos (optional)', style: TextStyle(fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 4),
-                    TextField(controller: todoSearchCtrl, decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Filter todos...'), onChanged: (_) => setModalState(() {})),
-                    const SizedBox(height: 6),
-                    Container(
-                      constraints: const BoxConstraints(maxHeight: 120),
-                      decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(6)),
-                      child: ListView(
-                        children: [
-                          for (final t in allTodos.where((x) {
-                            final q = todoSearchCtrl.text.trim().toLowerCase();
-                            if (q.isEmpty) return true;
-                            final title = (x['title'] ?? '').toString();
-                            return title.toLowerCase().contains(q);
-                          }))
-                            CheckboxListTile(
-                              dense: true,
-                              value: selectedTodoIds.contains(t['id'] as int),
-                              onChanged: (v) => setModalState(() {
-                                final id = t['id'] as int; if (v == true) selectedTodoIds.add(id); else selectedTodoIds.remove(id);
-                              }),
-                              title: Text('#${t['id']}  ${t['title'] ?? ''}'),
-                            ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text('Link existing events (optional)', style: TextStyle(fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 4),
-                    TextField(controller: eventSearchCtrl, decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Filter events...'), onChanged: (_) => setModalState(() {})),
-                    const SizedBox(height: 6),
-                    Container(
-                      constraints: const BoxConstraints(maxHeight: 120),
-                      decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(6)),
-                      child: ListView(
-                        children: [
-                          for (final e in allEvents.where((x) {
-                            final q = eventSearchCtrl.text.trim().toLowerCase();
-                            if (q.isEmpty) return true;
-                            final title = (x['title'] ?? '').toString();
-                            return title.toLowerCase().contains(q);
-                          }))
-                            CheckboxListTile(
-                              dense: true,
-                              value: selectedEventIds.contains(e['id'] as int),
-                              onChanged: (v) => setModalState(() {
-                                final id = e['id'] as int; if (v == true) selectedEventIds.add(id); else selectedEventIds.remove(id);
-                              }),
-                              title: Text('#${e['id']}  ${e['title'] ?? ''}'),
-                            ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: FilledButton(
-                        onPressed: () async {
-                          final title = titleCtrl.text.trim();
-                          if (title.isEmpty) return;
-                          final sched = dateCtrl.text.trim();
-                          final time = timeCtrl.text.trim();
-                          final rec = <String, dynamic>{'type': recurType};
-                          if (recurType == 'every_n_days') {
-                            final n = int.tryParse(intervalCtrl.text.trim());
-                            if (n != null && n >= 1) rec['intervalDays'] = n;
-                          }
-                          final data = <String, dynamic>{
-                            'title': title,
-                            'notes': notesCtrl.text,
-                            'scheduledFor': sched.isEmpty ? null : sched,
-                            'priority': prio,
-                            'timeOfDay': time.isEmpty ? null : time,
-                            'recurrence': rec,
-                          };
-                          final created = await api.createHabit(data);
-                          final hid = created['id'] as int;
-                          if (selectedTodoIds.isNotEmpty || selectedEventIds.isNotEmpty) {
-                            await api.linkHabitItems(hid, todos: selectedTodoIds.toList(), events: selectedEventIds.toList());
-                          }
-                          if (context.mounted) Navigator.pop(c);
-                          await _refreshAll();
-                        },
-                        child: const Text('Create'),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        });
-      },
-    );
-  }
+  // Deprecated FAB/event/habit sheets removed; inline quick-add is the single add surface
+  Future<void> _openFabSheet() async {}
+  Future<void> _openEventSheet() async {}
+  Future<void> _openHabitSheet() async {}
 
   Future<void> _editHabit(Todo t) async {
     final titleCtrl = TextEditingController(text: t.title);
@@ -1255,7 +1275,7 @@ class _HomePageState extends State<HomePage> {
                 Row(children: [
                   Expanded(child: TextField(controller: startCtrl, decoration: const InputDecoration(labelText: 'Start (HH:MM)'))),
                   const SizedBox(width: 8),
-                  Expanded(child: TextField(controller: endCtrl, decoration: const InputDecoration(labelText: 'End (HH:MM)'))),
+                  Expanded(child: TextField(controller: endCtrl, decoration: const InputDecoration(labelText: 'End (HH:MM, optional)'))),
                 ]),
                 TextField(controller: locationCtrl, decoration: const InputDecoration(labelText: 'Location')),
                 const SizedBox(height: 8),
@@ -1564,8 +1584,6 @@ class _HomePageState extends State<HomePage> {
         return scheduled;
       case SmartList.backlog:
         return backlog;
-      case SmartList.flagged:
-        return [...scheduled, ...backlog].where((t) => t.priority == 'high').toList();
       case SmartList.all:
         return [...scheduledAllTime, ...backlog];
     }
@@ -1579,8 +1597,6 @@ class _HomePageState extends State<HomePage> {
         return 'scheduled';
       case SmartList.all:
         return 'all';
-      case SmartList.flagged:
-        return 'flagged';
       case SmartList.backlog:
         return 'backlog';
     }
@@ -1594,8 +1610,6 @@ class _HomePageState extends State<HomePage> {
         return SmartList.scheduled;
       case 'all':
         return SmartList.all;
-      case 'flagged':
-        return SmartList.flagged;
       case 'backlog':
       default:
         return SmartList.backlog;
@@ -1610,103 +1624,163 @@ class _HomePageState extends State<HomePage> {
         ? const Center(child: CircularProgressIndicator())
         : Column(
             children: [
-              // Unified dark-blue header spanning entire app width
+              // Unified header spanning entire app width
               Container(
-                color: const Color(0xFF0B3D91),
+                color: Theme.of(context).colorScheme.surface,
                 padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 0),
                 child: SizedBox(
-                  height: 56,
+                  height: 112,
                   child: Row(
                     children: [
                       // Reserve space visually aligned with left sidebar width
                       const SizedBox(width: 220),
                       // Full-height divider aligning with body split (left of main tasks)
                       VerticalDivider(width: 1, thickness: 1, color: Theme.of(context).colorScheme.outline),
-                      // Search box (responsive, centered within available region)
+                      // Left: Tab segmented control + center: Search box (responsive)
                       Expanded(
-                        child: Center(
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(minWidth: 320, maxWidth: 560),
-                            child: CompositedTransformTarget(
-                              link: _searchLink,
-                              child: Focus(
-                                focusNode: _searchFocus,
-                                onFocusChange: (f) {
-                                  if (!f) _removeSearchOverlay();
-                                  else _showSearchOverlayIfNeeded();
-                                },
-                                onKeyEvent: (node, event) {
-                                  if (!_searchFocus.hasFocus) return KeyEventResult.ignored;
-                                  if (event is! KeyDownEvent) return KeyEventResult.ignored;
-                                  final len = math.min(searchResults.length, 7);
-                                  if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
-                                    setState(() { _searchHoverIndex = len == 0 ? -1 : (_searchHoverIndex + 1) % len; });
-                                    _showSearchOverlayIfNeeded();
-                                    return KeyEventResult.handled;
-                                  } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
-                                    setState(() { _searchHoverIndex = len == 0 ? -1 : (_searchHoverIndex - 1 + len) % len; });
-                                    _showSearchOverlayIfNeeded();
-                                    return KeyEventResult.handled;
-                                  } else if (event.logicalKey == LogicalKeyboardKey.enter) {
-                                    final list = searchResults.take(7).toList();
-                                    if (list.isEmpty) {
-                                      return KeyEventResult.handled;
-                                    }
-                                    final idx = _searchHoverIndex >= 0 && _searchHoverIndex < list.length ? _searchHoverIndex : 0;
-                                    _selectSearchResult(list[idx] as Todo);
-                                    return KeyEventResult.handled;
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            // Tabs row
+                            Padding(
+                              padding: const EdgeInsets.only(top: 6, bottom: 6),
+                              child: th.TabsHeader(
+                                selected: () {
+                                  if (mainView == MainView.goals) return th.AppTab.goals;
+                                  if (mainView == MainView.habits) return th.AppTab.habits;
+                                  if (_kindFilter.length == 1 && _kindFilter.contains('event')) return th.AppTab.events;
+                                  return th.AppTab.todos;
+                                }(),
+                                onChanged: (tab) async {
+                                  if (tab == th.AppTab.goals) {
+                                    setState(() { mainView = MainView.goals; });
+                                    try { storage.setItem('mainTab', 'goals'); } catch (_) {}
+                                    return;
                                   }
-                                  return KeyEventResult.ignored;
+                                  if (tab == th.AppTab.habits) {
+                                    setState(() { mainView = MainView.habits; _kindFilter = <String>{'habit'}; });
+                                    try { storage.setItem('mainTab', 'habits'); } catch (_) {}
+                                    await _refreshAll();
+                                    return;
+                                  }
+                                  if (tab == th.AppTab.events) {
+                                    setState(() { mainView = MainView.tasks; _kindFilter = <String>{'event'}; });
+                                    try { storage.setItem('mainTab', 'events'); } catch (_) {}
+                                    await _refreshAll();
+                                    return;
+                                  }
+                                  // default: todos
+                                  setState(() { mainView = MainView.tasks; _kindFilter = <String>{'todo'}; });
+                                  try { storage.setItem('mainTab', 'todos'); } catch (_) {}
+                                  await _refreshAll();
                                 },
-                                child: TextField(
-                                  controller: searchCtrl,
-                                  decoration: InputDecoration(
-                                    prefixIcon: const Icon(Icons.search),
-                                    hintText: 'Search',
-                                    filled: true,
-                                    fillColor: Colors.white.withValues(alpha: 0.9),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(24),
-                                      borderSide: BorderSide(color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.4)),
-                                    ),
-                                    focusedBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(24),
-                                      borderSide: BorderSide(color: Theme.of(context).colorScheme.primary, width: 2),
-                                    ),
-                                    suffixIcon: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        if (_searching) SizedBox(width: 16, height: 16, child: Padding(padding: EdgeInsets.all(8), child: CircularProgressIndicator(strokeWidth: 2))),
-                                        if (searchCtrl.text.isNotEmpty)
-                                          IconButton(
-                                            icon: const Icon(Icons.clear),
-                                            onPressed: () {
-                                              searchCtrl.clear();
-                                              setState(() { searchResults = []; _searchHoverIndex = -1; });
-                                              _removeSearchOverlay();
-                                            },
-                                          ),
-                                      ],
+                              ),
+                            ),
+                            // Search line
+                            Center(
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(minWidth: 320, maxWidth: 560),
+                                child: CompositedTransformTarget(
+                                  link: _searchLink,
+                                  child: Focus(
+                                    focusNode: _searchFocus,
+                                    onFocusChange: (f) {
+                                      if (!f) _removeSearchOverlay();
+                                      else _showSearchOverlayIfNeeded();
+                                    },
+                                    onKeyEvent: (node, event) {
+                                      if (!_searchFocus.hasFocus) return KeyEventResult.ignored;
+                                      if (event is! KeyDownEvent) return KeyEventResult.ignored;
+                                      final len = math.min(searchResults.length, 7);
+                                      if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+                                        setState(() { _searchHoverIndex = len == 0 ? -1 : (_searchHoverIndex + 1) % len; });
+                                        _showSearchOverlayIfNeeded();
+                                        return KeyEventResult.handled;
+                                      } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+                                        setState(() { _searchHoverIndex = len == 0 ? -1 : (_searchHoverIndex - 1 + len) % len; });
+                                        _showSearchOverlayIfNeeded();
+                                        return KeyEventResult.handled;
+                                      } else if (event.logicalKey == LogicalKeyboardKey.enter) {
+                                        final list = searchResults.take(7).toList();
+                                        if (list.isEmpty) {
+                                          return KeyEventResult.handled;
+                                        }
+                                        final idx = _searchHoverIndex >= 0 && _searchHoverIndex < list.length ? _searchHoverIndex : 0;
+                                        _selectSearchResult(list[idx] as Todo);
+                                        return KeyEventResult.handled;
+                                      }
+                                      return KeyEventResult.ignored;
+                                    },
+                                    child: TextField(
+                                      controller: searchCtrl,
+                                      decoration: InputDecoration(
+                                        prefixIcon: const Icon(Icons.search),
+                                        hintText: 'Search',
+                                        filled: true,
+                                        fillColor: Theme.of(context).colorScheme.surfaceContainerHigh,
+                                        border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(24),
+                                          borderSide: BorderSide(color: Theme.of(context).colorScheme.outline.withOpacity(0.4)),
+                                        ),
+                                        focusedBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(24),
+                                          borderSide: BorderSide(color: Theme.of(context).colorScheme.primary, width: 2),
+                                        ),
+                                        suffixIcon: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            if (_searching) SizedBox(width: 16, height: 16, child: Padding(padding: EdgeInsets.all(8), child: CircularProgressIndicator(strokeWidth: 2))),
+                                            if (searchCtrl.text.isNotEmpty)
+                                              IconButton(
+                                                icon: const Icon(Icons.clear),
+                                                onPressed: () {
+                                                  searchCtrl.clear();
+                                                  setState(() { searchResults = []; _searchHoverIndex = -1; });
+                                                  _removeSearchOverlay();
+                                                },
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                      onChanged: (v) { _onSearchChanged(v); _showSearchOverlayIfNeeded(); },
                                     ),
                                   ),
-                                  onChanged: (v) { _onSearchChanged(v); _showSearchOverlayIfNeeded(); },
                                 ),
                               ),
                             ),
-                          ),
+                          ],
                         ),
                       ),
                       // Full-height divider aligning with body split (right of main tasks / left of assistant)
                       VerticalDivider(width: 1, thickness: 1, color: Theme.of(context).colorScheme.outline),
-                      // Assistant header zone (right-aligned) with collapse toggle
-                      SizedBox(
-                        width: 360,
-                        child: Align(
-                          alignment: Alignment.centerRight,
-                          child: TextButton.icon(
-                            onPressed: () => setState(() => assistantCollapsed = !assistantCollapsed),
-                            icon: const Icon(Icons.smart_toy_outlined, color: Colors.white, size: 18),
-                            label: Text(assistantCollapsed ? 'Show Assistant' : 'Hide Assistant', style: const TextStyle(color: Colors.white)),
+                      // Header right: navigation + view controls + assistant toggle
+                      Flexible(
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            IconButton(icon: const Icon(Icons.chevron_left), tooltip: 'Previous', onPressed: _goPrev),
+                            TextButton(onPressed: _goToToday, child: const Text('Today')),
+                            IconButton(icon: const Icon(Icons.chevron_right), tooltip: 'Next', onPressed: _goNext),
+                            const SizedBox(width: 12),
+                            if (mainView != MainView.goals)
+                              SegmentedButton<View>(
+                                segments: const [
+                                  ButtonSegment(value: View.day, label: Text('Day')),
+                                  ButtonSegment(value: View.week, label: Text('Week')),
+                                  ButtonSegment(value: View.month, label: Text('Month')),
+                                ],
+                                selected: {view},
+                                onSelectionChanged: (s) async { setState(() { view = s.first; }); await _refreshAll(); },
+                              ),
+                            const SizedBox(width: 12),
+                            TextButton.icon(
+                              onPressed: () => setState(() => assistantCollapsed = !assistantCollapsed),
+                              icon: const Icon(Icons.smart_toy_outlined, size: 18),
+                              label: showAssistantText ? Text(assistantCollapsed ? 'Show Assistant' : 'Hide Assistant') : const SizedBox.shrink(),
+                            ),
+                          ],
                           ),
                         ),
                       ),
@@ -1751,6 +1825,7 @@ class _HomePageState extends State<HomePage> {
                             setState(() {
                               selected = sl; mainView = MainView.tasks;
                             });
+                            await _refreshAll();
                           }
                         },
                         showCompleted: showCompleted,
@@ -1783,16 +1858,7 @@ class _HomePageState extends State<HomePage> {
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Expanded(child: Stack(children: [
-                                        (mainView == MainView.tasks) ? _buildMainList() : (mainView == MainView.habits ? _buildHabitsList() : _buildGoalsView()),
-                                        Positioned(
-                                          right: 16,
-                                          bottom: 16,
-                                          child: fab.FabActions(
-                                            onCreateTodo: _openFabSheet,
-                                            onCreateEvent: _openEventSheet,
-                                            onCreateHabit: _openHabitSheet,
-                                          ),
-                                        ),
+                                        (mainView == MainView.tasks) ? _buildMainList() : (mainView == MainView.habits ? _buildHabitsList() : _buildGoalsView())
                                       ])),
                                     ],
                                   ),
@@ -1876,10 +1942,12 @@ class _HomePageState extends State<HomePage> {
               children: [
                 Expanded(
                   child: Wrap(spacing: 8, runSpacing: 6, children: [
-                    _filterChip('All', _kindFilter.length == 3, () { setState(() { _kindFilter = <String>{'todo','event','habit'}; }); _refreshAll(); }),
-                    _filterChip('Todos', _kindFilter.contains('todo') && _kindFilter.length == 1, () { setState(() { _kindFilter = <String>{'todo'}; }); _refreshAll(); }),
-                    _filterChip('Events', _kindFilter.contains('event') && _kindFilter.length == 1, () { setState(() { _kindFilter = <String>{'event'}; }); _refreshAll(); }),
-                    _filterChip('Habits', _kindFilter.contains('habit') && _kindFilter.length == 1, () { setState(() { _kindFilter = <String>{'habit'}; }); _refreshAll(); }),
+                    // Inline quick-add per tab
+                    _quickAddInline(),
+                    const SizedBox(width: 12),
+                    _filterChip('Low', _priorityFilter == 'low', () { setState(() { _priorityFilter = (_priorityFilter == 'low') ? null : 'low'; }); _refreshAll(); }),
+                    _filterChip('Medium', _priorityFilter == 'medium', () { setState(() { _priorityFilter = (_priorityFilter == 'medium') ? null : 'medium'; }); _refreshAll(); }),
+                    _filterChip('High', _priorityFilter == 'high', () { setState(() { _priorityFilter = (_priorityFilter == 'high') ? null : 'high'; }); _refreshAll(); }),
                   ]),
                 ),
                 IconButton(icon: const Icon(Icons.chevron_left), tooltip: 'Previous', onPressed: _goPrev),
@@ -1902,10 +1970,12 @@ class _HomePageState extends State<HomePage> {
               children: [
                 Expanded(
                   child: Wrap(spacing: 8, runSpacing: 6, children: [
-                    _filterChip('All', _kindFilter.length == 3, () { setState(() { _kindFilter = <String>{'todo','event','habit'}; }); _refreshAll(); }),
-                    _filterChip('Todos', _kindFilter.contains('todo') && _kindFilter.length == 1, () { setState(() { _kindFilter = <String>{'todo'}; }); _refreshAll(); }),
-                    _filterChip('Events', _kindFilter.contains('event') && _kindFilter.length == 1, () { setState(() { _kindFilter = <String>{'event'}; }); _refreshAll(); }),
-                    _filterChip('Habits', _kindFilter.contains('habit') && _kindFilter.length == 1, () { setState(() { _kindFilter = <String>{'habit'}; }); _refreshAll(); }),
+                    _quickAddInline(),
+                    // Domain filter chips removed; rely on header tabs
+                    const SizedBox(width: 12),
+                    _filterChip('Low', _priorityFilter == 'low', () { setState(() { _priorityFilter = (_priorityFilter == 'low') ? null : 'low'; }); _refreshAll(); }),
+                    _filterChip('Medium', _priorityFilter == 'medium', () { setState(() { _priorityFilter = (_priorityFilter == 'medium') ? null : 'medium'; }); _refreshAll(); }),
+                    _filterChip('High', _priorityFilter == 'high', () { setState(() { _priorityFilter = (_priorityFilter == 'high') ? null : 'high'; }); _refreshAll(); }),
                   ]),
                 ),
                 IconButton(icon: const Icon(Icons.chevron_left), tooltip: 'Previous', onPressed: _goPrev),
@@ -1923,7 +1993,7 @@ class _HomePageState extends State<HomePage> {
               margin: const EdgeInsets.only(top: 8, bottom: 2),
               padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
               decoration: BoxDecoration(
-                color: isTodayHeader ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.06) : null,
+                color: isTodayHeader ? Theme.of(context).colorScheme.primary.withOpacity(0.06) : null,
                 border: Border(
                   left: BorderSide(color: isTodayHeader ? Theme.of(context).colorScheme.primary : Colors.transparent, width: 3),
                 ),
@@ -1963,7 +2033,7 @@ class _HomePageState extends State<HomePage> {
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: isToday
                         ? BoxDecoration(
-                            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
+                            color: Theme.of(context).colorScheme.primary.withOpacity(0.08),
                             borderRadius: BorderRadius.circular(999),
                             border: Border.all(color: Theme.of(context).colorScheme.primary),
                           )
@@ -2188,8 +2258,39 @@ class _HomePageState extends State<HomePage> {
 
   // --- Goals minimal UI ---
   Widget _buildGoalsView() {
-    return FutureBuilder<List<dynamic>>(
-      future: api.listGoals(),
+    // Always show quick-add for Goals at top
+    final goalsQuickAddHeader = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      child: Row(children: [
+        const Expanded(child: Text('Goals', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16))),
+        SizedBox(width: 240, child: TextField(key: const Key('qa_goal_title'), controller: _qaGoalTitle, decoration: const InputDecoration(labelText: 'Title *'), textInputAction: TextInputAction.done, onSubmitted: (_) => _submitQuickAddGoal(), onEditingComplete: _submitQuickAddGoal)),
+        const SizedBox(width: 8),
+        DropdownButton<String>(
+          value: _qaGoalStatus,
+          items: const [
+            DropdownMenuItem(value: 'active', child: Text('Active')),
+            DropdownMenuItem(value: 'completed', child: Text('Completed')),
+            DropdownMenuItem(value: 'archived', child: Text('Archived')),
+          ],
+          onChanged: (v) => setState(() => _qaGoalStatus = v ?? 'active'),
+        ),
+        const SizedBox(width: 8),
+        SizedBox(width: 180, child: TextField(key: const Key('qa_goal_notes'), controller: _qaGoalNotes, decoration: const InputDecoration(labelText: 'Notes'))),
+        const SizedBox(width: 8),
+        SizedBox(width: 80, child: TextField(key: const Key('qa_goal_current'), controller: _qaGoalCurrent, decoration: const InputDecoration(labelText: 'Current'))),
+        const SizedBox(width: 8),
+        SizedBox(width: 80, child: TextField(key: const Key('qa_goal_target'), controller: _qaGoalTarget, decoration: const InputDecoration(labelText: 'Target'))),
+        const SizedBox(width: 8),
+        SizedBox(width: 80, child: TextField(key: const Key('qa_goal_unit'), controller: _qaGoalUnit, decoration: const InputDecoration(labelText: 'Unit'))),
+        const SizedBox(width: 8),
+        FilledButton(onPressed: _addingQuick ? null : _submitQuickAddGoal, child: const Text('Add')),
+      ]),
+    );
+
+    return Column(children: [
+      goalsQuickAddHeader,
+      Expanded(child: FutureBuilder<List<dynamic>>(
+      future: api.listGoals(status: _goalsStatusFilter),
       builder: (context, snap) {
         if (snap.connectionState != ConnectionState.done) {
           return const Center(child: CircularProgressIndicator());
@@ -2199,42 +2300,81 @@ class _HomePageState extends State<HomePage> {
         }
         final raw = snap.data ?? const <dynamic>[];
         final goals = raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
-        goals.sort((a, b) => (a['status'] as String).compareTo(b['status'] as String));
-        final grouped = <String, List<Map<String, dynamic>>>{};
-        for (final g in goals) {
-          final s = (g['status'] as String?) ?? 'active';
-          grouped.putIfAbsent(s, () => <Map<String, dynamic>>[]).add(g);
-        }
+        goals.sort((a, b) => (a['id'] as int).compareTo(b['id'] as int));
         return ListView(
           padding: const EdgeInsets.all(12),
           children: [
-            Row(
-              children: [
-                const Expanded(child: Text('Goals', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16))),
-                FilledButton(onPressed: _openCreateGoalDialog, child: const Text('New Goal')),
-              ],
-            ),
             const SizedBox(height: 8),
-            for (final entry in grouped.entries) ...[
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: Text(entry.key, style: const TextStyle(fontWeight: FontWeight.w600)),
-              ),
-              ...entry.value.map((g) => _goalRow(g)),
-            ]
+            Builder(builder: (context) {
+              int all = goals.length;
+              int active = goals.where((g) => (g['status'] as String?) == 'active').length;
+              int completed = goals.where((g) => (g['status'] as String?) == 'completed').length;
+              int archived = goals.where((g) => (g['status'] as String?) == 'archived').length;
+              return Wrap(spacing: 8, runSpacing: 6, children: [
+                _filterChip('All $all', _goalsStatusFilter == null, () { setState(() { _goalsStatusFilter = null; }); }),
+                _filterChip('Active $active', _goalsStatusFilter == 'active', () { setState(() { _goalsStatusFilter = (_goalsStatusFilter == 'active') ? null : 'active'; }); }),
+                _filterChip('Completed $completed', _goalsStatusFilter == 'completed', () { setState(() { _goalsStatusFilter = (_goalsStatusFilter == 'completed') ? null : 'completed'; }); }),
+                _filterChip('Archived $archived', _goalsStatusFilter == 'archived', () { setState(() { _goalsStatusFilter = (_goalsStatusFilter == 'archived') ? null : 'archived'; }); }),
+              ]);
+            }),
+            const SizedBox(height: 8),
+            ...goals.map((g) => _goalRow(g)).toList(),
           ],
         );
       },
-    );
+    ))
+    ]);
   }
 
   Widget _goalRow(Map<String, dynamic> g) {
+    final status = (g['status'] as String?) ?? 'active';
+    final cpv = (g['currentProgressValue'] as num?)?.toDouble();
+    final tpv = (g['targetProgressValue'] as num?)?.toDouble();
+    final unit = (g['progressUnit'] as String?) ?? '';
+    String progressText = '';
+    if (tpv != null) {
+      final cur = cpv ?? 0;
+      progressText = unit.isNotEmpty ? '${cur.toStringAsFixed(cur.truncateToDouble()==cur?0:1)} / ${tpv.toStringAsFixed(tpv.truncateToDouble()==tpv?0:1)} $unit' : '${cur.toStringAsFixed(cur.truncateToDouble()==cur?0:1)} / ${tpv.toStringAsFixed(tpv.truncateToDouble()==tpv?0:1)}';
+    }
     return Card(
       child: ListTile(
-        title: Text(g['title'] as String? ?? ''),
-        subtitle: (g['notes'] as String?)?.isNotEmpty == true ? Text(g['notes'] as String) : null,
-        trailing: IconButton(icon: const Icon(Icons.chevron_right), onPressed: () => _openGoalDetail(g['id'] as int)),
+        title: Row(children: [
+          _statusPill(status),
+          const SizedBox(width: 6),
+          Expanded(child: Text(g['title'] as String? ?? '')),
+        ]),
+        subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          if ((g['notes'] as String?)?.isNotEmpty == true) Text(g['notes'] as String),
+          if (progressText.isNotEmpty) Text(progressText, style: TextStyle(color: Colors.grey.shade700, fontSize: 12)),
+        ]),
+        trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+          PopupMenuButton<String>(
+            tooltip: 'Change status',
+            onSelected: (v) async { try { await api.updateGoal(g['id'] as int, { 'status': v }); setState(() {}); } catch (_) {} },
+            itemBuilder: (c) => const [
+              PopupMenuItem(value: 'active', child: Text('Active')),
+              PopupMenuItem(value: 'completed', child: Text('Completed')),
+              PopupMenuItem(value: 'archived', child: Text('Archived')),
+            ],
+            child: const Icon(Icons.more_vert),
+          ),
+          IconButton(icon: const Icon(Icons.chevron_right), onPressed: () => _openGoalDetail(g['id'] as int)),
+        ]),
       ),
+    );
+  }
+
+  Widget _statusPill(String s) {
+    Color bg; Color fg;
+    switch (s) {
+      case 'completed': bg = const Color(0xFFD3F9D8); fg = const Color(0xFF205B2A); break;
+      case 'archived': bg = const Color(0xFFE9ECEF); fg = const Color(0xFF495057); break;
+      default: bg = const Color(0xFFE7F5FF); fg = const Color(0xFF17496E); break;
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(999)),
+      child: Text(s, style: TextStyle(color: fg, fontSize: 11)),
     );
   }
 
@@ -2390,55 +2530,16 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _openCreateGoalDialog() async {
-    final titleCtrl = TextEditingController();
-    final notesCtrl = TextEditingController();
-    String status = 'active';
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (c) => StatefulBuilder(builder: (c, setDlgState) {
-        return AlertDialog(
-          title: const Text('Create goal'),
-          content: SizedBox(
-            width: 420,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'Title')),
-                TextField(controller: notesCtrl, decoration: const InputDecoration(labelText: 'Notes')),
-                DropdownButtonFormField<String>(
-                  value: status,
-                  decoration: const InputDecoration(labelText: 'Status'),
-                  items: const [
-                    DropdownMenuItem(value: 'active', child: Text('Active')),
-                    DropdownMenuItem(value: 'completed', child: Text('Completed')),
-                    DropdownMenuItem(value: 'archived', child: Text('Archived')),
-                  ],
-                  onChanged: (v) => setDlgState(() => status = v ?? 'active'),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Create')),
-          ],
-        );
-      }),
-    );
-    if (ok != true) return;
-    try {
-      await api.createGoal({ 'title': titleCtrl.text.trim(), 'notes': notesCtrl.text, 'status': status });
-      setState(() {});
-    } catch (e) {
-      setState(() => message = 'Create goal failed: $e');
-    }
-  }
+  // Deprecated goal create dialog removed; use inline quick-add instead
+  Future<void> _openCreateGoalDialog() async {}
 
   Future<void> _openEditGoalDialog(Map<String, dynamic> goal) async {
     final titleCtrl = TextEditingController(text: goal['title'] as String? ?? '');
     final notesCtrl = TextEditingController(text: goal['notes'] as String? ?? '');
     String status = (goal['status'] as String?) ?? 'active';
+    final currentCtrl = TextEditingController(text: ((goal['currentProgressValue'] as num?)?.toString() ?? ''));
+    final targetCtrl = TextEditingController(text: ((goal['targetProgressValue'] as num?)?.toString() ?? ''));
+    final unitCtrl = TextEditingController(text: (goal['progressUnit'] as String?) ?? '');
     final id = goal['id'] as int;
     final ok = await showDialog<bool>(
       context: context,
@@ -2452,6 +2553,12 @@ class _HomePageState extends State<HomePage> {
               children: [
                 TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'Title')),
                 TextField(controller: notesCtrl, decoration: const InputDecoration(labelText: 'Notes')),
+                Row(children: [
+                  Expanded(child: TextField(controller: currentCtrl, decoration: const InputDecoration(labelText: 'Current'), keyboardType: TextInputType.number)),
+                  const SizedBox(width: 8),
+                  Expanded(child: TextField(controller: targetCtrl, decoration: const InputDecoration(labelText: 'Target'), keyboardType: TextInputType.number)),
+                ]),
+                TextField(controller: unitCtrl, decoration: const InputDecoration(labelText: 'Unit (optional)')),
                 DropdownButtonFormField<String>(
                   value: status,
                   decoration: const InputDecoration(labelText: 'Status'),
@@ -2474,7 +2581,10 @@ class _HomePageState extends State<HomePage> {
     );
     if (ok != true) return;
     try {
-      await api.updateGoal(id, { 'title': titleCtrl.text.trim(), 'notes': notesCtrl.text, 'status': status });
+      final current = double.tryParse(currentCtrl.text.trim());
+      final target = double.tryParse(targetCtrl.text.trim());
+      final unit = unitCtrl.text.trim();
+      await api.updateGoal(id, { 'title': titleCtrl.text.trim(), 'notes': notesCtrl.text, 'status': status, 'currentProgressValue': current, 'targetProgressValue': target, 'progressUnit': unit });
       setState(() {});
     } catch (e) {
       setState(() => message = 'Update goal failed: $e');
@@ -2487,7 +2597,7 @@ class _HomePageState extends State<HomePage> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: selected ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.1) : Colors.grey.shade100,
+          color: selected ? Theme.of(context).colorScheme.primary.withOpacity(0.1) : Colors.grey.shade100,
           borderRadius: BorderRadius.circular(999),
           border: Border.all(color: selected ? Theme.of(context).colorScheme.primary : Colors.grey.shade300),
         ),
@@ -2531,48 +2641,39 @@ class _HomePageState extends State<HomePage> {
     if (t.kind == 'habit') {
       final stats = (t.masterId != null) ? habitStatsById[t.masterId!] : habitStatsById[t.id];
       final int current = (stats != null && stats['currentStreak'] is int) ? stats['currentStreak'] as int : 0;
-      final List<dynamic> heat = (stats != null && stats['weekHeatmap'] is List<dynamic>) ? (stats['weekHeatmap'] as List<dynamic>) : const [];
-      final heatSquares = heat.take(7).map((d) {
-        final bool done = () {
-          try { return (d is Map<String, dynamic>) ? (d['completed'] as bool? ?? false) : (Map<String, dynamic>.from(d as Map)['completed'] as bool? ?? false); }
-          catch (_) { return false; }
-        }();
-        return Container(
-          width: 6,
-          height: 6,
-          margin: const EdgeInsets.symmetric(horizontal: 1),
-          decoration: BoxDecoration(
-            color: done ? const Color(0xFF58A55C) : const Color(0xFFDADFE3),
-            borderRadius: BorderRadius.circular(2),
-          ),
-        );
-      }).toList();
-      extraBadge = Row(mainAxisSize: MainAxisSize.min, children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-          decoration: BoxDecoration(
-            color: const Color(0xFFEFF7E6),
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            const Text('🔥', style: TextStyle(fontSize: 12)),
-            const SizedBox(width: 4),
-            Text('$current', style: const TextStyle(fontSize: 11)),
-          ]),
+      final int longest = (stats != null && stats['longestStreak'] is int) ? stats['longestStreak'] as int : 0;
+      extraBadge = Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: Theme.of(context).colorScheme.outline),
         ),
-        if (heatSquares.isNotEmpty) ...[
-          const SizedBox(width: 6),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        child: Text('🔥 $current / $longest', style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+      );
+    } else if (t.kind == 'todo' || t.kind == 'event' || t.kind == null) {
+      final key = '${t.kind ?? 'todo'}:${t.masterId ?? t.id}';
+      final info = _itemGoalByKey[key];
+      if (info != null) {
+        final goalTitle = (info['title'] as String?) ?? 'Goal';
+        final goalId = info['goalId'] as int?;
+        extraBadge = InkWell(
+          onTap: (goalId == null) ? null : () => _openGoalDetail(goalId),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
             decoration: BoxDecoration(
               color: Colors.grey.shade100,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(999),
               border: Border.all(color: Colors.grey.shade300),
             ),
-            child: Row(mainAxisSize: MainAxisSize.min, children: heatSquares),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              const Icon(Icons.flag_outlined, size: 12, color: Colors.black54),
+              const SizedBox(width: 4),
+              Text(goalTitle, style: const TextStyle(fontSize: 11, color: Colors.black87)),
+            ]),
           ),
-        ],
-      ]);
+        );
+      }
     }
     final keyId = t.masterId != null && t.scheduledFor != null ? Object.hashAll([t.masterId, t.scheduledFor]) : t.id;
     final key = _rowKeys.putIfAbsent(keyId, () => GlobalKey());
@@ -2585,18 +2686,281 @@ class _HomePageState extends State<HomePage> {
         onDelete: () => _deleteTodo(t),
         highlighted: _highlightedId == t.id,
         extraBadge: extraBadge,
+        onTitleEdited: (newTitle) async {
+          try {
+            if (t.kind == 'event') {
+              await api.updateEvent(t.id, { 'title': newTitle, 'recurrence': t.recurrence ?? { 'type': 'none' } });
+            } else if (t.kind == 'habit') {
+              await api.updateHabit(t.id, { 'title': newTitle, 'recurrence': t.recurrence ?? { 'type': 'daily' } });
+            } else {
+              await api.updateTodo(t.id, { 'title': newTitle, 'recurrence': t.recurrence ?? { 'type': 'none' } });
+            }
+            setState(() { t.title = newTitle; });
+          } catch (_) {}
+        },
+        onPriorityEdited: (newPriority) async {
+          try {
+            if (t.kind == 'event') {
+              await api.updateEvent(t.id, { 'priority': newPriority, 'recurrence': t.recurrence ?? { 'type': 'none' } });
+            } else if (t.kind == 'habit') {
+              await api.updateHabit(t.id, { 'priority': newPriority, 'recurrence': t.recurrence ?? { 'type': 'daily' } });
+            } else {
+              await api.updateTodo(t.id, { 'priority': newPriority, 'recurrence': t.recurrence ?? { 'type': 'none' } });
+            }
+            setState(() { t.priority = newPriority; });
+          } catch (_) {}
+        },
+        onTimeEdited: (newTime) async {
+          try {
+            if (t.kind == 'event') {
+              // For events, map to startTime if only single time shown in list
+              await api.updateEvent(t.id, { 'startTime': newTime, 'recurrence': t.recurrence ?? { 'type': 'none' } });
+              setState(() { t.timeOfDay = newTime; });
+            } else if (t.kind == 'habit') {
+              await api.updateHabit(t.id, { 'timeOfDay': newTime, 'recurrence': t.recurrence ?? { 'type': 'daily' } });
+              setState(() { t.timeOfDay = newTime; });
+            } else {
+              await api.updateTodo(t.id, { 'timeOfDay': newTime, 'recurrence': t.recurrence ?? { 'type': 'none' } });
+              setState(() { t.timeOfDay = newTime; });
+            }
+          } catch (_) {}
+        },
       ),
     );
   }
 
   Widget _buildHabitsList() {
+    // Always show quick-add for Habits at top
+    final quickAddHeader = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      child: Row(children: [
+        Expanded(
+          child: Wrap(spacing: 8, runSpacing: 6, children: [
+            _quickAddInline(),
+          ]),
+        ),
+      ]),
+    );
+
+    // Build Mon-Sun range from current anchor week
+    final a = parseYmd(anchor);
+    final monday = a.subtract(Duration(days: (a.weekday + 6) % 7));
+    final week = List<DateTime>.generate(7, (i) => monday.add(Duration(days: i)));
+    final weekY = week.map((d) => ymd(d)).toList();
+    // Prepare habits
     final items = scheduled.where((t) => t.kind == 'habit').toList()
-      ..sort((a, b) => (a.scheduledFor ?? '').compareTo(b.scheduledFor ?? ''));
-    return ListView(
-      padding: const EdgeInsets.all(12),
-      children: [
-        for (final t in items) _buildRow(t),
-      ],
+      ..sort((a, b) => (a.title).compareTo(b.title));
+    final rows = items.map((t) => ht.HabitRowData(id: t.masterId ?? t.id, title: t.title, priority: t.priority)).toList();
+
+    // Optimistic toggle helper
+    Future<void> toggleHabit(int hid, String y, bool newCompleted) async {
+      // Optimistic update of weekHeatmap and (if today) currentStreak
+      final prev = Map<int, Map<String, dynamic>>.from(habitStatsById);
+      try {
+        final stats = Map<String, dynamic>.from(habitStatsById[hid] ?? const <String, dynamic>{});
+        final List<dynamic> heat = (stats['weekHeatmap'] is List) ? List<dynamic>.from(stats['weekHeatmap'] as List) : <dynamic>[];
+        for (int i = 0; i < heat.length; i++) {
+          final e = heat[i];
+          if (e is Map && e['date'] == y) {
+            heat[i] = { 'date': y, 'completed': newCompleted };
+            break;
+          }
+        }
+        final todayY = ymd(DateTime.now());
+        int current = (stats['currentStreak'] as int?) ?? 0;
+        if (y == todayY) current = newCompleted ? (current + 1) : (current > 0 ? current - 1 : 0);
+        final updated = {
+          ...stats,
+          'weekHeatmap': heat,
+          'currentStreak': current,
+        };
+        setState(() { habitStatsById = { ...habitStatsById, hid: updated }; });
+        await api.toggleHabitOccurrence(hid, y, newCompleted);
+        // Optionally refresh to reconcile server state
+        await _refreshAll();
+      } catch (e) {
+        setState(() { habitStatsById = prev; });
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Update failed. Reverted.')));
+      }
+    }
+
+    final isNarrow = MediaQuery.of(context).size.width < 1100;
+    if (!isNarrow) {
+      return Column(children: [
+        quickAddHeader,
+        Expanded(
+          child: ht.HabitsTracker(
+            habits: rows,
+            weekYmd: weekY,
+            statsById: habitStatsById.map((k, v) => MapEntry(k, v)),
+            onToggle: (hid, y, newCompleted) => toggleHabit(hid, y, newCompleted),
+          ),
+        ),
+      ]);
+    }
+
+    // Narrow layout: left list + right focus grid
+    if (_selectedHabitId == null && rows.isNotEmpty) _selectedHabitId = rows.first.id;
+    final selectedId = _selectedHabitId;
+    final selectedStats = (selectedId != null) ? habitStatsById[selectedId] : null;
+    final Set<String> completedSet = {
+      if (selectedStats != null && selectedStats['weekHeatmap'] is List)
+        ...((selectedStats['weekHeatmap'] as List)
+            .where((e) => e is Map && e['completed'] == true)
+            .map<String>((e) => (e as Map)['date'] as String))
+    };
+    final todayY = ymd(DateTime.now());
+
+    return Column(children: [
+      quickAddHeader,
+      Expanded(child: Row(
+        children: [
+        // Left list
+        SizedBox(
+          width: 260,
+          child: ListView(
+            padding: const EdgeInsets.all(12),
+            children: rows.map((h) {
+              final isSel = h.id == selectedId;
+              final s = habitStatsById[h.id] ?? const <String, dynamic>{};
+              final current = (s['currentStreak'] as int?) ?? 0;
+              final longest = (s['longestStreak'] as int?) ?? 0;
+              return InkWell(
+                onTap: () => setState(() { _selectedHabitId = h.id; }),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  margin: const EdgeInsets.only(bottom: 8),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: isSel ? Theme.of(context).colorScheme.primary : Colors.grey.shade300, width: isSel ? 2 : 1),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Row(children: [
+                    _priorityBadge(h.priority),
+                    const SizedBox(width: 6),
+                    Expanded(child: Text(h.title, overflow: TextOverflow.ellipsis)),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEFF1F3),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: const Color(0xFFCDD3D8)),
+                      ),
+                      child: Text('🔥 $current / $longest', style: const TextStyle(fontSize: 11, color: Color(0xFF616975))),
+                    ),
+                  ]),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+        const VerticalDivider(width: 1),
+        // Right single-habit grid with keyboard nav
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildWeekdayHeader(),
+                const Divider(height: 1),
+                const SizedBox(height: 8),
+                Focus(
+                  autofocus: true,
+                  onKeyEvent: (node, event) {
+                    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+                    if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+                      setState(() { _habitFocusCol = (_habitFocusCol - 1).clamp(0, 6); });
+                      return KeyEventResult.handled;
+                    }
+                    if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+                      setState(() { _habitFocusCol = (_habitFocusCol + 1).clamp(0, 6); });
+                      return KeyEventResult.handled;
+                    }
+                    if (event.logicalKey == LogicalKeyboardKey.home) {
+                      setState(() { _habitFocusCol = 0; });
+                      return KeyEventResult.handled;
+                    }
+                    if (event.logicalKey == LogicalKeyboardKey.end) {
+                      setState(() { _habitFocusCol = 6; });
+                      return KeyEventResult.handled;
+                    }
+                    if (event.logicalKey == LogicalKeyboardKey.space) {
+                      if (selectedId != null) {
+                        final y = weekY[_habitFocusCol];
+                        final newCompleted = !completedSet.contains(y);
+                        toggleHabit(selectedId, y, newCompleted);
+                      }
+                      return KeyEventResult.handled;
+                    }
+                    return KeyEventResult.ignored;
+                  },
+                  child: Row(children: [
+                    for (int i = 0; i < 7; i++)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: _habitDayCell(
+                          dateYmd: weekY[i],
+                          isToday: weekY[i] == todayY,
+                          completed: completedSet.contains(weekY[i]),
+                          focused: i == _habitFocusCol,
+                          onTap: (selectedId == null) ? null : () => toggleHabit(selectedId, weekY[i], !completedSet.contains(weekY[i])),
+                        ),
+                      ),
+                  ]),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ])),
+    ]);
+  }
+
+  Widget _habitDayCell({required String dateYmd, required bool isToday, required bool completed, required bool focused, VoidCallback? onTap}) {
+    final bg = completed ? Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.8) : Colors.transparent;
+    final borderColor = Theme.of(context).colorScheme.outlineVariant;
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        width: 36,
+        height: 32,
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: borderColor),
+        ),
+        child: Stack(children: [
+          if (isToday)
+            Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Theme.of(context).colorScheme.primary.withOpacity(0.3)),
+              ),
+            ),
+          if (focused)
+            Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Theme.of(context).colorScheme.primary.withOpacity(0.15), width: 2),
+              ),
+            ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _priorityBadge(String p) {
+    Color bg; Color fg;
+    switch (p) {
+      case 'high': bg = const Color(0xFFFFC9C9); fg = const Color(0xFF7D1414); break;
+      case 'low': bg = const Color(0xFFD3F9D8); fg = const Color(0xFF205B2A); break;
+      default: bg = const Color(0xFFFFE8CC); fg = const Color(0xFF9C3B00); break;
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(999)),
+      child: Text(p, style: TextStyle(color: fg, fontSize: 12)),
     );
   }
 }

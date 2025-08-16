@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_app/widgets/priority_chip.dart' as pc;
 
 class TodoLike {
   final int id;
@@ -28,6 +29,9 @@ class TodoRow extends StatelessWidget {
   final VoidCallback onDelete;
   final bool highlighted;
   final Widget? extraBadge; // optional, placed in the header row after priority
+  final void Function(String newTitle)? onTitleEdited;
+  final void Function(String newPriority)? onPriorityEdited; // expects 'low'|'medium'|'high'
+  final void Function(String? newTimeOfDay)? onTimeEdited; // 'HH:MM' or null
 
   const TodoRow({
     super.key,
@@ -37,6 +41,9 @@ class TodoRow extends StatelessWidget {
     required this.onDelete,
     this.highlighted = false,
     this.extraBadge,
+    this.onTitleEdited,
+    this.onPriorityEdited,
+    this.onTimeEdited,
   });
 
   @override
@@ -47,8 +54,8 @@ class TodoRow extends StatelessWidget {
         border: Border.all(color: highlighted ? Theme.of(context).colorScheme.primary : Colors.grey.shade300, width: highlighted ? 2 : 1),
         borderRadius: BorderRadius.circular(6),
         color: highlighted
-            ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.06)
-            : (todo.completed ? Colors.grey.withValues(alpha: 0.1) : null),
+            ? Theme.of(context).colorScheme.primary.withOpacity(0.06)
+            : (todo.completed ? Colors.grey.withOpacity(0.1) : null),
       ),
       child: Row(
         children: [
@@ -59,51 +66,78 @@ class TodoRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(children: [
-                  if (todo.kind != null)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade100,
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(color: Colors.grey.shade300),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          _kindIcon(todo.kind!),
-                          const SizedBox(width: 4),
-                          Text(todo.kind!, style: const TextStyle(fontSize: 11, color: Colors.black87)),
-                        ],
-                      ),
-                    ),
-                  if (todo.kind != null) const SizedBox(width: 6),
-                  _priorityBadge(todo.priority),
+                  GestureDetector(
+                    onTap: () {
+                      if (onPriorityEdited == null) return;
+                      final next = (todo.priority == 'low') ? 'medium' : (todo.priority == 'medium') ? 'high' : 'low';
+                      onPriorityEdited!(next);
+                    },
+                    child: pc.priorityChip(todo.priority, Theme.of(context).colorScheme),
+                  ),
                   if (extraBadge != null) ...[
                     const SizedBox(width: 6),
                     extraBadge!,
                   ],
                   const SizedBox(width: 6),
                   Flexible(
-                    child: Text(
-                      todo.title,
-                      style: TextStyle(
-                        decoration: todo.completed ? TextDecoration.lineThrough : null,
+                    child: InkWell(
+                      onTap: onTitleEdited == null ? null : () async {
+                        final ctrl = TextEditingController(text: todo.title);
+                        final ok = await showDialog<bool>(
+                          context: context,
+                          builder: (c) => AlertDialog(
+                            title: const Text('Edit title'),
+                            content: TextField(controller: ctrl, autofocus: true),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
+                              FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Save')),
+                            ],
+                          ),
+                        );
+                        if (ok == true) onTitleEdited!(ctrl.text.trim());
+                      },
+                      child: Text(
+                        todo.title,
+                        style: TextStyle(
+                          decoration: todo.completed ? TextDecoration.lineThrough : null,
+                        ),
                       ),
                     ),
                   ),
                   if (todo.timeOfDay != null) ...[
                     const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFEEF2FF),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        todo.timeOfDay!,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: todo.overdue ? Colors.red : null,
+                    InkWell(
+                      onTap: onTimeEdited == null ? null : () async {
+                        final ctrl = TextEditingController(text: todo.timeOfDay ?? '');
+                        final ok = await showDialog<bool>(
+                          context: context,
+                          builder: (c) => AlertDialog(
+                            title: const Text('Edit time (HH:MM)'),
+                            content: TextField(controller: ctrl, autofocus: true),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
+                              FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Save')),
+                            ],
+                          ),
+                        );
+                        if (ok == true) {
+                          final v = ctrl.text.trim();
+                          onTimeEdited!(v.isEmpty ? null : v);
+                        }
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.surfaceContainerHigh,
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(color: Theme.of(context).colorScheme.outline),
+                        ),
+                        child: Text(
+                          todo.timeOfDay!,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: todo.overdue ? Theme.of(context).colorScheme.error : Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
                         ),
                       ),
                     ),
@@ -133,29 +167,6 @@ class TodoRow extends StatelessWidget {
     else if (kind == 'habit') icon = Icons.repeat;
     else icon = Icons.check_circle_outline;
     return Icon(icon, size: 12, color: Colors.black54);
-  }
-
-  Widget _priorityBadge(String p) {
-    Color bg;
-    Color fg;
-    switch (p) {
-      case 'high':
-        bg = const Color(0xFFFFC9C9);
-        fg = const Color(0xFF7D1414);
-        break;
-      case 'low':
-        bg = const Color(0xFFD3F9D8);
-        fg = const Color(0xFF205B2A);
-        break;
-      default:
-        bg = const Color(0xFFFFE8CC);
-        fg = const Color(0xFF9C3B00);
-    }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(999)),
-      child: Text(p, style: TextStyle(color: fg, fontSize: 12)),
-    );
   }
 }
 

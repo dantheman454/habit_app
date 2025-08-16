@@ -117,7 +117,7 @@ class AssistantPanel extends StatelessWidget {
     };
 
     return Container(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.15),
+      color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.15),
       child: Column(
         children: [
         // Header controls
@@ -131,7 +131,7 @@ class AssistantPanel extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: Theme.of(context).colorScheme.surface,
                     borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.5)),
+                    border: Border.all(color: Theme.of(context).colorScheme.outline.withOpacity(0.5)),
                   ),
                   child: Row(children: [
                     const Icon(Icons.memory, size: 14),
@@ -164,7 +164,7 @@ class AssistantPanel extends StatelessWidget {
               if (sending && (progressStage != null && progressStage!.isNotEmpty))
                 Padding(
                   padding: const EdgeInsets.only(left: 6, bottom: 6),
-                  child: Text('Progress: ${progressStage!}', style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.8))),
+                  child: Text('Progress: ${progressStage!}', style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.8))),
                 ),
               if (operations.isNotEmpty) ...[
                 const SizedBox(height: 8),
@@ -175,9 +175,9 @@ class AssistantPanel extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: Colors.amberAccent.withValues(alpha: 0.15),
+                      color: Colors.amberAccent.withOpacity(0.15),
                       borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: Colors.amber.withValues(alpha: 0.6)),
+                      border: Border.all(color: Colors.amber.withOpacity(0.6)),
                     ),
                     child: const Text(
                       'Some proposed operations are invalid and cannot be applied. Please review the errors below.',
@@ -212,7 +212,7 @@ class AssistantPanel extends StatelessWidget {
                   decoration: InputDecoration(
                     hintText: 'Ask Away...',
                     filled: true,
-                    fillColor: Colors.white,
+                    fillColor: Theme.of(context).colorScheme.surface,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(24),
@@ -242,7 +242,7 @@ class AssistantPanel extends StatelessWidget {
     final isUser = (turn['role'] == 'user');
     final Color bg = isUser
         ? Theme.of(context).colorScheme.primary
-        : Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.6);
+        : Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.6);
     final Color fg = isUser
         ? Theme.of(context).colorScheme.onPrimary
         : Theme.of(context).colorScheme.onSurfaceVariant;
@@ -382,7 +382,7 @@ class AssistantPanel extends StatelessWidget {
   }
 
   Widget _buildTypingBubble(BuildContext context) {
-    final bg = Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.6);
+    final bg = Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.6);
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 4),
       alignment: Alignment.centerLeft,
@@ -402,7 +402,7 @@ class AssistantPanel extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+        color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.4),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(

@@ -188,7 +188,7 @@ export class DbService {
     if (to) { cond.push("scheduled_for < date(@to, '+1 day')"); params.to = to; }
     if (priority) { cond.push('priority = @priority'); params.priority = priority; }
     if (completed !== null && completed !== undefined) { cond.push('completed = @completed'); params.completed = completed ? 1 : 0; }
-    const sql = `SELECT * FROM habits WHERE ${cond.join(' AND ')} ORDER BY scheduled_for ASC, time_of_day ASC NULLS FIRST, id ASC`;
+    const sql = `SELECT * FROM habits WHERE ${cond.join(' AND ')} ORDER BY scheduled_for ASC, time_of_day ASC, id ASC`;
     const rows = this.db.prepare(sql).all(params);
     return rows.map(r => this._mapHabit(r));
   }
@@ -325,7 +325,7 @@ export class DbService {
     if (to) { cond.push("scheduled_for < date(@to, '+1 day')"); params.to = to; }
     if (priority) { cond.push('priority = @priority'); params.priority = priority; }
     if (completed !== null && completed !== undefined) { cond.push('completed = @completed'); params.completed = completed ? 1 : 0; }
-    const sql = `SELECT * FROM events WHERE ${cond.join(' AND ')} ORDER BY scheduled_for ASC, start_time ASC NULLS FIRST, id ASC`;
+    const sql = `SELECT * FROM events WHERE ${cond.join(' AND ')} ORDER BY scheduled_for ASC, start_time ASC, id ASC`;
     const rows = this.db.prepare(sql).all(params);
     return rows.map(r => this._mapEvent(r));
   }
@@ -381,7 +381,7 @@ export class DbService {
     if (to) { cond.push("scheduled_for < date(@to, '+1 day')"); params.to = to; }
     if (priority) { cond.push('priority = @priority'); params.priority = priority; }
     if (completed !== null && completed !== undefined) { cond.push('completed = @completed'); params.completed = completed ? 1 : 0; }
-    const sql = `SELECT * FROM todos WHERE ${cond.join(' AND ')} ORDER BY scheduled_for ASC, time_of_day ASC NULLS FIRST, id ASC`;
+    const sql = `SELECT * FROM todos WHERE ${cond.join(' AND ')} ORDER BY scheduled_for ASC, time_of_day ASC, id ASC`;
     const rows = this.db.prepare(sql).all(params);
     return rows.map(r => this._mapTodo(r));
   }

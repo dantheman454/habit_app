@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 class Sidebar extends StatelessWidget {
-  final String selectedKey; // 'today' | 'scheduled' | 'all' | 'flagged' | 'backlog' | 'habits'
+  final String selectedKey; // 'today' | 'scheduled' | 'all' | 'backlog'
   final void Function(String) onSelect;
   final bool showCompleted;
   final void Function(bool) onToggleShowCompleted;
@@ -26,12 +26,13 @@ class Sidebar extends StatelessWidget {
               _tile('Today', 'today', Icons.today, count: counters['today']),
               _tile('Scheduled', 'scheduled', Icons.calendar_month, count: counters['scheduled']),
               _tile('All', 'all', Icons.inbox, count: counters['all']),
-              _tile('Flagged', 'flagged', Icons.flag, count: counters['flagged']),
               _tile('Backlog', 'backlog', Icons.list_alt, count: counters['backlog']),
-              const Divider(height: 1),
-              _tile('Habits', 'habits', Icons.repeat, count: counters['habits']),
-              const Divider(height: 1),
-              _tile('Goals', 'goals', Icons.flag_circle),
+              // Duplicate domain switching removed: rely on header tabs only
+              // _tile('Flagged', 'flagged', Icons.flag, count: counters['flagged']),
+              // const Divider(height: 1),
+              // _tile('Habits', 'habits', Icons.repeat, count: counters['habits']),
+              // const Divider(height: 1),
+              // _tile('Goals', 'goals', Icons.flag_circle),
             ],
           ),
         ),
@@ -39,9 +40,8 @@ class Sidebar extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.all(12),
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('Show completed'),
+              const Expanded(child: Text('Show completed', overflow: TextOverflow.ellipsis)),
               Switch(value: showCompleted, onChanged: onToggleShowCompleted),
             ],
           ),
