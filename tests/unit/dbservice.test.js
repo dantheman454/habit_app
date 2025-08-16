@@ -107,6 +107,48 @@ test('habits: CRUD + list/search/toggle occurrence', () => {
   assert.equal(db.getHabitById(h1.id), null);
 });
 
+test('habits: compute stats over range', () => {
+  const today = ymd();
+  const yesterday = ymd(new Date(Date.now() - 24*60*60*1000));
+  const twoAgo = ymd(new Date(Date.now() - 2*24*60*60*1000));
+  const h = db.createHabit({ title: 'Stats Habit', scheduledFor: today, priority: 'medium', recurrence: { type: 'daily' } });
+  // Mark a 3-day current streak
+  db.toggleHabitOccurrence({ id: h.id, occurrenceDate: twoAgo, completed: true });
+  db.toggleHabitOccurrence({ id: h.id, occurrenceDate: yesterday, completed: true });
+  db.toggleHabitOccurrence({ id: h.id, occurrenceDate: today, completed: true });
+  const got = db.getHabitById(h.id);
+  const from = ymd(new Date(Date.now() - 6*24*60*60*1000));
+  const to = today;
+  const stats = db.computeHabitStats(got, { from, to });
+  assert.equal(typeof stats.currentStreak, 'number');
+  assert.ok(stats.currentStreak >= 1);
+  assert.equal(typeof stats.longestStreak, 'number');
+  assert.ok(Array.isArray(stats.weekHeatmap));
+  assert.ok(stats.weekHeatmap.length >= 1 && stats.weekHeatmap.length <= 7);
+});
+
+test('habits: link/unlink todos and events', () => {
+  const today = ymd();
+  const h = db.createHabit({ title: 'Linker', scheduledFor: today, recurrence: { type: 'daily' } });
+  const t = db.createTodo({ title: 'T link', recurrence: { type: 'none' } });
+  const e = db.createEvent({ title: 'E link', recurrence: { type: 'none' } });
+  // Link
+  db.addHabitTodoItems(h.id, [t.id]);
+  db.addHabitEventItems(h.id, [e.id]);
+  // Verify via direct SQL
+  const c1 = db.db.prepare('SELECT COUNT(*) AS c FROM habit_todo_items WHERE habit_id=? AND todo_id=?').get(h.id, t.id).c;
+  const c2 = db.db.prepare('SELECT COUNT(*) AS c FROM habit_event_items WHERE habit_id=? AND event_id=?').get(h.id, e.id).c;
+  assert.equal(c1, 1);
+  assert.equal(c2, 1);
+  // Unlink
+  db.removeHabitTodoItem(h.id, t.id);
+  db.removeHabitEventItem(h.id, e.id);
+  const c1b = db.db.prepare('SELECT COUNT(*) AS c FROM habit_todo_items WHERE habit_id=? AND todo_id=?').get(h.id, t.id).c;
+  const c2b = db.db.prepare('SELECT COUNT(*) AS c FROM habit_event_items WHERE habit_id=? AND event_id=?').get(h.id, e.id).c;
+  assert.equal(c1b, 0);
+  assert.equal(c2b, 0);
+});
+
 test('goals: CRUD + items/children linking + cascades', () => {
   const g1 = db.createGoal({ title: 'Goal A' });
   const g2 = db.createGoal({ title: 'Goal B' });

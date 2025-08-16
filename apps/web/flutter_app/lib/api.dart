@@ -327,6 +327,21 @@ Future<List<dynamic>> searchHabits(String q, { bool? completed, CancelToken? can
   return (res.data['habits'] as List<dynamic>);
 }
 
+Future<void> linkHabitItems(int habitId, {List<int>? todos, List<int>? events}) async {
+  await api.post('/api/habits/$habitId/items', data: {
+    if (todos != null) 'todos': todos,
+    if (events != null) 'events': events,
+  });
+}
+
+Future<void> unlinkHabitTodo(int habitId, int todoId) async {
+  await api.delete('/api/habits/$habitId/items/todo/$todoId');
+}
+
+Future<void> unlinkHabitEvent(int habitId, int eventId) async {
+  await api.delete('/api/habits/$habitId/items/event/$eventId');
+}
+
 // --- Unified schedule ---
 Future<List<dynamic>> fetchSchedule({required String from, required String to, List<String>? kinds, bool? completed, String? priority}) async {
   final res = await api.get('/api/schedule', queryParameters: {

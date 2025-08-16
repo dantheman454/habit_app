@@ -58,6 +58,23 @@ CREATE TABLE IF NOT EXISTS habits (
   updated_at TEXT NOT NULL
 );
 
+-- Habit link tables (organizational composition)
+CREATE TABLE IF NOT EXISTS habit_todo_items (
+  habit_id INTEGER NOT NULL,
+  todo_id INTEGER NOT NULL,
+  PRIMARY KEY (habit_id, todo_id),
+  FOREIGN KEY (habit_id) REFERENCES habits(id) ON DELETE CASCADE,
+  FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS habit_event_items (
+  habit_id INTEGER NOT NULL,
+  event_id INTEGER NOT NULL,
+  PRIMARY KEY (habit_id, event_id),
+  FOREIGN KEY (habit_id) REFERENCES habits(id) ON DELETE CASCADE,
+  FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS goal_todo_items (
   goal_id INTEGER NOT NULL,
   todo_id INTEGER NOT NULL,

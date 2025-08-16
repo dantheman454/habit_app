@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 class Sidebar extends StatelessWidget {
-  final String selectedKey; // 'today' | 'scheduled' | 'all' | 'flagged' | 'backlog'
+  final String selectedKey; // 'today' | 'scheduled' | 'all' | 'flagged' | 'backlog' | 'habits'
   final void Function(String) onSelect;
   final bool showCompleted;
   final void Function(bool) onToggleShowCompleted;
@@ -28,6 +28,8 @@ class Sidebar extends StatelessWidget {
               _tile('All', 'all', Icons.inbox, count: counters['all']),
               _tile('Flagged', 'flagged', Icons.flag, count: counters['flagged']),
               _tile('Backlog', 'backlog', Icons.list_alt, count: counters['backlog']),
+              const Divider(height: 1),
+              _tile('Habits', 'habits', Icons.repeat, count: counters['habits']),
               const Divider(height: 1),
               _tile('Goals', 'goals', Icons.flag_circle),
             ],

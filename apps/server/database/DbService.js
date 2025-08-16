@@ -193,6 +193,66 @@ export class DbService {
     return rows.map(r => this._mapHabit(r));
   }
 
+  // Habit links (organizational composition)
+  addHabitTodoItems(habitId, todoIds) {
+    this.openIfNeeded();
+    const stmt = this.db.prepare('INSERT OR IGNORE INTO habit_todo_items (habit_id, todo_id) VALUES (@h,@t)');
+    const tx = this.db.transaction((ids) => { for (const tid of ids) stmt.run({ h: habitId, t: tid }); });
+    tx(todoIds);
+  }
+  removeHabitTodoItem(habitId, todoId) {
+    this.openIfNeeded();
+    this.db.prepare('DELETE FROM habit_todo_items WHERE habit_id=@h AND todo_id=@t').run({ h: habitId, t: todoId });
+  }
+  addHabitEventItems(habitId, eventIds) {
+    this.openIfNeeded();
+    const stmt = this.db.prepare('INSERT OR IGNORE INTO habit_event_items (habit_id, event_id) VALUES (@h,@e)');
+    const tx = this.db.transaction((ids) => { for (const eid of ids) stmt.run({ h: habitId, e: eid }); });
+    tx(eventIds);
+  }
+  removeHabitEventItem(habitId, eventId) {
+    this.openIfNeeded();
+    this.db.prepare('DELETE FROM habit_event_items WHERE habit_id=@h AND event_id=@e').run({ h: habitId, e: eventId });
+  }
+
+  // Habit stats from completed_dates
+  computeHabitStats(habit, { from, to }) {
+    const completed = Array.isArray(habit.completedDates) ? habit.completedDates.slice().sort() : [];
+    // weekHeatmap over [from,to] if provided; else last 7 days ending today
+    const fromDate = from ? new Date(from) : (() => { const d=new Date(); d.setDate(d.getDate()-6); d.setHours(0,0,0,0); return d; })();
+    const toDate = to ? new Date(to) : (() => { const d=new Date(); d.setHours(0,0,0,0); return d; })();
+    const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const dayCount = Math.max(1, Math.min(7, Math.round((new Date(toDate.getFullYear(),toDate.getMonth(),toDate.getDate()) - new Date(fromDate.getFullYear(),fromDate.getMonth(),fromDate.getDate()))/(24*60*60*1000)) + 1));
+    const heat = [];
+    for (let i = 0; i < dayCount; i++) {
+      const d = new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate() + i);
+      heat.push({ date: ymd(d), completed: completed.includes(ymd(d)) });
+    }
+    // current and longest streaks from all-time list
+    const set = new Set(completed);
+    // helper: walk backwards from today
+    const today = new Date(); today.setHours(0,0,0,0);
+    let current = 0;
+    for (let i = 0; ; i++) {
+      const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
+      const k = ymd(d);
+      if (set.has(k)) current++; else break;
+      if (i > 3660) break; // safety cap
+    }
+    // longest: scan sorted dates
+    let longest = 0; let run = 0; let prev = null;
+    for (const ds of completed) {
+      if (prev) {
+        const p = new Date(prev); const c = new Date(ds);
+        const diff = Math.round((new Date(c.getFullYear(),c.getMonth(),c.getDate()) - new Date(p.getFullYear(),p.getMonth(),p.getDate()))/(24*60*60*1000));
+        run = (diff === 1) ? run + 1 : 1;
+      } else { run = 1; }
+      if (run > longest) longest = run;
+      prev = ds;
+    }
+    return { currentStreak: current, longestStreak: longest, weekHeatmap: heat };
+  }
+
   searchHabits({ q, completed = null }) {
     this.openIfNeeded();
     if (!q || String(q).length < 2) {

@@ -105,6 +105,11 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 - CRUD/search/backlog methods map 1:1 to endpoints above (api.dart 17:68).
 - Assistant message wrapper supports POST and SSE, with callbacks for `onSummary`, `onClarify`, `onStage`, `onOps` (api.dart 70:189).
 - Apply and dry-run wrappers: `applyOperations`, `dryRunOperations` (api.dart 191:199).
+- Habits API:
+  - `listHabits({from,to})` attaches `currentStreak`, `longestStreak`, `weekHeatmap` when range provided.
+  - `toggleHabitOccurrence(id, occurrenceDate, completed)`.
+  - Linking: `linkHabitItems(habitId, {todos,events})`, `unlinkHabitTodo(habitId,todoId)`, `unlinkHabitEvent(habitId,eventId)`.
+- Unified schedule: `fetchSchedule({from,to,kinds,completed,priority})`; pass `kinds` explicitly to include `habit`.
 
 ### Status codes and error strings (quick index)
 
@@ -137,5 +142,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 - `/api/assistant/message/stream` → `assistantMessage` (SSE)
 - `/api/llm/apply` → `applyOperations`
 - `/api/llm/dryrun` → `dryRunOperations`
+ - Habits: `/api/habits` → `listHabits`; `/api/habits/:id/occurrence` → `toggleHabitOccurrence`; linking endpoints → `linkHabitItems`/`unlinkHabitTodo`/`unlinkHabitEvent`
+ - Unified: `/api/schedule` → `fetchSchedule`
 
 

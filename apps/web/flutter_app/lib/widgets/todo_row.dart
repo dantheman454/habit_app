@@ -27,6 +27,7 @@ class TodoRow extends StatelessWidget {
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final bool highlighted;
+  final Widget? extraBadge; // optional, placed in the header row after priority
 
   const TodoRow({
     super.key,
@@ -35,6 +36,7 @@ class TodoRow extends StatelessWidget {
     required this.onEdit,
     required this.onDelete,
     this.highlighted = false,
+    this.extraBadge,
   });
 
   @override
@@ -76,6 +78,10 @@ class TodoRow extends StatelessWidget {
                     ),
                   if (todo.kind != null) const SizedBox(width: 6),
                   _priorityBadge(todo.priority),
+                  if (extraBadge != null) ...[
+                    const SizedBox(width: 6),
+                    extraBadge!,
+                  ],
                   const SizedBox(width: 6),
                   Flexible(
                     child: Text(

@@ -651,45 +651,26 @@ app.get('/api/habits', (req, res) => {
   const toDate = to ? parseYMD(to) : null;
   let items = db.listHabits({ from: null, to: null }).filter(h => h.scheduledFor !== null);
   if (priority) items = items.filter(h => String(h.priority).toLowerCase() === String(priority).toLowerCase());
-  const doExpand = !!(fromDate && toDate);
-  if (!doExpand) {
-    if (fromDate || toDate) {
-      items = items.filter(h => {
-        if (!h.scheduledFor) return false;
-        const hd = parseYMD(h.scheduledFor);
-        if (!hd) return false;
-        if (fromDate && hd < fromDate) return false;
-        if (toDate) {
-          const inclusiveEnd = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate() + 1);
-          if (hd >= inclusiveEnd) return false;
-        }
-        return true;
-      });
-    }
-    if (completedBool !== undefined) items = items.filter(h => h.completed === completedBool);
-    // Sort like todos
-    const sorted = items.slice().sort((a, b) => {
-      const sfa = String(a.scheduledFor || '');
-      const sfb = String(b.scheduledFor || '');
-      if (sfa !== sfb) return sfa.localeCompare(sfb);
-      const at = a.timeOfDay || '';
-      const bt = b.timeOfDay || '';
-      if (at === '' && bt !== '') return -1;
-      if (at !== '' && bt === '') return 1;
-      if (at !== bt) return at.localeCompare(bt);
-      return (a.id || 0) - (b.id || 0);
+  // Filter masters by range if provided (no expansion here)
+  if (fromDate || toDate) {
+    items = items.filter(h => {
+      if (!h.scheduledFor) return false;
+      const hd = parseYMD(h.scheduledFor);
+      if (!hd) return false;
+      if (fromDate && hd < fromDate) return false;
+      if (toDate) {
+        const inclusiveEnd = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate() + 1);
+        if (hd >= inclusiveEnd) return false;
+      }
+      return true;
     });
-    return res.json({ habits: sorted });
   }
-  // Must expand (habits are always repeating); reuse todo expansion
-  const expanded = [];
-  for (const h of items) {
-    expanded.push(...expandOccurrences(h, fromDate, toDate));
-  }
-  let out = expanded;
-  if (completedBool !== undefined) out = out.filter(x => x && typeof x.completed === 'boolean' && (x.completed === completedBool));
-  // Sort
-  out = out.slice().sort((a, b) => {
+  if (completedBool !== undefined) items = items.filter(h => h.completed === completedBool);
+  // Attach habit stats when both from/to provided
+  let fromY = fromDate ? `${fromDate.getFullYear()}-${String(fromDate.getMonth()+1).padStart(2,'0')}-${String(fromDate.getDate()).padStart(2,'0')}` : null;
+  let toY = toDate ? `${toDate.getFullYear()}-${String(toDate.getMonth()+1).padStart(2,'0')}-${String(toDate.getDate()).padStart(2,'0')}` : null;
+  const withStats = (fromY && toY) ? items.map(h => ({ ...h, ...db.computeHabitStats(h, { from: fromY, to: toY }) })) : items;
+  const sorted = withStats.slice().sort((a, b) => {
     const sfa = String(a.scheduledFor || '');
     const sfb = String(b.scheduledFor || '');
     if (sfa !== sfb) return sfa.localeCompare(sfb);
@@ -700,7 +681,7 @@ app.get('/api/habits', (req, res) => {
     if (at !== bt) return at.localeCompare(bt);
     return (a.id || 0) - (b.id || 0);
   });
-  return res.json({ habits: out });
+  return res.json({ habits: sorted });
 });
 
 app.get('/api/habits/search', (req, res) => {
@@ -733,6 +714,34 @@ app.get('/api/habits/:id', (req, res) => {
   return res.json({ habit: h });
 });
 
+// Habit item linking
+app.post('/api/habits/:id/items', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
+  const { todos = [], events = [] } = req.body || {};
+  try {
+    db.addHabitTodoItems(id, (Array.isArray(todos) ? todos : []).map(Number).filter(Number.isFinite));
+    db.addHabitEventItems(id, (Array.isArray(events) ? events : []).map(Number).filter(Number.isFinite));
+    return res.status(204).end();
+  } catch { return res.status(500).json({ error: 'link_failed' }); }
+});
+
+app.delete('/api/habits/:id/items/todo/:todoId', (req, res) => {
+  const hid = parseInt(req.params.id, 10);
+  const tid = parseInt(req.params.todoId, 10);
+  if (!Number.isFinite(hid) || !Number.isFinite(tid)) return res.status(400).json({ error: 'invalid_id' });
+  try { db.removeHabitTodoItem(hid, tid); return res.status(204).end(); }
+  catch { return res.status(500).json({ error: 'unlink_failed' }); }
+});
+
+app.delete('/api/habits/:id/items/event/:eventId', (req, res) => {
+  const hid = parseInt(req.params.id, 10);
+  const eid = parseInt(req.params.eventId, 10);
+  if (!Number.isFinite(hid) || !Number.isFinite(eid)) return res.status(400).json({ error: 'invalid_id' });
+  try { db.removeHabitEventItem(hid, eid); return res.status(204).end(); }
+  catch { return res.status(500).json({ error: 'unlink_failed' }); }
+});
+
 app.patch('/api/habits/:id', (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
@@ -743,13 +752,14 @@ app.patch('/api/habits/:id', (req, res) => {
   if (priority !== undefined && !['low','medium','high'].includes(String(priority))) return res.status(400).json({ error: 'invalid_priority' });
   if (completed !== undefined && typeof completed !== 'boolean') return res.status(400).json({ error: 'invalid_completed' });
   if (timeOfDay !== undefined && !isValidTimeOfDay(timeOfDay === '' ? null : timeOfDay)) return res.status(400).json({ error: 'invalid_timeOfDay' });
-  if (recurrence !== undefined && !isValidRecurrence(recurrence)) return res.status(400).json({ error: 'invalid_recurrence' });
-  // Strict: require recurrence and forbid none for habits
-  if (!(recurrence && typeof recurrence === 'object' && typeof recurrence.type === 'string')) return res.status(400).json({ error: 'missing_recurrence' });
-  if (recurrence && recurrence.type === 'none') return res.status(400).json({ error: 'invalid_recurrence' });
-  if (recurrence && recurrence.type && recurrence.type !== 'none') {
-    const anchor = (scheduledFor !== undefined) ? scheduledFor : (db.getHabitById(id)?.scheduledFor ?? null);
-    if (!(anchor !== null && isYmdString(anchor))) return res.status(400).json({ error: 'missing_anchor_for_recurrence' });
+  if (recurrence !== undefined) {
+    if (!isValidRecurrence(recurrence)) return res.status(400).json({ error: 'invalid_recurrence' });
+    // For habits, recurrence must not be 'none' if provided
+    if (recurrence && recurrence.type === 'none') return res.status(400).json({ error: 'invalid_recurrence' });
+    if (recurrence && recurrence.type && recurrence.type !== 'none') {
+      const anchor = (scheduledFor !== undefined) ? scheduledFor : (db.getHabitById(id)?.scheduledFor ?? null);
+      if (!(anchor !== null && isYmdString(anchor))) return res.status(400).json({ error: 'missing_anchor_for_recurrence' });
+    }
   }
   try {
     const h = db.updateHabit(id, { title, notes, scheduledFor, timeOfDay, priority, completed, recurrence });
@@ -966,10 +976,10 @@ app.get('/api/schedule', (req, res) => {
   if (priority !== undefined && !['low','medium','high'].includes(String(priority))) return res.status(400).json({ error: 'invalid_priority' });
 
   const requestedKinds = (() => {
+    // Default to tasks + events; client should pass kinds explicitly to include habits
     const csv = String(kinds || 'todo,event').trim();
     const parts = csv.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-    const set = new Set(parts.length ? parts : ['todo','event','habit']);
-    // Support habit now that it exists
+    const set = new Set(parts.length ? parts : ['todo','event']);
     return ['todo','event','habit'].filter(k => set.has(k));
   })();
 

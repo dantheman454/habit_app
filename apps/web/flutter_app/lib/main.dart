@@ -142,24 +142,13 @@ class DateRange {
   const DateRange({required this.from, required this.to});
 }
 
-DateRange rangeForView(String anchor, View view) {
-  final a = parseYmd(anchor);
-  if (view == View.day) {
-    final s = ymd(a);
-    return DateRange(from: s, to: s);
-  } else if (view == View.week) {
-    final weekday = a.weekday; // 1=Mon..7=Sun
-    final monday = a.subtract(Duration(days: weekday - 1));
-    final sunday = monday.add(const Duration(days: 6));
-    return DateRange(from: ymd(monday), to: ymd(sunday));
-  } else {
-    final first = DateTime(a.year, a.month, 1);
-    final last = DateTime(a.year, a.month + 1, 0);
-    return DateRange(from: ymd(first), to: ymd(last));
-  }
-}
+enum View { day, week, month }
 
-// ----- App Scaffold -----
+enum SmartList { today, scheduled, all, flagged, backlog }
+enum MainView { tasks, habits, goals }
+
+ 
+
 class App extends StatelessWidget {
   const App({super.key});
 
@@ -177,10 +166,22 @@ class App extends StatelessWidget {
   }
 }
 
-enum View { day, week, month }
-
-enum SmartList { today, scheduled, all, flagged, backlog }
-enum MainView { tasks, goals }
+DateRange rangeForView(String anchor, View view) {
+  final a = parseYmd(anchor);
+  if (view == View.day) {
+    final s = ymd(a);
+    return DateRange(from: s, to: s);
+  } else if (view == View.week) {
+    final weekday = a.weekday; // 1=Mon..7=Sun
+    final monday = a.subtract(Duration(days: weekday - 1));
+    final sunday = monday.add(const Duration(days: 6));
+    return DateRange(from: ymd(monday), to: ymd(sunday));
+  } else {
+    final first = DateTime(a.year, a.month, 1);
+    final last = DateTime(a.year, a.month + 1, 0);
+    return DateRange(from: ymd(first), to: ymd(last));
+  }
+}
 
  
 
@@ -220,14 +221,17 @@ class _HomePageState extends State<HomePage> {
   List<Todo> backlog = [];
   List<Todo> searchResults = [];
   Map<String, int> sidebarCounts = {};
+  // Habit stats for current range (by habit id)
+  Map<int, Map<String, dynamic>> habitStatsById = {};
 
   // Unified schedule filters (chips)
   Set<String> _kindFilter = <String>{'todo','event','habit'}; // All by default
 
   bool loading = false;
   String? message;
-  // Assistant model label
+  // Assistant model label and collapse state
   String _assistantModel = '';
+  bool assistantCollapsed = true;
   
     
   final TextEditingController assistantCtrl = TextEditingController();
@@ -248,7 +252,7 @@ class _HomePageState extends State<HomePage> {
   // Pending smooth-scroll target (YYYY-MM-DD) for Day view
   String? _pendingScrollYmd;
 
- 
+  
 
   @override
   void initState() {
@@ -272,12 +276,34 @@ class _HomePageState extends State<HomePage> {
     setState(() => loading = true);
     try {
       final r = rangeForView(anchor, view);
-      // Day view: use unified schedule; other views keep existing paths for now
+      // Day/Week/Month: use unified schedule for Tasks and Habits
       List<Todo> sList;
       if (view == View.day || view == View.week || view == View.month) {
-        final kinds = _kindFilter.isEmpty ? null : _kindFilter.toList();
+        // Select kinds based on current tab
+        final kinds = (mainView == MainView.habits)
+            ? <String>['habit']
+            : (_kindFilter.isEmpty ? ['todo','event','habit'] : _kindFilter.toList());
         final raw = await api.fetchSchedule(from: r.from, to: r.to, kinds: kinds, completed: showCompleted ? null : false);
         sList = raw.map((e) => Todo.fromJson(Map<String, dynamic>.from(e as Map))).toList();
+        // Load habit stats for the same range to display streak badges
+        try {
+          final habitsRaw = await api.listHabits(from: r.from, to: r.to);
+          final Map<int, Map<String, dynamic>> statsMap = {};
+          for (final h in habitsRaw) {
+            final m = Map<String, dynamic>.from(h as Map);
+            final hid = (m['id'] as int?);
+            if (hid != null) {
+              final int current = (m['currentStreak'] is int) ? (m['currentStreak'] as int) : 0;
+              final int longest = (m['longestStreak'] is int) ? (m['longestStreak'] as int) : 0;
+              final List<dynamic> heat = (m['weekHeatmap'] is List<dynamic>) ? (m['weekHeatmap'] as List<dynamic>) : const [];
+              statsMap[hid] = { 'currentStreak': current, 'longestStreak': longest, 'weekHeatmap': heat };
+            }
+          }
+          habitStatsById = statsMap;
+        } catch (_) {
+          // Non-fatal; stats not critical for schedule rendering
+          habitStatsById = {};
+        }
       } else {
         final scheduledRaw = await api.fetchScheduled(from: r.from, to: r.to, completed: showCompleted ? null : false);
         sList = scheduledRaw.map((e) => Todo.fromJson(e as Map<String, dynamic>)).toList();
@@ -290,7 +316,8 @@ class _HomePageState extends State<HomePage> {
         bList = bList.where((t) => !t.completed).toList();
       }
       final nowYmd = ymd(DateTime.now());
-      final todayCount = sList.where((t) => t.scheduledFor == nowYmd).length;
+      final todayCount = sList.where((t) => t.scheduledFor == nowYmd && (t.kind == null || t.kind != 'habit')).length;
+      final habitsTodayCount = sList.where((t) => t.scheduledFor == nowYmd && t.kind == 'habit').length;
       final scheduledCount = sList.length;
       final backlogCount = bList.length;
       final flaggedCount = [...sAllList, ...bList].where((t) => t.priority == 'high').length;
@@ -301,6 +328,7 @@ class _HomePageState extends State<HomePage> {
         'all': allCount,
         'flagged': flaggedCount,
         'backlog': backlogCount,
+        'habits': habitsTodayCount,
       };
       setState(() {
         scheduled = sList;
@@ -760,21 +788,212 @@ class _HomePageState extends State<HomePage> {
     String prio = 'medium';
     String recurType = 'daily'; // habits must be repeating; default daily
     final intervalCtrl = TextEditingController(text: '1');
+    // Link pickers
+    final selectedTodoIds = <int>{};
+    final selectedEventIds = <int>{};
+    final todoSearchCtrl = TextEditingController();
+    final eventSearchCtrl = TextEditingController();
+    final todoSearchCtrl = TextEditingController();
+    final eventSearchCtrl = TextEditingController();
+    List<Map<String, dynamic>> allTodos = [];
+    List<Map<String, dynamic>> allEvents = [];
+
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       builder: (c) {
         return StatefulBuilder(builder: (c, setModalState) {
+          Future<void> _loadLinkables() async {
+            try {
+              final t = await api.fetchScheduledAllTime();
+              final e = await api.listEvents();
+              setModalState(() {
+                allTodos = t.map((x) => Map<String, dynamic>.from(x as Map)).toList();
+                allEvents = e.map((x) => Map<String, dynamic>.from(x as Map)).toList();
+              });
+            } catch (_) {}
+          }
+          if (allTodos.isEmpty && allEvents.isEmpty) {
+            // lazy load once
+            _loadLinkables();
+          }
+
           return Padding(
             padding: EdgeInsets.only(bottom: MediaQuery.of(c).viewInsets.bottom),
             child: Padding(
               padding: const EdgeInsets.all(16),
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Create habit', style: TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 12),
+                    TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'Title')),
+                    TextField(controller: notesCtrl, decoration: const InputDecoration(labelText: 'Notes')),
+                    TextField(controller: dateCtrl, decoration: const InputDecoration(labelText: 'Anchor date (YYYY-MM-DD)')),
+                    TextField(controller: timeCtrl, decoration: const InputDecoration(labelText: 'Time (HH:MM or empty)')),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      value: prio,
+                      decoration: const InputDecoration(labelText: 'Priority'),
+                      items: const [
+                        DropdownMenuItem(value: 'low', child: Text('low')),
+                        DropdownMenuItem(value: 'medium', child: Text('medium')),
+                        DropdownMenuItem(value: 'high', child: Text('high')),
+                      ],
+                      onChanged: (v) => setModalState(() => prio = v ?? 'medium'),
+                    ),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      value: recurType,
+                      decoration: const InputDecoration(labelText: 'Recurrence (habits must repeat)'),
+                      items: const [
+                        DropdownMenuItem(value: 'daily', child: Text('Daily')),
+                        DropdownMenuItem(value: 'weekdays', child: Text('Weekdays (Mon–Fri)')),
+                        DropdownMenuItem(value: 'weekly', child: Text('Weekly (by anchor)')),
+                        DropdownMenuItem(value: 'every_n_days', child: Text('Every N days')),
+                      ],
+                      onChanged: (v) => setModalState(() => recurType = v ?? 'daily'),
+                    ),
+                    if (recurType == 'every_n_days')
+                      TextField(controller: intervalCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Every N days (>=1)')),
+                    const SizedBox(height: 12),
+                    // Link pickers
+                    const Text('Link existing todos (optional)', style: TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 4),
+                    TextField(controller: todoSearchCtrl, decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Filter todos...'), onChanged: (_) => setModalState(() {})),
+                    const SizedBox(height: 6),
+                    Container(
+                      constraints: const BoxConstraints(maxHeight: 120),
+                      decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(6)),
+                      child: ListView(
+                        children: [
+                          for (final t in allTodos.where((x) {
+                            final q = todoSearchCtrl.text.trim().toLowerCase();
+                            if (q.isEmpty) return true;
+                            final title = String.tryParse((x['title'] ?? '').toString()) ?? (x['title'] ?? '').toString();
+                            return title.toLowerCase().contains(q);
+                          }))
+                            CheckboxListTile(
+                              dense: true,
+                              value: selectedTodoIds.contains(t['id'] as int),
+                              onChanged: (v) => setModalState(() {
+                                final id = t['id'] as int; if (v == true) selectedTodoIds.add(id); else selectedTodoIds.remove(id);
+                              }),
+                              title: Text('#${t['id']}  ${t['title'] ?? ''}'),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text('Link existing events (optional)', style: TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 4),
+                    TextField(controller: eventSearchCtrl, decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Filter events...'), onChanged: (_) => setModalState(() {})),
+                    const SizedBox(height: 6),
+                    Container(
+                      constraints: const BoxConstraints(maxHeight: 120),
+                      decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(6)),
+                      child: ListView(
+                        children: [
+                          for (final e in allEvents.where((x) {
+                            final q = eventSearchCtrl.text.trim().toLowerCase();
+                            if (q.isEmpty) return true;
+                            final title = String.tryParse((x['title'] ?? '').toString()) ?? (x['title'] ?? '').toString();
+                            return title.toLowerCase().contains(q);
+                          }))
+                            CheckboxListTile(
+                              dense: true,
+                              value: selectedEventIds.contains(e['id'] as int),
+                              onChanged: (v) => setModalState(() {
+                                final id = e['id'] as int; if (v == true) selectedEventIds.add(id); else selectedEventIds.remove(id);
+                              }),
+                              title: Text('#${e['id']}  ${e['title'] ?? ''}'),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: FilledButton(
+                        onPressed: () async {
+                          final title = titleCtrl.text.trim();
+                          if (title.isEmpty) return;
+                          final sched = dateCtrl.text.trim();
+                          final time = timeCtrl.text.trim();
+                          final rec = <String, dynamic>{'type': recurType};
+                          if (recurType == 'every_n_days') {
+                            final n = int.tryParse(intervalCtrl.text.trim());
+                            if (n != null && n >= 1) rec['intervalDays'] = n;
+                          }
+                          final data = <String, dynamic>{
+                            'title': title,
+                            'notes': notesCtrl.text,
+                            'scheduledFor': sched.isEmpty ? null : sched,
+                            'priority': prio,
+                            'timeOfDay': time.isEmpty ? null : time,
+                            'recurrence': rec,
+                          };
+                          final created = await api.createHabit(data);
+                          final hid = created['id'] as int;
+                          if (selectedTodoIds.isNotEmpty || selectedEventIds.isNotEmpty) {
+                            await api.linkHabitItems(hid, todos: selectedTodoIds.toList(), events: selectedEventIds.toList());
+                          }
+                          if (context.mounted) Navigator.pop(c);
+                          await _refreshAll();
+                        },
+                        child: const Text('Create'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        });
+      },
+    );
+  }
+
+  Future<void> _editHabit(Todo t) async {
+    final titleCtrl = TextEditingController(text: t.title);
+    final notesCtrl = TextEditingController(text: t.notes);
+    final dateCtrl = TextEditingController(text: t.scheduledFor ?? '');
+    final timeCtrl = TextEditingController(text: t.timeOfDay ?? '');
+    final intervalCtrl = TextEditingController(text: (t.recurrence != null && t.recurrence!['intervalDays'] != null) ? '${t.recurrence!['intervalDays']}' : '1');
+    String prio = t.priority;
+    String recurType = (t.recurrence != null && t.recurrence!['type'] is String) ? (t.recurrence!['type'] as String) : 'daily';
+    // Link pickers for edit: allow adding/removing
+    final selectedTodoIds = <int>{};
+    final selectedEventIds = <int>{};
+    List<Map<String, dynamic>> allTodos = [];
+    List<Map<String, dynamic>> allEvents = [];
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => StatefulBuilder(builder: (c, setDlgState) {
+        Future<void> _loadLinkables() async {
+          try {
+            final tds = await api.fetchScheduledAllTime();
+            final evs = await api.listEvents();
+            setDlgState(() {
+              allTodos = tds.map((x) => Map<String, dynamic>.from(x as Map)).toList();
+              allEvents = evs.map((x) => Map<String, dynamic>.from(x as Map)).toList();
+            });
+          } catch (_) {}
+        }
+        if (allTodos.isEmpty && allEvents.isEmpty) {
+          _loadLinkables();
+        }
+        return AlertDialog(
+          title: const Text('Edit habit'),
+          content: SizedBox(
+            width: 480,
+            child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Create habit', style: TextStyle(fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 12),
                   TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'Title')),
                   TextField(controller: notesCtrl, decoration: const InputDecoration(labelText: 'Notes')),
                   TextField(controller: dateCtrl, decoration: const InputDecoration(labelText: 'Anchor date (YYYY-MM-DD)')),
@@ -788,7 +1007,7 @@ class _HomePageState extends State<HomePage> {
                       DropdownMenuItem(value: 'medium', child: Text('medium')),
                       DropdownMenuItem(value: 'high', child: Text('high')),
                     ],
-                    onChanged: (v) => setModalState(() => prio = v ?? 'medium'),
+                    onChanged: (v) => setDlgState(() => prio = v ?? 'medium'),
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
@@ -800,46 +1019,112 @@ class _HomePageState extends State<HomePage> {
                       DropdownMenuItem(value: 'weekly', child: Text('Weekly (by anchor)')),
                       DropdownMenuItem(value: 'every_n_days', child: Text('Every N days')),
                     ],
-                    onChanged: (v) => setModalState(() => recurType = v ?? 'daily'),
+                    onChanged: (v) => setDlgState(() => recurType = v ?? 'daily'),
                   ),
                   if (recurType == 'every_n_days')
                     TextField(controller: intervalCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Every N days (>=1)')),
                   const SizedBox(height: 12),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: FilledButton(
-                      onPressed: () async {
-                        final title = titleCtrl.text.trim();
-                        if (title.isEmpty) return;
-                        final sched = dateCtrl.text.trim();
-                        final time = timeCtrl.text.trim();
-                        final rec = <String, dynamic>{'type': recurType};
-                        if (recurType == 'every_n_days') {
-                          final n = int.tryParse(intervalCtrl.text.trim());
-                          if (n != null && n >= 1) rec['intervalDays'] = n;
-                        }
-                        final data = <String, dynamic>{
-                          'title': title,
-                          'notes': notesCtrl.text,
-                          'scheduledFor': sched.isEmpty ? null : sched,
-                          'priority': prio,
-                          'timeOfDay': time.isEmpty ? null : time,
-                          'recurrence': rec,
-                        };
-                        await api.createHabit(data);
-                        if (context.mounted) Navigator.pop(c);
-                        await _refreshAll();
-                      },
-                      child: const Text('Create'),
+                  const Text('Link existing todos (optional)', style: TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 4),
+                  TextField(controller: todoSearchCtrl, decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Filter todos...'), onChanged: (_) => setDlgState(() {})),
+                  const SizedBox(height: 6),
+                  Container(
+                    constraints: const BoxConstraints(maxHeight: 120),
+                    decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(6)),
+                    child: ListView(
+                      children: [
+                        for (final x in allTodos.where((it) {
+                          final q = todoSearchCtrl.text.trim().toLowerCase();
+                          if (q.isEmpty) return true;
+                          final title = String.tryParse((it['title'] ?? '').toString()) ?? (it['title'] ?? '').toString();
+                          return title.toLowerCase().contains(q);
+                        }))
+                          CheckboxListTile(
+                            dense: true,
+                            value: selectedTodoIds.contains(x['id'] as int),
+                            onChanged: (v) => setDlgState(() {
+                              final id = x['id'] as int; if (v == true) selectedTodoIds.add(id); else selectedTodoIds.remove(id);
+                            }),
+                            title: Text('#${x['id']}  ${x['title'] ?? ''}'),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text('Link existing events (optional)', style: TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 4),
+                  TextField(controller: eventSearchCtrl, decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Filter events...'), onChanged: (_) => setDlgState(() {})),
+                  const SizedBox(height: 6),
+                  Container(
+                    constraints: const BoxConstraints(maxHeight: 120),
+                    decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(6)),
+                    child: ListView(
+                      children: [
+                        for (final e in allEvents.where((it) {
+                          final q = eventSearchCtrl.text.trim().toLowerCase();
+                          if (q.isEmpty) return true;
+                          final title = String.tryParse((it['title'] ?? '').toString()) ?? (it['title'] ?? '').toString();
+                          return title.toLowerCase().contains(q);
+                        }))
+                          CheckboxListTile(
+                            dense: true,
+                            value: selectedEventIds.contains(e['id'] as int),
+                            onChanged: (v) => setDlgState(() {
+                              final id = e['id'] as int; if (v == true) selectedEventIds.add(id); else selectedEventIds.remove(id);
+                            }),
+                            title: Text('#${e['id']}  ${e['title'] ?? ''}'),
+                          ),
+                      ],
                     ),
                   ),
                 ],
               ),
             ),
-          );
-        });
-      },
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Save')),
+          ],
+        );
+      }),
     );
+    if (ok != true) return;
+
+    final patch = <String, dynamic>{};
+    if (titleCtrl.text != t.title) patch['title'] = titleCtrl.text;
+    if (notesCtrl.text != t.notes) patch['notes'] = notesCtrl.text;
+    final sched = dateCtrl.text.trim();
+    final normalized = sched.isEmpty ? null : sched;
+    if (normalized != (t.scheduledFor ?? '')) patch['scheduledFor'] = normalized;
+    if (prio != t.priority) patch['priority'] = prio;
+    final time = timeCtrl.text.trim();
+    if ((time.isEmpty ? null : time) != (t.timeOfDay)) patch['timeOfDay'] = time.isEmpty ? null : time;
+    // Recurrence
+    final existingType = (t.recurrence != null && t.recurrence!['type'] is String) ? (t.recurrence!['type'] as String) : 'daily';
+    final existingN = (t.recurrence != null && t.recurrence!['intervalDays'] is int) ? (t.recurrence!['intervalDays'] as int) : null;
+    if (recurType != existingType) {
+      patch['recurrence'] = {'type': recurType};
+      if (recurType == 'every_n_days') {
+        final n = int.tryParse(intervalCtrl.text.trim());
+        if (n != null && n >= 1) (patch['recurrence'] as Map<String, dynamic>)['intervalDays'] = n;
+      }
+    } else if (recurType == 'every_n_days') {
+      final n = int.tryParse(intervalCtrl.text.trim());
+      if (n != null && n >= 1 && n != existingN) {
+        patch['recurrence'] = {'type': recurType, 'intervalDays': n};
+      }
+    }
+
+    try {
+      await api.updateHabit(t.id, patch);
+      // Apply linking
+      if (selectedTodoIds.isNotEmpty || selectedEventIds.isNotEmpty) {
+        await api.linkHabitItems(t.id, todos: selectedTodoIds.toList(), events: selectedEventIds.toList());
+      }
+      await _refreshAll();
+    } catch (e) {
+      setState(() => message = 'Edit failed: $e');
+    }
   }
 
   Future<void> _editTodo(Todo t) async {
@@ -1031,95 +1316,6 @@ class _HomePageState extends State<HomePage> {
     }
     try {
       await api.updateEvent(t.id, patch);
-      await _refreshAll();
-    } catch (e) {
-      setState(() => message = 'Edit failed: $e');
-    }
-  }
-
-  Future<void> _editHabit(Todo t) async {
-    final titleCtrl = TextEditingController(text: t.title);
-    final notesCtrl = TextEditingController(text: t.notes);
-    final dateCtrl = TextEditingController(text: t.scheduledFor ?? '');
-    final timeCtrl = TextEditingController(text: t.timeOfDay ?? '');
-    final intervalCtrl = TextEditingController(text: (t.recurrence != null && t.recurrence!['intervalDays'] != null) ? '${t.recurrence!['intervalDays']}' : '1');
-    String prio = t.priority;
-    String recurType = (t.recurrence != null && t.recurrence!['type'] is String) ? (t.recurrence!['type'] as String) : 'daily';
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (c) => StatefulBuilder(builder: (c, setDlgState) {
-        return AlertDialog(
-          title: const Text('Edit habit'),
-          content: SizedBox(
-            width: 420,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'Title')),
-                TextField(controller: notesCtrl, decoration: const InputDecoration(labelText: 'Notes')),
-                TextField(controller: dateCtrl, decoration: const InputDecoration(labelText: 'Anchor date (YYYY-MM-DD)')),
-                TextField(controller: timeCtrl, decoration: const InputDecoration(labelText: 'Time (HH:MM or empty)')),
-                const SizedBox(height: 8),
-                DropdownButtonFormField<String>(
-                  value: prio,
-                  decoration: const InputDecoration(labelText: 'Priority'),
-                  items: const [
-                    DropdownMenuItem(value: 'low', child: Text('low')),
-                    DropdownMenuItem(value: 'medium', child: Text('medium')),
-                    DropdownMenuItem(value: 'high', child: Text('high')),
-                  ],
-                  onChanged: (v) => setDlgState(() => prio = v ?? 'medium'),
-                ),
-                const SizedBox(height: 8),
-                DropdownButtonFormField<String>(
-                  value: recurType,
-                  decoration: const InputDecoration(labelText: 'Recurrence (habits must repeat)'),
-                  items: const [
-                    DropdownMenuItem(value: 'daily', child: Text('Daily')),
-                    DropdownMenuItem(value: 'weekdays', child: Text('Weekdays (Mon–Fri)')),
-                    DropdownMenuItem(value: 'weekly', child: Text('Weekly (by anchor)')),
-                    DropdownMenuItem(value: 'every_n_days', child: Text('Every N days')),
-                  ],
-                  onChanged: (v) => setDlgState(() => recurType = v ?? 'daily'),
-                ),
-                if (recurType == 'every_n_days')
-                  TextField(controller: intervalCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Every N days (>=1)')),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Save')),
-          ],
-        );
-      }),
-    );
-    if (ok != true) return;
-    final patch = <String, dynamic>{};
-    if (titleCtrl.text != t.title) patch['title'] = titleCtrl.text;
-    if (notesCtrl.text != t.notes) patch['notes'] = notesCtrl.text;
-    final date = dateCtrl.text.trim();
-    final normalized = date.isEmpty ? null : date;
-    if (normalized != (t.scheduledFor ?? '')) patch['scheduledFor'] = normalized;
-    if (prio != t.priority) patch['priority'] = prio;
-    final time = timeCtrl.text.trim();
-    patch['timeOfDay'] = time.isEmpty ? null : time;
-    // Recurrence
-    final existingType = (t.recurrence != null && t.recurrence!['type'] is String) ? (t.recurrence!['type'] as String) : 'daily';
-    if (recurType != existingType) {
-      final rec = <String, dynamic>{'type': recurType};
-      if (recurType == 'every_n_days') {
-        final n = int.tryParse(intervalCtrl.text.trim());
-        if (n != null && n >= 1) rec['intervalDays'] = n;
-      }
-      patch['recurrence'] = rec;
-    }
-    try {
-      // server requires recurrence on habit updates
-      if (!patch.containsKey('recurrence')) {
-        patch['recurrence'] = t.recurrence ?? {'type': 'daily'};
-      }
-      await api.updateHabit(t.id, patch);
       await _refreshAll();
     } catch (e) {
       setState(() => message = 'Edit failed: $e');
@@ -1502,21 +1698,16 @@ class _HomePageState extends State<HomePage> {
                       ),
                       // Full-height divider aligning with body split (right of main tasks / left of assistant)
                       VerticalDivider(width: 1, thickness: 1, color: Theme.of(context).colorScheme.outline),
-                      // Assistant header zone (right-aligned)
+                      // Assistant header zone (right-aligned) with collapse toggle
                       SizedBox(
                         width: 360,
-                        child: Center(
-                          child: showAssistantText
-                              ? Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: const [
-                                    Icon(Icons.smart_toy_outlined, color: Colors.white, size: 18),
-                                    SizedBox(width: 6),
-                                    Text('Mr. Assister', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.white)),
-                                  ],
-                                )
-                              : const Icon(Icons.smart_toy_outlined, color: Colors.white, size: 18),
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton.icon(
+                            onPressed: () => setState(() => assistantCollapsed = !assistantCollapsed),
+                            icon: const Icon(Icons.smart_toy_outlined, color: Colors.white, size: 18),
+                            label: Text(assistantCollapsed ? 'Show Assistant' : 'Hide Assistant', style: const TextStyle(color: Colors.white)),
+                          ),
                         ),
                       ),
                     ],
@@ -1537,6 +1728,10 @@ class _HomePageState extends State<HomePage> {
                           if (k == 'goals') {
                             setState(() { mainView = MainView.goals; });
                             return;
+                          } else if (k == 'habits') {
+                            setState(() { mainView = MainView.habits; });
+                            await _refreshAll();
+                            return;
                           }
                           final sl = _smartListFromKey(k);
                           if (sl == SmartList.today) {
@@ -1550,6 +1745,11 @@ class _HomePageState extends State<HomePage> {
                             setState(() {
                               selected = sl; mainView = MainView.tasks;
                               view = View.week;
+                            });
+                            await _refreshAll();
+                          } else if (sl == SmartList.habits) {
+                            setState(() {
+                              selected = sl; mainView = MainView.habits;
                             });
                             await _refreshAll();
                           } else {
@@ -1588,7 +1788,7 @@ class _HomePageState extends State<HomePage> {
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Expanded(child: Stack(children: [
-                                        (mainView == MainView.tasks) ? _buildMainList() : _buildGoalsView(),
+                                        (mainView == MainView.tasks) ? _buildMainList() : (mainView == MainView.habits ? _buildHabitsList() : _buildGoalsView()),
                                         Positioned(
                                           right: 16,
                                           bottom: 16,
@@ -1603,44 +1803,45 @@ class _HomePageState extends State<HomePage> {
                                   ),
                                 ),
                                 const VerticalDivider(width: 1),
-                                // Assistant panel (without internal header)
-                                SizedBox(
-                                  width: 360,
-                                  child: AssistantPanel(
-                                    transcript: assistantTranscript,
-                                    operations: assistantOps,
-                                    operationsChecked: assistantOpsChecked,
-                                    sending: assistantSending,
-                                    model: _assistantModel,
-                                    showDiff: assistantShowDiff,
-                                    onToggleDiff: () => setState(() => assistantShowDiff = !assistantShowDiff),
-                                    onToggleOperation: (i, v) => setState(() => assistantOpsChecked[i] = v),
-                                    onApplySelected: _applyAssistantOps,
-                                    onDiscard: () => setState(() { assistantOps = []; assistantOpsChecked = []; assistantShowDiff = false; }),
-                                    inputController: assistantCtrl,
-                                    onSend: _sendAssistantMessage,
-                                    opLabel: (op) => _opLabel((op as AnnotatedOp).op),
-                                    onClearChat: () => setState(() {
-                                      assistantTranscript.clear();
-                                      assistantOps = [];
-                                      assistantOpsChecked = [];
-                                      assistantShowDiff = false;
-                                    }),
-                                    clarifyQuestion: _pendingClarifyQuestion,
-                                    clarifyOptions: _pendingClarifyOptions,
-                                    onToggleClarifyId: (id) => setState(() {
-                                      if (_clarifySelectedIds.contains(id)) _clarifySelectedIds.remove(id);
-                                      else _clarifySelectedIds.add(id);
-                                    }),
-                                     onSelectClarifyDate: (d) => setState(() { _clarifySelectedDate = d; }),
-                                     onSelectClarifyPriority: (p) => setState(() { _clarifySelectedPriority = p; }),
-                                     progressStage: _progressStage,
-                                     todayYmd: ymd(DateTime.now()),
-                                      selectedClarifyIds: _clarifySelectedIds,
-                                      selectedClarifyDate: _clarifySelectedDate,
-                                      selectedClarifyPriority: _clarifySelectedPriority,
+                                // Assistant panel (collapsible)
+                                if (!assistantCollapsed)
+                                  SizedBox(
+                                    width: 360,
+                                    child: AssistantPanel(
+                                      transcript: assistantTranscript,
+                                      operations: assistantOps,
+                                      operationsChecked: assistantOpsChecked,
+                                      sending: assistantSending,
+                                      model: _assistantModel,
+                                      showDiff: assistantShowDiff,
+                                      onToggleDiff: () => setState(() => assistantShowDiff = !assistantShowDiff),
+                                      onToggleOperation: (i, v) => setState(() => assistantOpsChecked[i] = v),
+                                      onApplySelected: _applyAssistantOps,
+                                      onDiscard: () => setState(() { assistantOps = []; assistantOpsChecked = []; assistantShowDiff = false; }),
+                                      inputController: assistantCtrl,
+                                      onSend: _sendAssistantMessage,
+                                      opLabel: (op) => _opLabel((op as AnnotatedOp).op),
+                                      onClearChat: () => setState(() {
+                                        assistantTranscript.clear();
+                                        assistantOps = [];
+                                        assistantOpsChecked = [];
+                                        assistantShowDiff = false;
+                                      }),
+                                      clarifyQuestion: _pendingClarifyQuestion,
+                                      clarifyOptions: _pendingClarifyOptions,
+                                      onToggleClarifyId: (id) => setState(() {
+                                        if (_clarifySelectedIds.contains(id)) _clarifySelectedIds.remove(id);
+                                        else _clarifySelectedIds.add(id);
+                                      }),
+                                       onSelectClarifyDate: (d) => setState(() { _clarifySelectedDate = d; }),
+                                       onSelectClarifyPriority: (p) => setState(() { _clarifySelectedPriority = p; }),
+                                       progressStage: _progressStage,
+                                       todayYmd: ymd(DateTime.now()),
+                                        selectedClarifyIds: _clarifySelectedIds,
+                                        selectedClarifyDate: _clarifySelectedDate,
+                                        selectedClarifyPriority: _clarifySelectedPriority,
+                                    ),
                                   ),
-                                ),
                               ],
                             ),
                           ),
@@ -2330,6 +2531,54 @@ class _HomePageState extends State<HomePage> {
       completed: t.completed,
       overdue: isOverdue,
     );
+    // Build a small extra badge for habits with streaks if stats available
+    Widget? extraBadge;
+    if (t.kind == 'habit') {
+      final stats = (t.masterId != null) ? habitStatsById[t.masterId!] : habitStatsById[t.id];
+      final int current = (stats != null && stats['currentStreak'] is int) ? stats['currentStreak'] as int : 0;
+      final List<dynamic> heat = (stats != null && stats['weekHeatmap'] is List<dynamic>) ? (stats['weekHeatmap'] as List<dynamic>) : const [];
+      final heatSquares = heat.take(7).map((d) {
+        final bool done = () {
+          try { return (d is Map<String, dynamic>) ? (d['completed'] as bool? ?? false) : (Map<String, dynamic>.from(d as Map)['completed'] as bool? ?? false); }
+          catch (_) { return false; }
+        }();
+        return Container(
+          width: 6,
+          height: 6,
+          margin: const EdgeInsets.symmetric(horizontal: 1),
+          decoration: BoxDecoration(
+            color: done ? const Color(0xFF58A55C) : const Color(0xFFDADFE3),
+            borderRadius: BorderRadius.circular(2),
+          ),
+        );
+      }).toList();
+      extraBadge = Row(mainAxisSize: MainAxisSize.min, children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            color: const Color(0xFFEFF7E6),
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            const Text('🔥', style: TextStyle(fontSize: 12)),
+            const SizedBox(width: 4),
+            Text('$current', style: const TextStyle(fontSize: 11)),
+          ]),
+        ),
+        if (heatSquares.isNotEmpty) ...[
+          const SizedBox(width: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.grey.shade300),
+            ),
+            child: Row(mainAxisSize: MainAxisSize.min, children: heatSquares),
+          ),
+        ],
+      ]);
+    }
     final keyId = t.masterId != null && t.scheduledFor != null ? Object.hashAll([t.masterId, t.scheduledFor]) : t.id;
     final key = _rowKeys.putIfAbsent(keyId, () => GlobalKey());
     return KeyedSubtree(
@@ -2340,7 +2589,19 @@ class _HomePageState extends State<HomePage> {
         onEdit: () => (t.kind == 'event') ? _editEvent(t) : (t.kind == 'habit') ? _editHabit(t) : _editTodo(t),
         onDelete: () => _deleteTodo(t),
         highlighted: _highlightedId == t.id,
+        extraBadge: extraBadge,
       ),
+    );
+  }
+
+  Widget _buildHabitsList() {
+    final items = scheduled.where((t) => t.kind == 'habit').toList()
+      ..sort((a, b) => (a.scheduledFor ?? '').compareTo(b.scheduledFor ?? ''));
+    return ListView(
+      padding: const EdgeInsets.all(12),
+      children: [
+        for (final t in items) _buildRow(t),
+      ],
     );
   }
 }
