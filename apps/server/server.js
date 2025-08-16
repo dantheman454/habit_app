@@ -1724,11 +1724,10 @@ function buildProposalPrompt({ instruction, todosSnapshot, transcript }) {
   const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
   const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
   const context = JSON.stringify({ todos: todosSnapshot }, null, 2);
-  const user = `Conversation (last 3 turns):\n${convo}\n\nTimezone: ${TIMEZONE}\nInstruction:\n${instruction}\n\nContext:\n${context}\n\nRespond with JSON ONLY that matches this exact example format:\n{\n  "operations": [\n    {"kind":"todo","action":"create","title":"Buy milk","scheduledFor":"${todayYmd}","priority":"high","recurrence":{"type":"none"}}\n  ]\n}`;
+  const user = `Conversation (last 3 turns):\n${convo}\n\nTimezone: ${TIMEZONE}\nInstruction:\n${instruction}\n\nContext:\n${context}\n\nRespond with JSON ONLY that matches this exact example format:\n{\n  "operations": [\n    {"kind":"todo","action":"create","title":"<contextually relevant title>","scheduledFor":"${todayYmd}","priority":"high","recurrence":{"type":"none"}}\n  ]\n}`;
   return `${system}\n\n${user}`;
 }
 
-// /api/llm/propose removed — superseded by /api/assistant/message two-call pipeline
 
 function appendAudit(entry) {
   try { db.logAudit(entry); } catch {}

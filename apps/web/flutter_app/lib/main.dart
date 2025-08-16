@@ -793,8 +793,6 @@ class _HomePageState extends State<HomePage> {
     final selectedEventIds = <int>{};
     final todoSearchCtrl = TextEditingController();
     final eventSearchCtrl = TextEditingController();
-    final todoSearchCtrl = TextEditingController();
-    final eventSearchCtrl = TextEditingController();
     List<Map<String, dynamic>> allTodos = [];
     List<Map<String, dynamic>> allEvents = [];
 
@@ -871,7 +869,7 @@ class _HomePageState extends State<HomePage> {
                           for (final t in allTodos.where((x) {
                             final q = todoSearchCtrl.text.trim().toLowerCase();
                             if (q.isEmpty) return true;
-                            final title = String.tryParse((x['title'] ?? '').toString()) ?? (x['title'] ?? '').toString();
+                            final title = (x['title'] ?? '').toString();
                             return title.toLowerCase().contains(q);
                           }))
                             CheckboxListTile(
@@ -898,7 +896,7 @@ class _HomePageState extends State<HomePage> {
                           for (final e in allEvents.where((x) {
                             final q = eventSearchCtrl.text.trim().toLowerCase();
                             if (q.isEmpty) return true;
-                            final title = String.tryParse((x['title'] ?? '').toString()) ?? (x['title'] ?? '').toString();
+                            final title = (x['title'] ?? '').toString();
                             return title.toLowerCase().contains(q);
                           }))
                             CheckboxListTile(
@@ -960,6 +958,8 @@ class _HomePageState extends State<HomePage> {
     final notesCtrl = TextEditingController(text: t.notes);
     final dateCtrl = TextEditingController(text: t.scheduledFor ?? '');
     final timeCtrl = TextEditingController(text: t.timeOfDay ?? '');
+    final todoSearchCtrl = TextEditingController();
+    final eventSearchCtrl = TextEditingController();
     final intervalCtrl = TextEditingController(text: (t.recurrence != null && t.recurrence!['intervalDays'] != null) ? '${t.recurrence!['intervalDays']}' : '1');
     String prio = t.priority;
     String recurType = (t.recurrence != null && t.recurrence!['type'] is String) ? (t.recurrence!['type'] as String) : 'daily';
@@ -1036,7 +1036,7 @@ class _HomePageState extends State<HomePage> {
                         for (final x in allTodos.where((it) {
                           final q = todoSearchCtrl.text.trim().toLowerCase();
                           if (q.isEmpty) return true;
-                          final title = String.tryParse((it['title'] ?? '').toString()) ?? (it['title'] ?? '').toString();
+                          final title = (it['title'] ?? '').toString();
                           return title.toLowerCase().contains(q);
                         }))
                           CheckboxListTile(
@@ -1063,7 +1063,7 @@ class _HomePageState extends State<HomePage> {
                         for (final e in allEvents.where((it) {
                           final q = eventSearchCtrl.text.trim().toLowerCase();
                           if (q.isEmpty) return true;
-                          final title = String.tryParse((it['title'] ?? '').toString()) ?? (it['title'] ?? '').toString();
+                          final title = (it['title'] ?? '').toString();
                           return title.toLowerCase().contains(q);
                         }))
                           CheckboxListTile(
@@ -1745,11 +1745,6 @@ class _HomePageState extends State<HomePage> {
                             setState(() {
                               selected = sl; mainView = MainView.tasks;
                               view = View.week;
-                            });
-                            await _refreshAll();
-                          } else if (sl == SmartList.habits) {
-                            setState(() {
-                              selected = sl; mainView = MainView.habits;
                             });
                             await _refreshAll();
                           } else {
