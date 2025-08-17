@@ -73,6 +73,9 @@ class Todo {
 
 class LlmOperation {
   final String op; // create|update|delete|complete
+  // V3 shape support
+  final String? kind; // todo|event|habit|goal
+  final String? action; // create|update|delete|complete|complete_occurrence
   final int? id;
   final String? title;
   final String? notes;
@@ -80,11 +83,17 @@ class LlmOperation {
   final String? priority;
   final bool? completed;
   final String? timeOfDay; // HH:MM or null
+  // Event-specific optional fields
+  final String? startTime; // HH:MM
+  final String? endTime; // HH:MM
+  final String? location;
   final Map<String, dynamic>? recurrence; // {type, intervalDays, until}
   // Occurrence completion support
   final String? occurrenceDate; // YYYY-MM-DD for complete_occurrence
   LlmOperation({
     required this.op,
+    this.kind,
+    this.action,
     this.id,
     this.title,
     this.notes,
@@ -92,11 +101,26 @@ class LlmOperation {
     this.priority,
     this.completed,
     this.timeOfDay,
+    this.startTime,
+    this.endTime,
+    this.location,
     this.recurrence,
     this.occurrenceDate,
   });
   factory LlmOperation.fromJson(Map<String, dynamic> j) => LlmOperation(
-    op: j['op'] as String,
+    op: (() {
+      final rawOp = j['op'];
+      if (rawOp is String && rawOp.isNotEmpty) return rawOp;
+      final k = j['kind'];
+      final a = j['action'];
+      if (a is String && a.isNotEmpty) {
+        if (k is String && k.isNotEmpty) return '$k:$a';
+        return a;
+      }
+      return 'op';
+    })(),
+    kind: (j['kind'] is String) ? j['kind'] as String : null,
+    action: (j['action'] is String) ? j['action'] as String : null,
     id: j['id'] is int
         ? j['id'] as int
         : (j['id'] is String ? int.tryParse(j['id']) : null),
@@ -106,6 +130,9 @@ class LlmOperation {
     priority: j['priority'] as String?,
     completed: j['completed'] as bool?,
     timeOfDay: j['timeOfDay'] as String?,
+    startTime: j['startTime'] as String?,
+    endTime: j['endTime'] as String?,
+    location: j['location'] as String?,
     recurrence: j['recurrence'] == null
         ? null
         : Map<String, dynamic>.from(j['recurrence'] as Map),
@@ -113,6 +140,8 @@ class LlmOperation {
   );
   Map<String, dynamic> toJson() => {
     'op': op,
+    if (kind != null) 'kind': kind,
+    if (action != null) 'action': action,
     if (id != null) 'id': id,
     if (title != null) 'title': title,
     if (notes != null) 'notes': notes,
@@ -120,6 +149,9 @@ class LlmOperation {
     if (priority != null) 'priority': priority,
     if (completed != null) 'completed': completed,
     if (timeOfDay != null) 'timeOfDay': timeOfDay,
+    if (startTime != null) 'startTime': startTime,
+    if (endTime != null) 'endTime': endTime,
+    if (location != null) 'location': location,
     if (recurrence != null) 'recurrence': recurrence,
     if (occurrenceDate != null) 'occurrenceDate': occurrenceDate,
   };
@@ -130,7 +162,12 @@ class AnnotatedOp {
   final List<String> errors;
   AnnotatedOp({required this.op, required this.errors});
   factory AnnotatedOp.fromJson(Map<String, dynamic> j) => AnnotatedOp(
-    op: LlmOperation.fromJson(Map<String, dynamic>.from(j['op'] as Map)),
+    op: (() {
+      final raw = j['op'];
+      if (raw is Map) return LlmOperation.fromJson(Map<String, dynamic>.from(raw));
+      // Some servers may send flat shape without wrapping under 'op'
+      return LlmOperation.fromJson(j);
+    })(),
     errors: (j['errors'] as List<dynamic>? ?? const <dynamic>[])
         .map((e) => e.toString())
         .toList(),
@@ -167,7 +204,7 @@ class App extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Todos',
+      title: 'Habitus',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
@@ -260,16 +297,14 @@ class _HomePageState extends State<HomePage> {
   int _habitFocusCol = 0; // 0..6
 
   // Unified schedule filters (chips)
+  // Default to Tasks (todos) only; tabs switch this to 'event' or 'habit'.
   Set<String> _kindFilter = <String>{
     'todo',
-    'event',
-    'habit',
-  }; // All by default
+  };
 
   bool loading = false;
   String? message;
-  // Assistant model label and collapse state
-  String _assistantModel = '';
+  // Assistant collapse state
   bool assistantCollapsed = true;
 
   final TextEditingController assistantCtrl = TextEditingController();
@@ -287,6 +322,10 @@ class _HomePageState extends State<HomePage> {
   String? _clarifySelectedDate;
   String? _clarifySelectedPriority;
   String _progressStage = '';
+  String? _lastCorrelationId;
+  int _progressValid = 0;
+  int _progressInvalid = 0;
+  DateTime? _progressStart;
   // Pending smooth-scroll target (YYYY-MM-DD) for Day view
   String? _pendingScrollYmd;
 
@@ -334,7 +373,7 @@ class _HomePageState extends State<HomePage> {
     } catch (_) {}
     if (!TestHooks.skipRefresh) {
       _refreshAll();
-      _loadAssistantModel();
+      // Model fetching removed
     } else {
       setState(() => loading = false);
     }
@@ -828,12 +867,12 @@ class _HomePageState extends State<HomePage> {
       // Day/Week/Month: use unified schedule for Tasks and Habits
       List<Todo> sList;
       if (view == View.day || view == View.week || view == View.month) {
-        // Select kinds based on current tab
+        // Select kinds strictly by tab: tasks (todo or event) or habits
         final kinds = (mainView == MainView.habits)
             ? <String>['habit']
-            : (_kindFilter.isEmpty
-                  ? ['todo', 'event', 'habit']
-                  : _kindFilter.toList());
+            : (_kindFilter.contains('event')
+                ? <String>['event']
+                : <String>['todo']);
         final raw = await api.fetchSchedule(
           from: r.from,
           to: r.to,
@@ -887,6 +926,16 @@ class _HomePageState extends State<HomePage> {
         completed: showCompleted ? null : false,
         priority: _priorityFilter,
       );
+      // For Events tab, load all scheduled events across time for counts
+      List<Todo> eventsAllList = const <Todo>[];
+      if (mainView == MainView.tasks && _kindFilter.contains('event')) {
+        try {
+          final evAllRaw = await api.listEvents();
+          eventsAllList = evAllRaw
+              .map((e) => Todo.fromJson(Map<String, dynamic>.from(e as Map)))
+              .toList();
+        } catch (_) {}
+      }
       final backlogRaw = await api.fetchBacklog(priority: _priorityFilter);
       final sAllList = scheduledAllRaw
           .map((e) => Todo.fromJson(e as Map<String, dynamic>))
@@ -917,33 +966,23 @@ class _HomePageState extends State<HomePage> {
             scheduledCount +
             backlogCount; // backlog currently excludes habits; acceptable for tab-scoped count
       } else if (mainView == MainView.tasks) {
+        final bool eventsMode = _kindFilter.contains('event');
         todayCount = sList
-            .where(
-              (t) =>
-                  (t.kind == null || t.kind == 'todo' || t.kind == 'event') &&
-                  t.scheduledFor == nowYmd,
-            )
+            .where((t) => (eventsMode ? t.kind == 'event' : (t.kind == 'todo' || t.kind == null)) && t.scheduledFor == nowYmd)
             .length;
         scheduledCount = sList
-            .where(
-              (t) => (t.kind == null || t.kind == 'todo' || t.kind == 'event'),
-            )
+            .where((t) => eventsMode ? t.kind == 'event' : (t.kind == 'todo' || t.kind == null))
             .length;
-        flaggedCount = [...sAllList, ...bList]
-            .where(
-              (t) =>
-                  (t.kind == null || t.kind == 'todo' || t.kind == 'event') &&
-                  t.priority == 'high',
-            )
-            .length;
-        allCount =
-            sAllList
-                .where(
-                  (t) =>
-                      (t.kind == null || t.kind == 'todo' || t.kind == 'event'),
-                )
-                .length +
-            backlogCount;
+        if (eventsMode) {
+          backlogCount = 0; // no backlog for events
+          flaggedCount = eventsAllList.where((t) => t.priority == 'high').length;
+          allCount = eventsAllList.length;
+        } else {
+          flaggedCount = [...sAllList, ...bList]
+              .where((t) => (t.kind == null || t.kind == 'todo') && t.priority == 'high')
+              .length;
+          allCount = sAllList.where((t) => (t.kind == null || t.kind == 'todo')).length + backlogCount;
+        }
       } else {
         // goals tab
         todayCount = 0;
@@ -1019,17 +1058,7 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _loadAssistantModel() async {
-    try {
-      final m = await api.fetchAssistantModel();
-      if (!mounted) return;
-      setState(() {
-        _assistantModel = m;
-      });
-    } catch (_) {
-      // ignore
-    }
-  }
+  // Removed: _loadAssistantModel (endpoint deleted; badges removed)
 
   Future<void> _runSearch(String q) async {
     if (q.trim().length < 2) {
@@ -1044,14 +1073,26 @@ class _HomePageState extends State<HomePage> {
       } catch (_) {}
       _searchCancelToken = CancelToken();
       setState(() => _searching = true);
-      final list = await api.searchTodos(
+      final scope = () {
+        if (mainView == MainView.habits) return 'habit';
+        if (_kindFilter.length == 1 && _kindFilter.contains('event')) return 'event';
+        return 'todo';
+      }();
+      final list = await api.searchUnified(
         q,
+        scope: (scope == 'habit') ? 'event' : scope, // exclude habits for now per requirements
         completed: showCompleted ? null : false,
         cancelToken: _searchCancelToken,
+        limit: 30,
       );
-      final items = (list)
-          .map((e) => Todo.fromJson(e as Map<String, dynamic>))
-          .toList();
+      final items = (list).map((raw) {
+        final m = Map<String, dynamic>.from(raw as Map);
+        // Normalize for view model
+        if ((m['kind'] as String?) == 'event' && m['startTime'] != null && m['timeOfDay'] == null) {
+          m['timeOfDay'] = m['startTime'];
+        }
+        return Todo.fromJson(m);
+      }).toList();
       setState(() {
         searchResults = items;
         _searching = false;
@@ -1078,8 +1119,9 @@ class _HomePageState extends State<HomePage> {
       _removeSearchOverlay();
       return;
     }
-    if (_searchOverlay != null) {
-      _searchOverlay!.markNeedsBuild();
+    final existing = _searchOverlay;
+    if (existing != null) {
+      existing.markNeedsBuild();
       return;
     }
     _searchOverlay = OverlayEntry(
@@ -1185,6 +1227,8 @@ class _HomePageState extends State<HomePage> {
                                                         _chip(
                                                           'prio ${t.priority}',
                                                         ),
+                                                        if ((t.kind ?? '').isNotEmpty)
+                                                          _chip(t.kind ?? ''),
                                                       ],
                                                     ),
                                                   ],
@@ -1214,7 +1258,11 @@ class _HomePageState extends State<HomePage> {
         );
       },
     );
-    Overlay.of(context, debugRequiredFor: widget).insert(_searchOverlay!);
+    final entry = _searchOverlay;
+    final overlay = Overlay.of(context, debugRequiredFor: widget);
+    if (entry != null && overlay != null) {
+      overlay.insert(entry);
+    }
   }
 
   void _removeSearchOverlay() {
@@ -1249,15 +1297,29 @@ class _HomePageState extends State<HomePage> {
       _searchHoverIndex = -1;
     });
     // Determine list membership
-    final isScheduled = t.scheduledFor != null;
-    final targetList = isScheduled
-        ? SmartList.all
-        : SmartList.all; // Ensure visibility regardless
-    if (selected != targetList) {
-      setState(() => selected = targetList);
-      await _refreshAll();
-      await Future.delayed(Duration.zero);
+    // Switch tab by kind (requirements: tasks-only vs events-only views)
+    if (t.kind == 'event') {
+      if (!(mainView == MainView.tasks && _kindFilter.contains('event'))) {
+        setState(() {
+          mainView = MainView.tasks;
+          _kindFilter = <String>{'event'};
+          selected = SmartList.all;
+        });
+        try { storage.setItem('mainTab', 'events'); } catch (_) {}
+        await _refreshAll();
+      }
+    } else { // treat default as todo
+      if (!(mainView == MainView.tasks && _kindFilter.contains('todo'))) {
+        setState(() {
+          mainView = MainView.tasks;
+          _kindFilter = <String>{'todo'};
+          selected = SmartList.all;
+        });
+        try { storage.setItem('mainTab', 'todos'); } catch (_) {}
+        await _refreshAll();
+      }
     }
+    await Future.delayed(Duration.zero);
     final key = _rowKeys[t.id];
     if (key != null && key.currentContext != null) {
       await Scrollable.ensureVisible(
@@ -1615,6 +1677,15 @@ class _HomePageState extends State<HomePage> {
       }
     }
 
+    // If recurrence becomes repeating, require an anchor date
+    final willRepeat = (patch['recurrence'] is Map && (patch['recurrence'] as Map)['type'] != 'none');
+    final nextAnchor = (patch.containsKey('scheduledFor')) ? (patch['scheduledFor'] as String?) : (t.scheduledFor);
+    if (willRepeat && (nextAnchor == null || nextAnchor.trim().isEmpty)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Set an anchor date (YYYY-MM-DD) for repeating habits.')),
+      );
+      return;
+    }
     try {
       await api.updateHabit(t.id, patch);
       // Apply linking
@@ -1783,6 +1854,15 @@ class _HomePageState extends State<HomePage> {
     }
 
     if (patch.isEmpty) return;
+    // If recurrence becomes repeating, require anchor date
+    final willRepeat = (patch['recurrence'] is Map && (patch['recurrence'] as Map)['type'] != 'none');
+    final nextAnchor = (patch.containsKey('scheduledFor')) ? (patch['scheduledFor'] as String?) : (t.scheduledFor);
+    if (willRepeat && (nextAnchor == null || nextAnchor.trim().isEmpty)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Set an anchor date (YYYY-MM-DD) for repeating todos.')),
+      );
+      return;
+    }
     try {
       if (!patch.containsKey('recurrence')) {
         patch['recurrence'] = t.recurrence ?? {'type': 'none'};
@@ -1948,6 +2028,15 @@ class _HomePageState extends State<HomePage> {
                   }
                 : {'type': recurType});
     }
+    // If recurrence becomes repeating, require anchor date
+    final willRepeat = (patch['recurrence'] is Map && (patch['recurrence'] as Map)['type'] != 'none');
+    final nextAnchor = (patch.containsKey('scheduledFor')) ? (patch['scheduledFor'] as String?) : (t.scheduledFor);
+    if (willRepeat && (nextAnchor == null || nextAnchor.trim().isEmpty)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Set an anchor date (YYYY-MM-DD) for repeating events.')),
+      );
+      return;
+    }
     try {
       await api.updateEvent(t.id, patch);
       await _refreshAll();
@@ -1976,10 +2065,37 @@ class _HomePageState extends State<HomePage> {
       final recent = assistantTranscript.length <= 3
           ? assistantTranscript
           : assistantTranscript.sublist(assistantTranscript.length - 3);
-      final res = await api.assistantMessage(
+  final res = await api.assistantMessage(
         text,
         transcript: recent,
         streamSummary: true,
+    clientContext: () {
+          // Limit to current view as requested: derive range and kinds
+          final dr = rangeForView(anchor, view);
+          final kinds = (mainView == MainView.habits)
+              ? <String>['habit']
+              : (mainView == MainView.goals)
+                  ? <String>['goal']
+                  : (_kindFilter.contains('event')
+                      ? <String>['event']
+                      : <String>['todo']);
+          return {
+            'range': {'from': dr.from, 'to': dr.to},
+            'kinds': kinds,
+  if (_priorityFilter != null) 'priority': _priorityFilter,
+  'mainView': mainView.name,
+  // New: include completion and search context to further scope planning
+  'completed': showCompleted,
+  if (searchCtrl.text.trim().isNotEmpty) 'search': searchCtrl.text.trim(),
+          };
+        }(),
+        onTraceId: (cid) {
+          if (!mounted) return;
+          if ((cid).trim().isEmpty) return;
+          setState(() {
+            _lastCorrelationId = cid;
+          });
+        },
         onSummary: (s) {
           // Update placeholder bubble with latest streamed text
           if (!mounted) return;
@@ -2035,6 +2151,7 @@ class _HomePageState extends State<HomePage> {
           if (!mounted) return;
           setState(() {
             _progressStage = st;
+            if (_progressStart == null) _progressStart = DateTime.now();
           });
         },
         onOps: (ops, version, validCount, invalidCount) {
@@ -2072,10 +2189,13 @@ class _HomePageState extends State<HomePage> {
               final preserved = prevMap[key] ?? assistantOps[i].errors.isEmpty;
               return preserved && assistantOps[i].errors.isEmpty;
             });
+            _progressValid = validCount;
+            _progressInvalid = invalidCount;
           });
         },
       );
-      final reply = (res['text'] as String?) ?? '';
+  final reply = (res['text'] as String?) ?? '';
+  final corr = (res['correlationId'] as String?) ?? _lastCorrelationId;
       final opsRaw = res['operations'] as List<dynamic>?;
       final ops = opsRaw == null
           ? <AnnotatedOp>[]
@@ -2095,7 +2215,8 @@ class _HomePageState extends State<HomePage> {
             assistantTranscript.add({'role': 'assistant', 'text': reply});
           }
         }
-        assistantStreamingIndex = null;
+  assistantStreamingIndex = null;
+  _lastCorrelationId = corr;
         // Preserve any user selections made during streaming by reconciling with the final ops
         final prior = assistantOps;
         final priorChecked = assistantOpsChecked;
@@ -2131,7 +2252,10 @@ class _HomePageState extends State<HomePage> {
         _clarifySelectedIds.clear();
         _clarifySelectedDate = null;
         _clarifySelectedPriority = null;
-        _progressStage = '';
+  _progressStage = '';
+  _progressValid = 0;
+  _progressInvalid = 0;
+  _progressStart = null;
       });
     } catch (e) {
       setState(() {
@@ -2212,7 +2336,7 @@ class _HomePageState extends State<HomePage> {
       } catch (_) {
         // Ignore dry-run failures; continue to apply
       }
-      final res = await api.applyOperations(selectedOps);
+  final res = await api.applyOperations(selectedOps, correlationId: _lastCorrelationId);
       final summary = res['summary'];
       setState(() {
         message =
@@ -2306,8 +2430,37 @@ class _HomePageState extends State<HomePage> {
                   height: 112,
                   child: Row(
                     children: [
-                      // Reserve space visually aligned with left sidebar width
-                      const SizedBox(width: 220),
+                      // Left: App title box (fixed width to align with sidebar)
+                      SizedBox(
+                        width: 220,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.start,
+                            children: [
+                              Icon(
+                                Icons.spa,
+                                size: 44,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .primary,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Habitus',
+                                style: TextStyle(
+                                  fontSize: 36,
+                                  fontWeight: FontWeight.w600,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurface,
+                                  letterSpacing: 0.2,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                       // Full-height divider aligning with body split (left of main tasks)
                       VerticalDivider(
                         width: 1,
@@ -2578,8 +2731,8 @@ class _HomePageState extends State<HomePage> {
                                 label: showAssistantText
                                     ? Text(
                                         assistantCollapsed
-                                            ? 'Show Assistant'
-                                            : 'Hide Assistant',
+                                            ? 'Show Mr. Assister'
+                                            : 'Hide Mr. Assister',
                                       )
                                     : const SizedBox.shrink(),
                               ),
@@ -2695,7 +2848,6 @@ class _HomePageState extends State<HomePage> {
                                       operations: assistantOps,
                                       operationsChecked: assistantOpsChecked,
                                       sending: assistantSending,
-                                      model: _assistantModel,
                                       showDiff: assistantShowDiff,
                                       onToggleDiff: () => setState(
                                         () => assistantShowDiff =
@@ -2736,6 +2888,9 @@ class _HomePageState extends State<HomePage> {
                                             _clarifySelectedPriority = p;
                                           }),
                                       progressStage: _progressStage,
+                                      progressValid: _progressValid,
+                                      progressInvalid: _progressInvalid,
+                                      progressStart: _progressStart,
                                       todayYmd: ymd(DateTime.now()),
                                       selectedClarifyIds: _clarifySelectedIds,
                                       selectedClarifyDate: _clarifySelectedDate,
@@ -2776,164 +2931,119 @@ class _HomePageState extends State<HomePage> {
     if (view == View.month) {
       return Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 6,
-                    children: [
-                      // Inline quick-add per tab
-                      if (mainView == MainView.tasks) ...[
-                        _quickAddInline(),
-                        const SizedBox(width: 12),
-                        SegmentedButton<String>(
-                          segments: const [
-                            ButtonSegment(value: 'all', label: Text('All')),
-                            ButtonSegment(value: 'low', label: Text('Low')),
-                            ButtonSegment(
-                              value: 'medium',
-                              label: Text('Medium'),
-                            ),
-                            ButtonSegment(value: 'high', label: Text('High')),
-                          ],
-                          selected: <String>{(_priorityFilter ?? 'all')},
-                          onSelectionChanged: (s) {
-                            setState(() {
-                              _priorityFilter = (s.first == 'all')
-                                  ? null
-                                  : s.first;
-                            });
-                            _refreshAll();
-                          },
-                          style: const ButtonStyle(
-                            visualDensity: VisualDensity.compact,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Row(
-                          children: [
-                            const Text('Show Completed'),
-                            Switch(
-                              value: showCompleted,
-                              onChanged: (v) {
-                                setState(() => showCompleted = v);
-                                _refreshAll();
-                              },
-                            ),
-                          ],
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                // Duplicate navigation controls removed; rely on header controls only
-              ],
-            ),
-          ),
+          // Main month grid first so content is at the top
           Expanded(child: _buildMonthGrid(grouped)),
+          const Divider(height: 1),
+          _buildBottomControls(),
         ],
       );
     }
-    return ListView(
-      padding: const EdgeInsets.all(12),
+    return Column(
       children: [
-        if (view == View.day || view == View.week || view == View.month)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 6,
-                    children: [
-                      if (mainView == MainView.tasks) ...[
-                        _quickAddInline(),
-                        const SizedBox(width: 12),
-                        SegmentedButton<String>(
-                          segments: const [
-                            ButtonSegment(value: 'all', label: Text('All')),
-                            ButtonSegment(value: 'low', label: Text('Low')),
-                            ButtonSegment(
-                              value: 'medium',
-                              label: Text('Medium'),
-                            ),
-                            ButtonSegment(value: 'high', label: Text('High')),
-                          ],
-                          selected: <String>{(_priorityFilter ?? 'all')},
-                          onSelectionChanged: (s) {
-                            setState(() {
-                              _priorityFilter = (s.first == 'all')
-                                  ? null
-                                  : s.first;
-                            });
-                            _refreshAll();
-                          },
-                          style: const ButtonStyle(
-                            visualDensity: VisualDensity.compact,
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.all(12),
+            children: [
+              if (view == View.week) _buildWeekdayHeader(),
+              for (final entry in grouped.entries) ...[
+                Builder(
+                  builder: (context) {
+                    final isTodayHeader = entry.key == ymd(DateTime.now());
+                    final label = isTodayHeader ? '${entry.key}  (Today)' : entry.key;
+                    return Container(
+                      margin: const EdgeInsets.only(top: 8, bottom: 2),
+                      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+                      decoration: BoxDecoration(
+                        color: isTodayHeader
+                            ? Theme.of(context).colorScheme.primary.withOpacity(0.06)
+                            : null,
+                        border: Border(
+                          left: BorderSide(
+                            color: isTodayHeader
+                                ? Theme.of(context).colorScheme.primary
+                                : Colors.transparent,
+                            width: 3,
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Row(
-                          children: [
-                            const Text('Show Completed'),
-                            Switch(
-                              value: showCompleted,
-                              onChanged: (v) {
-                                setState(() => showCompleted = v);
-                                _refreshAll();
-                              },
-                            ),
-                          ],
+                      ),
+                      child: Text(
+                        label,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: isTodayHeader
+                              ? Theme.of(context).colorScheme.primary
+                              : null,
                         ),
-                      ],
+                      ),
+                    );
+                  },
+                ),
+                ...entry.value.map(_buildRow),
+              ],
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        _buildBottomControls(),
+      ],
+    );
+  }
+
+  // Bottom controls: quick-add + filters moved from top to bottom
+  Widget _buildBottomControls() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                // Inline quick-add per current tab (todos/events/habits)
+                if (mainView == MainView.tasks || mainView == MainView.habits)
+                  _quickAddInline(),
+                if (mainView == MainView.tasks) ...[
+                  const SizedBox(width: 12),
+                  SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(value: 'all', label: Text('All')),
+                      ButtonSegment(value: 'low', label: Text('Low')),
+                      ButtonSegment(value: 'medium', label: Text('Medium')),
+                      ButtonSegment(value: 'high', label: Text('High')),
+                    ],
+                    selected: <String>{(_priorityFilter ?? 'all')},
+                    onSelectionChanged: (s) {
+                      setState(() {
+                        _priorityFilter = (s.first == 'all') ? null : s.first;
+                      });
+                      _refreshAll();
+                    },
+                    style: const ButtonStyle(
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('Show Completed'),
+                      Switch(
+                        value: showCompleted,
+                        onChanged: (v) {
+                          setState(() => showCompleted = v);
+                          _refreshAll();
+                        },
+                      ),
                     ],
                   ),
-                ),
-                // Duplicate navigation controls removed; rely on header controls only
+                ],
               ],
             ),
           ),
-        if (view == View.week) _buildWeekdayHeader(),
-        for (final entry in grouped.entries) ...[
-          Builder(
-            builder: (context) {
-              final isTodayHeader = entry.key == ymd(DateTime.now());
-              final label = isTodayHeader ? '${entry.key}  (Today)' : entry.key;
-              return Container(
-                margin: const EdgeInsets.only(top: 8, bottom: 2),
-                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
-                decoration: BoxDecoration(
-                  color: isTodayHeader
-                      ? Theme.of(context).colorScheme.primary.withOpacity(0.06)
-                      : null,
-                  border: Border(
-                    left: BorderSide(
-                      color: isTodayHeader
-                          ? Theme.of(context).colorScheme.primary
-                          : Colors.transparent,
-                      width: 3,
-                    ),
-                  ),
-                ),
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: isTodayHeader
-                        ? Theme.of(context).colorScheme.primary
-                        : null,
-                  ),
-                ),
-              );
-            },
-          ),
-          ...entry.value.map(_buildRow),
         ],
-      ],
+      ),
     );
   }
 

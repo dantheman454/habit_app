@@ -12,7 +12,9 @@ CloseFn startSse({
   final es = html.EventSource(uri);
   void handleMessage(html.MessageEvent ev, String eventName) {
     try {
-      onEvent(eventName, ev.data as String);
+      final d = ev.data;
+      final s = (d is String) ? d : (d == null ? '' : d.toString());
+      onEvent(eventName, s);
     } catch (_) {}
   }
 

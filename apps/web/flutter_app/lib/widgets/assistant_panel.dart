@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+// Clipboard badge removed
+import '../api.dart' as api;
 
 class LlmOperationLike {
   final String op;
@@ -35,7 +37,7 @@ class AssistantPanel extends StatelessWidget {
   operations; // Accepts domain type with fields used above (supports annotated ops)
   final List<bool> operationsChecked;
   final bool sending;
-  final String? model; // raw model id (badge)
+  // badges removed (model, trace)
   final bool showDiff;
   final VoidCallback onToggleDiff;
   final void Function(int index, bool value) onToggleOperation;
@@ -54,6 +56,10 @@ class AssistantPanel extends StatelessWidget {
   final void Function(String? priority)? onSelectClarifyPriority;
   // Progress stage label
   final String? progressStage;
+  // Optional progress metadata
+  final int? progressValid;
+  final int? progressInvalid;
+  final DateTime? progressStart;
   // Helper for date quick-selects
   final String? todayYmd;
   // Selected clarify state for UI reflection
@@ -67,7 +73,7 @@ class AssistantPanel extends StatelessWidget {
     required this.operations,
     required this.operationsChecked,
     required this.sending,
-    this.model,
+    
     required this.showDiff,
     required this.onToggleDiff,
     required this.onToggleOperation,
@@ -83,6 +89,9 @@ class AssistantPanel extends StatelessWidget {
     this.onSelectClarifyDate,
     this.onSelectClarifyPriority,
     this.progressStage,
+  this.progressValid,
+  this.progressInvalid,
+  this.progressStart,
     this.todayYmd,
     this.selectedClarifyIds,
     this.selectedClarifyDate,
@@ -134,35 +143,33 @@ class AssistantPanel extends StatelessWidget {
       ).colorScheme.surfaceContainerHighest.withOpacity(0.15),
       child: Column(
         children: [
+          // Panel title: Mr. Assister
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+            child: Row(
+              children: const [
+                Icon(Icons.smart_toy_outlined, size: 18),
+                SizedBox(width: 6),
+                Text(
+                  'Mr. Assister',
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 32),
+                ),
+              ],
+            ),
+          ),
           // Header controls
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
             child: Row(
+              children: const [
+                Spacer(),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Row(
               children: [
-                if (model != null && model!.isNotEmpty)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surface,
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.outline.withOpacity(0.5),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.memory, size: 14),
-                        const SizedBox(width: 6),
-                        Text(model!, style: const TextStyle(fontSize: 12)),
-                      ],
-                    ),
-                  ),
-                const SizedBox(width: 8),
                 const Spacer(),
                 if (onClearChat != null)
                   TextButton.icon(
@@ -184,20 +191,8 @@ class AssistantPanel extends StatelessWidget {
                   _buildClarifySection(context),
                 ],
                 if (sending) _buildTypingBubble(context),
-                if (sending &&
-                    (progressStage != null && progressStage!.isNotEmpty))
-                  Padding(
-                    padding: const EdgeInsets.only(left: 6, bottom: 6),
-                    child: Text(
-                      'Progress: ${progressStage!}',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.onSurfaceVariant.withOpacity(0.8),
-                      ),
-                    ),
-                  ),
+                if (sending && (progressStage != null && progressStage!.isNotEmpty))
+                  _buildProgress(context),
                 if (operations.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   const Text(
@@ -238,6 +233,29 @@ class AssistantPanel extends StatelessWidget {
                         onPressed: onApplySelected,
                         child: const Text('Apply Selected'),
                       ),
+                      // Quick selection helpers (operate via onToggleOperation)
+                      TextButton(
+                        onPressed: () {
+                          for (var i = 0; i < operations.length; i++) {
+                            // Skip invalid ops
+                            if (_getErrors(operations[i]).isNotEmpty) continue;
+                            if (i < operationsChecked.length && !operationsChecked[i]) {
+                              onToggleOperation(i, true);
+                            }
+                          }
+                        },
+                        child: const Text('Select all'),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          for (var i = 0; i < operations.length; i++) {
+                            if (i < operationsChecked.length && operationsChecked[i]) {
+                              onToggleOperation(i, false);
+                            }
+                          }
+                        },
+                        child: const Text('Clear'),
+                      ),
                       OutlinedButton(
                         onPressed: onToggleDiff,
                         child: Text(
@@ -252,7 +270,11 @@ class AssistantPanel extends StatelessWidget {
                   ),
                   if (showDiff) ...[
                     const SizedBox(height: 8),
-                    _buildOpsDiffView(operations, labeler, context),
+                    _DiffPopupButton(
+                      operations: operations,
+                      checked: operationsChecked,
+                      labeler: labeler,
+                    ),
                   ],
                 ],
               ],
@@ -398,8 +420,19 @@ class AssistantPanel extends StatelessWidget {
       final candidate = obj is Map<String, dynamic> && obj.containsKey('op')
           ? (obj['op'] as dynamic)
           : obj;
-      final k = (candidate as dynamic)['kind'];
-      if (k is String && k.isNotEmpty) return k.toLowerCase();
+      // Prefer V3 'kind'
+      try {
+        final k = (candidate as dynamic)['kind'];
+        if (k is String && k.isNotEmpty) return k.toLowerCase();
+      } catch (_) {}
+      // Fallback: infer from 'op' verb if present
+      try {
+        final op = (candidate as dynamic)['op'];
+        if (op is String && op.isNotEmpty) {
+          if (op.startsWith('goal_')) return 'goal';
+          return 'todo';
+        }
+      } catch (_) {}
     } catch (_) {}
     return 'todo';
   }
@@ -450,7 +483,8 @@ class AssistantPanel extends StatelessWidget {
           ),
         ),
       );
-      for (final i in byKind[k]!) {
+  final idxs = byKind[k] ?? const <int>[];
+  for (final i in idxs) {
         final op = ops[i];
         final errs = _getErrors(op);
         final isInvalid = errs.isNotEmpty;
@@ -512,6 +546,67 @@ class AssistantPanel extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
         ),
         child: const _TypingDots(),
+      ),
+    );
+  }
+
+  Widget _buildProgress(BuildContext context) {
+    double stagePercent(String s) {
+      switch (s) {
+        case 'routing':
+          return 0.15;
+        case 'proposing':
+          return 0.35;
+        case 'validating':
+          return 0.55;
+        case 'repairing':
+          return 0.75;
+        case 'summarizing':
+          return 0.9;
+        case 'done':
+          return 1.0;
+        default:
+          return 0.1;
+      }
+    }
+    final theme = Theme.of(context);
+    final pct = stagePercent(progressStage ?? '');
+    final valid = progressValid ?? 0;
+    final invalid = progressInvalid ?? 0;
+    final start = progressStart;
+    final elapsed = start == null ? '' : ' • ${(DateTime.now().difference(start).inSeconds)}s';
+    return Padding(
+      padding: const EdgeInsets.only(left: 6, bottom: 6, right: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Progress: ${progressStage}${elapsed}',
+            style: TextStyle(
+              fontSize: 12,
+              color: theme.colorScheme.onSurfaceVariant.withOpacity(0.8),
+            ),
+          ),
+          const SizedBox(height: 4),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: pct.clamp(0.0, 1.0),
+              minHeight: 6,
+            ),
+          ),
+          if (valid + invalid > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                'ops: $valid valid · $invalid invalid',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: theme.colorScheme.onSurfaceVariant.withOpacity(0.7),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -595,6 +690,297 @@ class AssistantPanel extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+class _DiffPopupButton extends StatelessWidget {
+  final List<dynamic> operations;
+  final List<bool>? checked;
+  final String Function(dynamic) labeler;
+  const _DiffPopupButton({required this.operations, this.checked, required this.labeler});
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: OutlinedButton.icon(
+        icon: const Icon(Icons.preview, size: 16),
+        label: const Text('View change preview'),
+        onPressed: () => showDialog<void>(
+          context: context,
+          builder: (ctx) {
+            // Build request ops based on selection state (if provided)
+      bool includeUnchecked = false;
+      List<Map<String, dynamic>> _buildRequestOps() {
+              final list = <Map<String, dynamic>>[];
+              for (var i = 0; i < operations.length; i++) {
+        if (checked != null && !includeUnchecked) {
+                  // Skip unchecked or invalid ops
+                  if (i >= (checked!.length)) continue;
+                  final isChecked = checked![i];
+                  final errs = AssistantPanel._getErrors(operations[i]);
+                  if (!isChecked || errs.isNotEmpty) continue;
+                }
+                final dyn = operations[i];
+                try {
+                  dynamic inner = (dyn is Map<String, dynamic> && dyn['op'] != null)
+                      ? dyn['op']
+                      : (dyn as dynamic).op;
+                  Map<String, dynamic>? m;
+                  if (inner is Map) {
+                    m = Map<String, dynamic>.from(inner as Map);
+                  } else {
+                    final tj = (inner as dynamic).toJson();
+                    if (tj is Map) m = Map<String, dynamic>.from(tj as Map);
+                  }
+                  if (m != null) list.add(m);
+                } catch (_) {}
+              }
+              // Fallback: if nothing selected, optionally preview all valid ops
+              if (list.isEmpty) {
+                for (final dyn in operations) {
+                  try {
+                    final errs = AssistantPanel._getErrors(dyn);
+                    if (errs.isNotEmpty) continue;
+                    dynamic inner = (dyn is Map<String, dynamic> && dyn['op'] != null)
+                        ? dyn['op']
+                        : (dyn as dynamic).op;
+                    Map<String, dynamic>? m;
+                    if (inner is Map) {
+                      m = Map<String, dynamic>.from(inner as Map);
+                    } else {
+                      final tj = (inner as dynamic).toJson();
+                      if (tj is Map) m = Map<String, dynamic>.from(tj as Map);
+                    }
+                    if (m != null) list.add(m);
+                  } catch (_) {}
+                }
+              }
+              return list;
+            }
+
+            return StatefulBuilder(
+              builder: (ctx, setDlgState) {
+                // Start loading on first build
+                // Use local state held in closures
+                final future = api.previewOperations(_buildRequestOps());
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.start,
+                      children: [
+                        StatefulBuilder(
+                          builder: (c2, setLocal) => CheckboxListTile(
+                            contentPadding: EdgeInsets.zero,
+                            dense: true,
+                            controlAffinity: ListTileControlAffinity.leading,
+                            title: const Text('Include unchecked valid ops'),
+                            value: includeUnchecked,
+                            onChanged: (v) {
+                              includeUnchecked = v ?? false;
+                              setDlgState(() {});
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    FutureBuilder<Map<String, dynamic>>(
+                      future: future,
+                  builder: (context, snap) {
+                    final title = const Text('Proposed changes');
+                    if (snap.connectionState != ConnectionState.done) {
+                          return AlertDialog(
+                            title: title,
+                            content: const SizedBox(
+                              width: 520,
+                              height: 200,
+                              child: Center(child: CircularProgressIndicator()),
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.of(ctx).pop(),
+                                child: const Text('Close'),
+                              ),
+                            ],
+                          );
+                    }
+                    if (snap.hasError || snap.data == null) {
+                      return AlertDialog(
+                        title: title,
+                        content: SizedBox(
+                          width: 520,
+                          child: Text('Preview failed: ${snap.error ?? 'unknown error'}'),
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(ctx).pop(),
+                            child: const Text('Close'),
+                          ),
+                        ],
+                      );
+                    }
+                    final affected = (snap.data!['affected'] as List<dynamic>? ?? const <dynamic>[])
+                        .map((e) => (e as Map).cast<String, dynamic>())
+                        .toList();
+                        return AlertDialog(
+                          title: title,
+                          content: SizedBox(
+                            width: 560,
+                            height: 420,
+                            child: Column(
+                              children: [
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: CheckboxListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    dense: true,
+                                    controlAffinity: ListTileControlAffinity.leading,
+                                    title: const Text('Include unchecked valid ops'),
+                                    value: includeUnchecked,
+                                    onChanged: (v) {
+                                      includeUnchecked = v ?? false;
+                                      setDlgState(() {});
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Expanded(
+                                  child: Scrollbar(
+                                    child: ListView.builder(
+                                      itemCount: affected.length,
+                                      itemBuilder: (_, i) {
+                                        final entry = affected[i];
+                                        final op = (entry['op'] as Map?)?.cast<String, dynamic>();
+                                        final before = (entry['before'] as Map?)?.cast<String, dynamic>();
+                                        final rows = _computeDiffRows(before, op);
+                                        return Container(
+                                          margin: const EdgeInsets.only(bottom: 8),
+                                          padding: const EdgeInsets.all(8),
+                                          decoration: BoxDecoration(
+                                            border: Border.all(color: Colors.grey.shade300),
+                                            borderRadius: BorderRadius.circular(6),
+                                          ),
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(labeler(op ?? const {})),
+                                              Padding(
+                                                padding: const EdgeInsets.only(top: 6),
+                                                child: Column(
+                                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                                  children: rows.isEmpty
+                                                      ? [const Text('No visible changes.')] 
+                                                      : rows,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.of(ctx).pop(),
+                              child: const Text('Close'),
+                            ),
+                          ],
+                        );
+                  },
+                    ),
+                  ],
+                );
+              },
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _computeDiffRows(
+    Map<String, dynamic>? before,
+    Map<String, dynamic>? op,
+  ) {
+    final rows = <Widget>[];
+    String fmt(dynamic v) {
+      if (v == null) return '—';
+      if (v is bool) return v ? 'true' : 'false';
+      if (v is num) return v.toString();
+      if (v is Map || v is List) return const String.fromEnvironment('dart.vm.product') == 'true' ? '[…]' : v.toString();
+      return v.toString();
+    }
+    dynamic getNested(Map<String, dynamic>? m, List<String> path) {
+      dynamic cur = m;
+      for (final k in path) {
+        if (cur is Map && cur.containsKey(k)) {
+          cur = cur[k];
+        } else {
+          return null;
+        }
+      }
+      return cur;
+    }
+    String getAfter(String key) {
+      if (op != null && op.containsKey(key) && op[key] != null) return fmt(op[key]);
+      if (before != null && before.containsKey(key)) return fmt(before[key]);
+      return '—';
+    }
+    void addRow(String label, String? b, String a) {
+      rows.add(Row(
+        children: [
+          SizedBox(width: 120, child: Text(label, style: const TextStyle(fontWeight: FontWeight.w500))),
+          Expanded(child: Text(b ?? '—', style: const TextStyle(color: Colors.black54))),
+          const SizedBox(width: 6),
+          const Icon(Icons.arrow_right_alt, size: 16),
+          const SizedBox(width: 6),
+          Expanded(child: Text(a)),
+        ],
+      ));
+    }
+    final beforeTitle = before != null ? fmt(before['title']) : null;
+    final beforeNotes = before != null ? fmt(before['notes']) : null;
+    final beforeDate = before != null ? fmt(before['scheduledFor']) : null;
+    final beforeStart = before != null ? fmt(before['timeOfDay'] ?? before['startTime']) : null;
+    final beforeEnd = before != null ? fmt(before['endTime']) : null;
+    final beforeLocation = before != null ? fmt(before['location']) : null;
+    final beforeRecurType = before != null ? fmt(getNested(before, ['recurrence', 'type'])) : null;
+    final beforeRecurN = before != null ? fmt(getNested(before, ['recurrence', 'intervalDays'])) : null;
+    final beforePrio = before != null ? fmt(before['priority']) : null;
+    final beforeDone = before != null ? fmt(before['completed']) : null;
+    addRow('Title', beforeTitle, getAfter('title'));
+    addRow('Notes', beforeNotes, getAfter('notes'));
+    addRow('Date', beforeDate, getAfter('scheduledFor'));
+    addRow('Start', beforeStart, getAfter('timeOfDay'));
+    addRow('End', beforeEnd, getAfter('endTime'));
+    addRow('Location', beforeLocation, getAfter('location'));
+    // Recurrence shown as two fields when present
+    rows.add(Row(
+      children: [
+        const SizedBox(width: 120, child: Text('Recurrence', style: TextStyle(fontWeight: FontWeight.w500))),
+        Expanded(child: Text(beforeRecurType ?? '—', style: const TextStyle(color: Colors.black54))),
+        const SizedBox(width: 6),
+        const Icon(Icons.arrow_right_alt, size: 16),
+        const SizedBox(width: 6),
+        Expanded(child: Text(() {
+          final afterType = (op != null && op.containsKey('recurrence') && op['recurrence'] is Map)
+              ? fmt((op!['recurrence'] as Map)['type'])
+              : (beforeRecurType ?? '—');
+          final afterN = (op != null && op.containsKey('recurrence') && op['recurrence'] is Map)
+              ? fmt((op!['recurrence'] as Map)['intervalDays'])
+              : (beforeRecurN ?? '—');
+          return afterN == '—' || afterType == '—' ? afterType : '$afterType ($afterN)';
+        }())),
+      ],
+    ));
+    addRow('Priority', beforePrio, getAfter('priority'));
+    addRow('Completed', beforeDone, getAfter('completed'));
+    return rows.where((w) => w is Row).toList();
   }
 }
 

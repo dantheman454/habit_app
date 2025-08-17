@@ -10,6 +10,11 @@ import fs from 'fs';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import db from './database/DbService.js';
+import { convoLLM, codeLLM, getModels } from './llm/clients.js';
+import { mkCorrelationId, logIO } from './llm/logging.js';
+import { extractFirstJson } from './llm/json_extract.js';
+import { buildRouterSnapshots as buildRouterSnapshotsLLM, topClarifyCandidates as topClarifyCandidatesLLM, buildFocusedContext as buildFocusedContextLLM } from './llm/context.js';
+import { runRouter as runRouterLLM } from './llm/router.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -969,6 +974,100 @@ app.get('/api/events/search', (req, res) => {
   }
 });
 
+// Unified search across todos + events for high-accuracy merged results
+// Params: q (required), scope=todo|event|all (default all), completed (optional), limit (default 30)
+app.get('/api/search', (req, res) => {
+  const qRaw = String(req.query.q || req.query.query || '');
+  const q = qRaw.trim();
+  if (q.length === 0) return res.status(400).json({ error: 'invalid_query' });
+  const scope = String(req.query.scope || 'all').toLowerCase();
+  let completedBool;
+  if (req.query.completed !== undefined) {
+    if (req.query.completed === 'true' || req.query.completed === true) completedBool = true;
+    else if (req.query.completed === 'false' || req.query.completed === false) completedBool = false;
+    else return res.status(400).json({ error: 'invalid_completed' });
+  }
+  const limit = (() => {
+    const n = parseInt(String(req.query.limit ?? '30'), 10);
+    if (!Number.isFinite(n)) return 30;
+    return Math.max(1, Math.min(200, n));
+  })();
+
+  const wantTodos = (scope === 'all' || scope === 'todo');
+  const wantEvents = (scope === 'all' || scope === 'event');
+  if (!wantTodos && !wantEvents) return res.status(400).json({ error: 'invalid_scope' });
+
+  try {
+    let out = [];
+    const todayY = ymdInTimeZone(new Date(), TIMEZONE);
+    const boosterScore = (rec) => {
+      let s = 0;
+      const overdue = (!rec.completed && rec.scheduledFor && String(rec.scheduledFor) < String(todayY));
+      if (overdue) s += 0.5;
+      if (rec.priority === 'high') s += 0.25; else if (rec.priority === 'medium') s += 0.1;
+      const hasTime = !!(rec.timeOfDay || rec.startTime);
+      if (hasTime) s += 0.05;
+      return s;
+    };
+
+    if (wantTodos) {
+      let items = db.searchTodos({ q, completed: completedBool });
+      if (q.length < 2) {
+        const ql = q.toLowerCase();
+        items = items.filter(t => String(t.title || '').toLowerCase().includes(ql) || String(t.notes || '').toLowerCase().includes(ql));
+      }
+      out.push(...items.map(t => ({
+        kind: 'todo',
+        id: t.id,
+        title: t.title,
+        notes: t.notes,
+        scheduledFor: t.scheduledFor,
+        priority: t.priority,
+        completed: t.completed,
+        timeOfDay: t.timeOfDay ?? null,
+        createdAt: t.createdAt,
+        updatedAt: t.updatedAt,
+      })));
+    }
+    if (wantEvents) {
+      let items = db.searchEvents({ q, completed: completedBool });
+      if (q.length < 2) {
+        const ql = q.toLowerCase();
+        items = items.filter(e => String(e.title || '').toLowerCase().includes(ql) || String(e.notes || '').toLowerCase().includes(ql) || String(e.location || '').toLowerCase().includes(ql));
+      }
+      out.push(...items.map(e => ({
+        kind: 'event',
+        id: e.id,
+        title: e.title,
+        notes: e.notes,
+        scheduledFor: e.scheduledFor,
+        priority: e.priority,
+        completed: e.completed,
+        startTime: e.startTime ?? null,
+        endTime: e.endTime ?? null,
+        location: e.location ?? null,
+        createdAt: e.createdAt,
+        updatedAt: e.updatedAt,
+      })));
+    }
+
+    // Score and sort
+    const scored = out.map(r => ({ r, s: boosterScore(r) }))
+      .sort((a, b) => (
+        b.s - a.s ||
+        String(a.r.scheduledFor || '').localeCompare(String(b.r.scheduledFor || '')) ||
+        // time compare (events startTime vs todos timeOfDay)
+        (String((a.r.startTime || a.r.timeOfDay || '')) || '').localeCompare(String((b.r.startTime || b.r.timeOfDay || '')) || '') ||
+        ((a.r.id || 0) - (b.r.id || 0))
+      ))
+      .slice(0, limit)
+      .map(x => x.r);
+    return res.json({ items: scored });
+  } catch (e) {
+    return res.status(500).json({ error: 'search_failed' });
+  }
+});
+
 // Unified schedule (todos + events; habits added once implemented)
 app.get('/api/schedule', (req, res) => {
   const { from, to, kinds, completed, priority } = req.query || {};
@@ -1313,12 +1412,6 @@ const OLLAMA_TEMPERATURE = 0.1;
 const GLOBAL_TIMEOUT_SECS = parseInt('300', 10);
 const CLARIFY_THRESHOLD = 0.45;
 const CHAT_THRESHOLD = 0.70;
-// Note: bulk operations are not supported; validation rejects them.
-
-// Read-only endpoint to expose the current assistant model (UX badge)
-app.get('/api/assistant/model', (_req, res) => {
-  res.json({ model: OLLAMA_MODEL });
-});
 
 
 function validateWhere(where) {
@@ -1345,7 +1438,6 @@ function validateWhere(where) {
 function validateOperation(op) {
   const errors = [];
   if (!op || typeof op !== 'object') return ['invalid_operation_object'];
-  // V3 only: derive internal op code
   const kindV3 = op.kind && String(op.kind).toLowerCase();
   const actionV3 = op.action && String(op.action).toLowerCase();
   const inferred = inferOperationShape(op);
@@ -1450,6 +1542,13 @@ function inferOperationShape(o) {
       else if (action === 'remove_child') op.op = 'goal_remove_child';
     }
   }
+  // If only action provided in V3, try to infer op
+  if (!op.op && !op.kind && op.action) {
+    const action = String(op.action).toLowerCase();
+    if (['create','update','delete','complete','complete_occurrence'].includes(action)) {
+      op.op = action === 'complete_occurrence' ? 'complete_occurrence' : action;
+    }
+  }
   if (!op.op) {
     const hasId = Number.isFinite(op.id);
     const hasCompleted = typeof op.completed === 'boolean';
@@ -1501,24 +1600,7 @@ function runOllamaPrompt(prompt) {
   });
 }
 
-function isGraniteModel() {
-  try { return /granite/i.test(String(OLLAMA_MODEL)); } catch { return false; }
-}
-
-function runOllamaWithThinkingIfGranite({ userContent }) {
-  // For Granite models that support control messages, send a messages JSON
-  // with a control "thinking" directive followed by the user content.
-  if (isGraniteModel()) {
-    const messagesPayload = JSON.stringify({
-      messages: [
-        { role: 'control', content: 'thinking' },
-        { role: 'user', content: userContent }
-      ]
-    });
-    return runOllamaPrompt(messagesPayload);
-  }
-  return runOllamaPrompt(userContent);
-}
+// Removed: granite helpers (isGraniteModel, runOllamaWithThinkingIfGranite) - legacy from single-LLM path
 
 // Attempt HTTP JSON-biased generation via Ollama; falls back to CLI on error at call sites
 async function tryRunOllamaJsonFormat({ userContent }) {
@@ -1549,30 +1631,11 @@ async function runOllamaForJsonPreferred({ userContent }) {
   try {
     return await tryRunOllamaJsonFormat({ userContent });
   } catch {
-    return await runOllamaWithThinkingIfGranite({ userContent });
+    return runOllamaPrompt(userContent);
   }
 }
 
-// If Granite returns <think>...</think><response>...</response>,
-// extract the inner of <response> first, then proceed with JSON parsing.
-function extractResponseBody(text) {
-  try {
-    const match = String(text).match(/<response>([\s\S]*?)<\/response>/i);
-    return match ? match[1].trim() : String(text);
-  } catch { return String(text); }
-}
-
-// Remove Granite-style thinking/response tags from free-form text summaries
-function stripGraniteTags(text) {
-  try {
-    let s = String(text);
-    // Drop entire <think>...</think> blocks
-    s = s.replace(/<think>[\s\S]*?<\/think>/gi, '');
-    // Remove <response> wrappers but keep inner content if any remain
-    s = s.replace(/<\/?response>/gi, '');
-    return s;
-  } catch { return String(text); }
-}
+// Removed: granite-specific text extraction helpers (extractResponseBody, stripGraniteTags)
 
 // Lenient JSON parsing: try direct parse, then strip code fences, then brace-match first object
 function parseJsonLenient(text) {
@@ -1641,79 +1704,7 @@ function buildRepairPrompt({ instruction, originalOps, errors, transcript }) {
   );
 }
 
-function buildRouterPrompt({ instruction, transcript, clarify }) {
-  const today = new Date();
-  const todayYmd = ymdInTimeZone(today, TIMEZONE);
-  const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
-  const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
-  const system = `You are an intent router for a todo assistant. Output JSON only with fields:\n` +
-    `decision: one of ["chat", "plan", "clarify"],\n` +
-    `category: one of ["habit", "goal", "task", "event"],\n` +
-    `entities: object, missing: array, confidence: number 0..1, question: string (required when decision=clarify).\n` +
-    `If the instruction is ambiguous about time/date or target, choose clarify and ask ONE short question. No prose.\n` +
-    `If the user asks to change all items in a clear scope (e.g., "all today", "all of them", "everything this week"), prefer plan.\n` +
-    `If a prior clarify question is present, interpret short answers like "all of them", "yes", "all today" as resolving that question and prefer plan.\n` +
-    `Use the Context section below (this week Mon–Sun anchored to today, backlog sample, completed=false).`;
-  const prior = clarify && clarify.question ? `\nPrior clarify question: ${clarify.question}` : '';
-  const snapshots = buildRouterSnapshots();
-  const contextJson = JSON.stringify(snapshots);
-  const user = `Today: ${todayYmd} (${TIMEZONE})\nTranscript (last 3):\n${convo}${prior}\nContext (this week, Mon–Sun, master-level, backlog sample, completed=false):\n${contextJson}\nUser: ${instruction}`;
-  return `${system}\n\n${user}`;
-}
-
-async function runRouter({ instruction, transcript, clarify }) {
-  try {
-    const prompt = buildRouterPrompt({ instruction, transcript, clarify });
-    const raw = await runOllamaForJsonPreferred({ userContent: prompt });
-    const body = extractResponseBody(raw);
-    let parsed = parseJsonLenient(body);
-    if (parsed && typeof parsed === 'object') {
-      let result = {
-        decision: String(parsed.decision || 'plan').toLowerCase(),
-        category: parsed.category,
-        entities: parsed.entities,
-        missing: parsed.missing,
-        confidence: Number(parsed.confidence || 0),
-        question: parsed.question,
-      };
-      // Confidence-gated routing adjustments
-      try {
-        const c = Number.isFinite(result.confidence) ? result.confidence : 0;
-        if (c < CLARIFY_THRESHOLD) result.decision = 'clarify';
-        else if (c < CHAT_THRESHOLD && result.decision === 'plan') result.decision = 'chat';
-        // If clarify.selection is present, bias to plan and seed where
-        if (clarify && clarify.selection && typeof clarify.selection === 'object') {
-          result.decision = 'plan';
-          const sel = clarify.selection;
-          const where = {};
-          if (Array.isArray(sel.ids) && sel.ids.length) where.ids = sel.ids;
-          if (sel.priority) where.priority = sel.priority;
-          if (sel.date) where.scheduled_range = { from: sel.date, to: sel.date };
-          result.where = Object.keys(where).length ? where : result.where;
-        }
-      } catch {}
-      if (result.decision === 'clarify') {
-        try {
-          const snapshots = buildRouterSnapshots();
-          const cands = topClarifyCandidates(instruction, snapshots, 5);
-          if (cands.length) {
-            const bullets = cands
-              .map(c => `#${c.id} "${String(c.title).slice(0, 40)}"${c.scheduledFor ? ` @${c.scheduledFor}` : ''}`)
-              .join('; ');
-            const q = result.question && String(result.question).trim().length > 0
-              ? result.question
-              : 'Which item do you mean?';
-            result.question = `${q} Options: ${bullets}.`;
-            // Also return structured options alongside the decorated question
-            result.options = cands.map(c => ({ id: c.id, title: c.title, scheduledFor: (c.scheduledFor ?? null) }));
-          }
-        } catch {}
-      }
-      return result;
-    }
-  } catch {}
-  return { decision: 'plan', confidence: 0 };
-}
+// Legacy local router helpers removed; router now lives in ./llm/router.js
 
 function buildProposalPrompt({ instruction, todosSnapshot, transcript }) {
   const today = new Date();
@@ -1745,6 +1736,7 @@ async function withDbTransaction(fn) { return db.runInTransaction(fn); }
 app.post('/api/llm/apply', async (req, res) => {
   const { operations } = req.body || {};
   const idempoKey = req.headers['idempotency-key'] || req.body?.idempotencyKey;
+  const correlationId = String(req.headers['x-correlation-id'] || req.body?.correlationId || '').trim() || mkCorrelationId();
   if (Array.isArray(operations) && operations.length > 20) {
     return res.status(400).json({ error: 'too_many_operations', max: 20 });
   }
@@ -1757,6 +1749,7 @@ app.post('/api/llm/apply', async (req, res) => {
   const shapedOps = Array.isArray(operations) ? operations.map(o => inferOperationShape(o)).filter(Boolean) : [];
   const validation = validateProposal({ operations: shapedOps });
   if (validation.errors.length) {
+    try { appendAudit({ action: 'apply_invalid', detail: validation, meta: { correlationId } }); } catch {}
     return res.status(400).json({ error: 'invalid_operations', detail: validation, message: 'Some operations were invalid. The assistant may be attempting unsupported or inconsistent changes.' });
   }
   const results = [];
@@ -1779,7 +1772,7 @@ app.post('/api/llm/apply', async (req, res) => {
             completed: false,
           });
           results.push({ ok: true, op, event: ev });
-          appendAudit({ action: 'event_create', op, result: 'ok', id: ev.id });
+          appendAudit({ action: 'event_create', op, result: 'ok', id: ev.id, meta: { correlationId } });
         } else if (op.kind && String(op.kind).toLowerCase() === 'event' && op.op === 'update') {
           const id = parseInt(op.id, 10);
           if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
@@ -1795,13 +1788,13 @@ app.post('/api/llm/apply', async (req, res) => {
             recurrence: op.recurrence,
           });
           results.push({ ok: true, op, event: ev });
-          appendAudit({ action: 'event_update', op, result: 'ok', id });
+          appendAudit({ action: 'event_update', op, result: 'ok', id, meta: { correlationId } });
         } else if (op.kind && String(op.kind).toLowerCase() === 'event' && op.op === 'delete') {
           const id = parseInt(op.id, 10);
           if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
           db.deleteEvent(id);
           results.push({ ok: true, op });
-          appendAudit({ action: 'event_delete', op, result: 'ok', id });
+          appendAudit({ action: 'event_delete', op, result: 'ok', id, meta: { correlationId } });
         } else if (op.kind && String(op.kind).toLowerCase() === 'event' && op.op === 'complete') {
           const id = parseInt(op.id, 10);
           if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
@@ -1809,13 +1802,13 @@ app.post('/api/llm/apply', async (req, res) => {
           if (!current) throw new Error('not_found');
           const ev = db.updateEvent(id, { completed: (op.completed === undefined) ? true : !!op.completed });
           results.push({ ok: true, op, event: ev });
-          appendAudit({ action: 'event_complete', op, result: 'ok', id });
+          appendAudit({ action: 'event_complete', op, result: 'ok', id, meta: { correlationId } });
         } else if (op.kind && String(op.kind).toLowerCase() === 'event' && op.op === 'complete_occurrence') {
           const id = parseInt(op.id, 10);
           if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
           const ev = db.toggleEventOccurrence({ id, occurrenceDate: op.occurrenceDate, completed: (op.completed === undefined) ? true : !!op.completed });
           results.push({ ok: true, op, event: ev });
-          appendAudit({ action: 'event_complete_occurrence', op, result: 'ok', id });
+          appendAudit({ action: 'event_complete_occurrence', op, result: 'ok', id, meta: { correlationId } });
         } else if (op.kind && String(op.kind).toLowerCase() === 'habit' && op.op === 'create') {
           const h = db.createHabit({
             title: String(op.title || '').trim(),
@@ -1827,7 +1820,7 @@ app.post('/api/llm/apply', async (req, res) => {
             completed: false,
           });
           results.push({ ok: true, op, habit: h });
-          appendAudit({ action: 'habit_create', op, result: 'ok', id: h.id });
+          appendAudit({ action: 'habit_create', op, result: 'ok', id: h.id, meta: { correlationId } });
         } else if (op.kind && String(op.kind).toLowerCase() === 'habit' && op.op === 'update') {
           const id = parseInt(op.id, 10);
           if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
@@ -1841,13 +1834,13 @@ app.post('/api/llm/apply', async (req, res) => {
             recurrence: op.recurrence,
           });
           results.push({ ok: true, op, habit: h });
-          appendAudit({ action: 'habit_update', op, result: 'ok', id });
+          appendAudit({ action: 'habit_update', op, result: 'ok', id, meta: { correlationId } });
         } else if (op.kind && String(op.kind).toLowerCase() === 'habit' && op.op === 'delete') {
           const id = parseInt(op.id, 10);
           if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
           db.deleteHabit(id);
           results.push({ ok: true, op });
-          appendAudit({ action: 'habit_delete', op, result: 'ok', id });
+          appendAudit({ action: 'habit_delete', op, result: 'ok', id, meta: { correlationId } });
         } else if (op.kind && String(op.kind).toLowerCase() === 'habit' && op.op === 'complete') {
           const id = parseInt(op.id, 10);
           if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
@@ -1855,17 +1848,17 @@ app.post('/api/llm/apply', async (req, res) => {
           if (!current) throw new Error('not_found');
           const h = db.updateHabit(id, { completed: (op.completed === undefined) ? true : !!op.completed });
           results.push({ ok: true, op, habit: h });
-          appendAudit({ action: 'habit_complete', op, result: 'ok', id });
+          appendAudit({ action: 'habit_complete', op, result: 'ok', id, meta: { correlationId } });
         } else if (op.kind && String(op.kind).toLowerCase() === 'habit' && op.op === 'complete_occurrence') {
           const id = parseInt(op.id, 10);
           if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
           const h = db.toggleHabitOccurrence({ id, occurrenceDate: op.occurrenceDate, completed: (op.completed === undefined) ? true : !!op.completed });
           results.push({ ok: true, op, habit: h });
-          appendAudit({ action: 'habit_complete_occurrence', op, result: 'ok', id });
+          appendAudit({ action: 'habit_complete_occurrence', op, result: 'ok', id, meta: { correlationId } });
         } else if (op.op === 'create') {
           const t = createTodoDb({ title: String(op.title || '').trim(), notes: op.notes || '', scheduledFor: op.scheduledFor ?? null, priority: op.priority || 'medium', timeOfDay: (op.timeOfDay === '' ? null : op.timeOfDay) ?? null, recurrence: op.recurrence });
           mutatedSinceRefresh = true; results.push({ ok: true, op, todo: t }); created++;
-          appendAudit({ action: 'create', op, result: 'ok', id: t.id });
+          appendAudit({ action: 'create', op, result: 'ok', id: t.id, meta: { correlationId } });
         } else if (op.op === 'update') {
           const t = findTodoById(op.id); if (!t) throw new Error('not_found');
           const now = new Date().toISOString();
@@ -1877,15 +1870,15 @@ app.post('/api/llm/apply', async (req, res) => {
           if (op.timeOfDay !== undefined) t.timeOfDay = (op.timeOfDay === '' ? null : op.timeOfDay);
           if (op.recurrence !== undefined) { applyRecurrenceMutation(t, op.recurrence); }
           t.updatedAt = now; mutatedSinceRefresh = true; results.push({ ok: true, op, todo: t }); updated++;
-          appendAudit({ action: 'update', op, result: 'ok', id: t.id });
+          appendAudit({ action: 'update', op, result: 'ok', id: t.id, meta: { correlationId } });
         } else if (op.op === 'delete') {
           const existing = findTodoById(op.id); if (!existing) throw new Error('not_found');
           db.deleteTodo(op.id); mutatedSinceRefresh = true; results.push({ ok: true, op }); deleted++;
-          appendAudit({ action: 'delete', op, result: 'ok', id: existing?.id });
+          appendAudit({ action: 'delete', op, result: 'ok', id: existing?.id, meta: { correlationId } });
         } else if (op.op === 'complete') {
           const t = findTodoById(op.id); if (!t) throw new Error('not_found');
           t.completed = op.completed === undefined ? true : !!op.completed; t.updatedAt = new Date().toISOString(); mutatedSinceRefresh = true; results.push({ ok: true, op, todo: t }); completed++;
-          appendAudit({ action: 'complete', op, result: 'ok', id: t.id });
+          appendAudit({ action: 'complete', op, result: 'ok', id: t.id, meta: { correlationId } });
         } else if (op.op === 'complete_occurrence') {
           const t = findTodoById(op.id); if (!t) throw new Error('not_found');
           if (!(t.recurrence && t.recurrence.type && t.recurrence.type !== 'none')) throw new Error('not_repeating');
@@ -1895,7 +1888,7 @@ app.post('/api/llm/apply', async (req, res) => {
           if (shouldComplete) { if (idx === -1) t.completedDates.push(op.occurrenceDate); }
           else { if (idx !== -1) t.completedDates.splice(idx, 1); }
           t.updatedAt = new Date().toISOString(); mutatedSinceRefresh = true; results.push({ ok: true, op, todo: t }); completed++;
-          appendAudit({ action: 'complete_occurrence', op, result: 'ok', id: t.id });
+          appendAudit({ action: 'complete_occurrence', op, result: 'ok', id: t.id, meta: { correlationId } });
         } else if (
           op.op === 'goal_create' || op.op === 'goal_update' || op.op === 'goal_delete' ||
           op.op === 'goal_add_items' || op.op === 'goal_remove_item' ||
@@ -1904,19 +1897,19 @@ app.post('/api/llm/apply', async (req, res) => {
           if (op.op === 'goal_create') {
             const g = db.createGoal({ title: String(op.title || '').trim(), notes: op.notes || '', status: op.status || 'active', currentProgressValue: op.currentProgressValue ?? null, targetProgressValue: op.targetProgressValue ?? null, progressUnit: op.progressUnit ?? null });
             results.push({ ok: true, op, goal: g });
-            appendAudit({ action: 'goal_create', op, result: 'ok', id: g.id });
+            appendAudit({ action: 'goal_create', op, result: 'ok', id: g.id, meta: { correlationId } });
           } else if (op.op === 'goal_update') {
             const id = parseInt(op.id, 10);
             if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
             const g = db.updateGoal(id, { title: op.title, notes: op.notes, status: op.status, currentProgressValue: op.currentProgressValue, targetProgressValue: op.targetProgressValue, progressUnit: op.progressUnit });
             results.push({ ok: true, op, goal: g });
-            appendAudit({ action: 'goal_update', op, result: 'ok', id });
+            appendAudit({ action: 'goal_update', op, result: 'ok', id, meta: { correlationId } });
           } else if (op.op === 'goal_delete') {
             const id = parseInt(op.id, 10);
             if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
             db.deleteGoal(id);
             results.push({ ok: true, op });
-            appendAudit({ action: 'goal_delete', op, result: 'ok', id });
+            appendAudit({ action: 'goal_delete', op, result: 'ok', id, meta: { correlationId } });
           } else if (op.op === 'goal_add_items') {
             const id = parseInt(op.id, 10);
             if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
@@ -1925,7 +1918,7 @@ app.post('/api/llm/apply', async (req, res) => {
             if (todoIds.length) db.addGoalTodoItems(id, todoIds);
             if (eventIds.length) db.addGoalEventItems(id, eventIds);
             results.push({ ok: true, op, added: { todos: todoIds.length, events: eventIds.length } });
-            appendAudit({ action: 'goal_add_items', op, result: 'ok', id });
+            appendAudit({ action: 'goal_add_items', op, result: 'ok', id, meta: { correlationId } });
           } else if (op.op === 'goal_remove_item') {
             const id = parseInt(op.id, 10);
             if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
@@ -1933,7 +1926,7 @@ app.post('/api/llm/apply', async (req, res) => {
             else if (Number.isFinite(op.eventId)) db.removeGoalEventItem(id, parseInt(op.eventId, 10));
             else throw new Error('missing_item_id');
             results.push({ ok: true, op });
-            appendAudit({ action: 'goal_remove_item', op, result: 'ok', id });
+            appendAudit({ action: 'goal_remove_item', op, result: 'ok', id, meta: { correlationId } });
           } else if (op.op === 'goal_add_child') {
             const id = parseInt(op.id, 10);
             if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
@@ -1953,15 +1946,15 @@ app.post('/api/llm/apply', async (req, res) => {
           }
         } else {
           results.push({ ok: false, op, error: 'invalid_op' });
-          appendAudit({ action: 'invalid', op, result: 'invalid' });
+          appendAudit({ action: 'invalid', op, result: 'invalid', meta: { correlationId } });
         }
       } catch (e) {
         results.push({ ok: false, op, error: String(e && e.message ? e.message : e) });
-        appendAudit({ action: op?.op || 'unknown', op, result: 'error', error: String(e && e.message ? e.message : e) });
+  appendAudit({ action: op?.op || 'unknown', op, result: 'error', error: String(e && e.message ? e.message : e), meta: { correlationId } });
       }
     }
   });
-  const response = { results, summary: { created, updated, deleted, completed } };
+  const response = { results, summary: { created, updated, deleted, completed }, correlationId };
   try { if (idempoKey && requestHash) db.saveIdempotentResponse({ idempotencyKey: idempoKey, requestHash, response }); } catch {}
   res.json(response);
 });
@@ -2018,7 +2011,7 @@ function buildDeterministicSummaryText(operations) {
 // Chat-only prompt removed; only auto pipeline is supported.
 
 // Shared helper: propose → validate → (attempt repair) → return ops and annotations
-async function runProposalAndRepair({ instruction, transcript, focusedWhere, mode = 'post', onValidating, onOps, onRepairing }) {
+async function runProposalAndRepair({ instruction, transcript, focusedWhere, mode = 'post', onValidating, onOps, onRepairing, correlationId }) {
   // Snapshot selection
   const aggregates = getAggregatesFromDb();
   const topK = focusedWhere ? filterTodosByWhere(focusedWhere).slice(0, 50) : listAllTodosRaw().slice(0, 40);
@@ -2027,8 +2020,8 @@ async function runProposalAndRepair({ instruction, transcript, focusedWhere, mod
   // Propose
   const prompt1 = buildProposalPrompt({ instruction: instruction.trim(), todosSnapshot: snapshot, transcript });
   const raw1 = await runOllamaForJsonPreferred({ userContent: prompt1 });
-  const raw1MaybeResponse = extractResponseBody(raw1);
-  let parsed1 = parseJsonLenient(raw1MaybeResponse);
+  try { logIO('proposal', { model: (getModels && typeof getModels === 'function' ? getModels().code : OLLAMA_MODEL), prompt: prompt1, output: raw1, meta: { correlationId, mode } }); } catch {}
+  let parsed1 = parseJsonLenient(raw1);
   let ops = [];
   if (Array.isArray(parsed1)) ops = parsed1;
   else if (parsed1 && Array.isArray(parsed1.operations)) ops = parsed1.operations;
@@ -2049,7 +2042,7 @@ async function runProposalAndRepair({ instruction, transcript, focusedWhere, mod
       valid: validation.results.filter(r => r.errors.length === 0).length,
       invalid: validation.results.filter(r => r.errors.length > 0).length,
     };
-    appendAudit({ action: 'assistant_understanding', results: annotatedAll, summary });
+    appendAudit({ action: 'assistant_understanding', results: annotatedAll, summary, meta: { correlationId } });
   } catch {}
   if (typeof onValidating === 'function') {
     try { onValidating(); } catch {}
@@ -2062,15 +2055,15 @@ async function runProposalAndRepair({ instruction, transcript, focusedWhere, mod
 
   // Attempt single repair if needed
   if (validation.errors.length) {
-    try { appendAudit({ action: 'repair_attempted', mode }); } catch {}
+  try { appendAudit({ action: 'repair_attempted', mode, meta: { correlationId } }); } catch {}
     if (typeof onRepairing === 'function') {
       try { onRepairing(); } catch {}
     }
     try {
-      const repairPrompt = buildRepairPrompt({ instruction: instruction.trim(), originalOps: ops, errors: validation.results, transcript });
-      const rawRepair = await runOllamaForJsonPreferred({ userContent: repairPrompt });
-      const body = extractResponseBody(rawRepair);
-      let parsedR = parseJsonLenient(body);
+  const repairPrompt = buildRepairPrompt({ instruction: instruction.trim(), originalOps: ops, errors: validation.results, transcript });
+  const rawRepair = await runOllamaForJsonPreferred({ userContent: repairPrompt });
+  try { logIO('repair', { model: (getModels && typeof getModels === 'function' ? getModels().code : OLLAMA_MODEL), prompt: repairPrompt, output: rawRepair, meta: { correlationId, mode } }); } catch {}
+      let parsedR = parseJsonLenient(rawRepair);
       const repairedOps = (parsedR && Array.isArray(parsedR.operations)) ? parsedR.operations : [];
       const shaped = repairedOps.filter(o => o && typeof o === 'object').map(o => inferOperationShape(o)).filter(Boolean);
       const reValidation = validateProposal({ operations: shaped });
@@ -2078,20 +2071,20 @@ async function runProposalAndRepair({ instruction, transcript, focusedWhere, mod
         ops = shaped;
         validation = reValidation;
         annotatedAll = reValidation.results.map(r => ({ op: r.op, errors: r.errors }));
-        try { appendAudit({ action: 'repair_success', mode, repaired_ops: shaped.length }); } catch {}
+  try { appendAudit({ action: 'repair_success', mode, repaired_ops: shaped.length, meta: { correlationId } }); } catch {}
         if (typeof onOps === 'function') {
           try {
             onOps(2, annotatedAll, validation.results.filter(r => r.errors.length === 0).length, validation.results.filter(r => r.errors.length > 0).length);
           } catch {}
         }
       } else {
-        try { appendAudit({ action: 'repair_failed', mode, remaining_invalid: reValidation.results.filter(r => r.errors.length > 0).length }); } catch {}
+  try { appendAudit({ action: 'repair_failed', mode, remaining_invalid: reValidation.results.filter(r => r.errors.length > 0).length, meta: { correlationId } }); } catch {}
         // keep original valid subset
         ops = validation.results.filter(r => r.errors.length === 0).map(r => r.op);
       }
     } catch {
       ops = validation.results.filter(r => r.errors.length === 0).map(r => r.op);
-      try { appendAudit({ action: 'repair_error', mode }); } catch {}
+      try { appendAudit({ action: 'repair_error', mode, meta: { correlationId } }); } catch {}
     }
   }
 
@@ -2100,65 +2093,134 @@ async function runProposalAndRepair({ instruction, transcript, focusedWhere, mod
 
 app.post('/api/assistant/message', async (req, res) => {
   try {
-    const { message, transcript = [], options = {} } = req.body || {};
-    if (typeof message !== 'string' || message.trim() === '') {
-      return res.status(400).json({ error: 'invalid_message' });
-    }
-    // Auto pipeline: router → (clarify|plan) → proposal → validate/repair → summarize
-    const route = await runRouter({ instruction: message.trim(), transcript, clarify: options && options.clarify });
-    try { appendAudit({ action: 'router_decision', mode: 'post', decision: route.decision, confidence: route.confidence, question: route.question || null }); } catch {}
-    if (route.decision === 'clarify' && route.question) {
-      return res.json({ requiresClarification: true, question: route.question });
-    }
-    if (route.decision === 'chat') {
-      // Return a concise chat answer without generating operations
-      try {
-        const today = new Date();
-        const todayYmd = ymdInTimeZone(today, TIMEZONE);
-        const system = `You are a helpful assistant for a todo app. Keep answers concise and clear. Prefer 1–3 short sentences; no lists or JSON.`;
-        const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
-        const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
-        const user = `Today: ${todayYmd} (${TIMEZONE})\nConversation (last 3 turns):\n${convo}\nUser: ${message.trim()}`;
-        const prompt = `${system}\n\n${user}`;
-        const raw = await runOllamaWithThinkingIfGranite({ userContent: prompt });
-        let text = stripGraniteTags(String(raw || ''));
-        text = text.replace(/```[\s\S]*?```/g, '').trim();
-        text = text.replace(/[\r\n]+/g, ' ').trim();
-        if (!text) text = 'Okay.';
-        return res.json({ text, operations: [] });
-      } catch (e) {
-        return res.json({ text: 'Okay.', operations: [] });
-      }
-    }
+  const { message, transcript = [], options = {} } = req.body || {};
+  const correlationId = mkCorrelationId();
+  const t0 = Date.now();
+  let pTRoute = t0, pTProp = 0, pTRepair = 0, pTVal = 0, pTSum = 0;
+  const client = options && options.client ? options.client : null;
+  if (typeof message !== 'string' || message.trim() === '') {
+    return res.status(400).json({ error: 'invalid_message' });
+  }
 
-    const { ops, annotatedAll, validation } = await runProposalAndRepair({
-      instruction: message,
-      transcript,
-      focusedWhere: (route && route.where && !Array.isArray(route.where) && typeof route.where === 'object') ? route.where : null,
-      mode: 'post'
-    });
+  // Router (two‑LLM)
+  const route = await runRouterLLM({ instruction: message.trim(), transcript, clarify: options && options.clarify });
+  try { appendAudit({ action: 'router_decision', mode: 'post', decision: route.decision, confidence: route.confidence, question: route.question || null, meta: { correlationId } }); } catch {}
+  pTRoute = Date.now();
 
-    // Call 2 — conversational summary
-    let text;
-    let usedFallback = false;
+  // Clarify branch
+  if (route.decision === 'clarify' && route.question) {
+    try { logIO('router', { model: getModels().convo, prompt: '(clarify)', output: JSON.stringify(route), meta: { correlationId, mode: 'post', stageDurations: { routingMs: (pTRoute - t0), proposingMs: 0, validatingMs: 0, summarizingMs: 0 } } }); } catch {}
+    return res.json({ clarify: { question: route.question, options: Array.isArray(route.options) ? route.options : [] }, correlationId });
+  }
+
+  // Chat branch
+  if (route.decision === 'chat') {
+    const today = new Date();
+    const todayYmd = ymdInTimeZone(today, TIMEZONE);
+    const system = `You are a helpful assistant for a todo app. Keep answers concise and clear. Prefer 1–3 short sentences; no lists or JSON.`;
+    const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
+    const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
+    const prompt = `${system}\n\nToday: ${todayYmd} (${TIMEZONE})\nConversation (last 3 turns):\n${convo}\nUser: ${message.trim()}`;
+    let text = 'Okay.';
     try {
-      const prompt2 = buildConversationalSummaryPrompt({ instruction: message.trim(), operations: ops, todosSnapshot: listAllTodosRaw(), transcript });
-      const raw2 = await runOllamaWithThinkingIfGranite({ userContent: prompt2 });
-      // Extract a clean plain-text summary
-      let s2 = stripGraniteTags(String(raw2 || ''));
-      s2 = s2.replace(/```[\s\S]*?```/g, '').trim();
-      s2 = s2.replace(/[\r\n]+/g, ' ').trim();
-      const invalidCount = validation.results.filter(r => r.errors.length > 0).length;
-      text = invalidCount > 0 ? `${s2} (Note: filtered ${invalidCount} invalid operation${invalidCount === 1 ? '' : 's'}.)` : s2;
-      if (!text) throw new Error('empty_text');
-    } catch (e) {
-      usedFallback = true;
-      text = buildDeterministicSummaryText(ops);
-      appendAudit({ action: 'assistant_message', conversational_fallback: true, error: String(e && e.message ? e.message : e) });
+      const raw = await convoLLM(prompt, { stream: false });
+      pTSum = Date.now();
+      logIO('summary', { model: getModels().convo, prompt, output: raw, meta: { correlationId, mode: 'post', stageDurations: { routingMs: (pTRoute - t0), proposingMs: 0, validatingMs: 0, summarizingMs: (pTSum - pTRoute) } } });
+      text = String(raw || '').replace(/```[\s\S]*?```/g, '').replace(/[\r\n]+/g, ' ').trim() || 'Okay.';
+    } catch {}
+    if (String(process.env.ENABLE_ASSISTANT_DEBUG || '') === '1') {
+      console.info(`[assistant][post] ${correlationId} routing=${pTRoute - t0}ms proposing=0ms validating=0ms summarizing=${pTSum - pTRoute}ms valid=0 invalid=0`);
     }
+    return res.json({ text, operations: [], correlationId });
+  }
 
-    // POST endpoint returns final JSON; streaming is served by GET /api/assistant/message/stream
-    res.json({ text, operations: annotatedAll });
+  // Plan branch: focused context
+  let focusedWhere = null;
+  try { if (route && route.where && !Array.isArray(route.where) && typeof route.where === 'object') focusedWhere = route.where; } catch {}
+  // Apply client filters
+  try {
+    if (client && client.range && client.range.from && client.range.to) focusedWhere = { ...(focusedWhere || {}), scheduled_range: { from: String(client.range.from), to: String(client.range.to) } };
+    if (client && Array.isArray(client.kinds) && client.kinds.length === 1) focusedWhere = { ...(focusedWhere || {}), kind: String(client.kinds[0]) };
+    if (client && typeof client.priority === 'string') focusedWhere = { ...(focusedWhere || {}), priority: String(client.priority) };
+    if (client && typeof client.completed === 'boolean') focusedWhere = { ...(focusedWhere || {}), completed: !!client.completed };
+    if (client && typeof client.search === 'string' && client.search.trim()) focusedWhere = { ...(focusedWhere || {}), title_contains: String(client.search).trim() };
+  } catch {}
+  const focusedContext = buildFocusedContextLLM(focusedWhere || {});
+
+  // Proposal (Code LLM)
+  const today = new Date();
+  const todayYmd = ymdInTimeZone(today, TIMEZONE);
+  const proposalPrompt = [
+    'You are a planning assistant for a todo app. Output ONLY a single JSON object with key "operations" as an array. No prose.',
+    'Rules: each operation MUST include kind and action; for todo/event create/update include recurrence (use {"type":"none"} for non-repeating). If recurrence.type != "none", scheduledFor is REQUIRED. No bulk ops. ≤20 ops. Do NOT invent IDs.',
+    `Today: ${todayYmd}. Timezone: ${TIMEZONE}.`,
+    'Conversation (last 3):',
+    (Array.isArray(transcript) ? transcript.slice(-3) : []).map((t) => `- ${t.role}: ${t.text}`).join('\n'),
+    'Instruction:',
+    message.trim(),
+    'Context:',
+    JSON.stringify(focusedContext)
+  ].join('\n');
+  let rawProposal;
+  try { rawProposal = await codeLLM(proposalPrompt, { model: getModels().code }); } catch (e) { return res.json({ text: 'Assistant planning failed. Please try again.', operations: [], correlationId }); }
+  pTProp = Date.now();
+  logIO('proposal', { model: getModels().code, prompt: proposalPrompt, output: rawProposal, meta: { correlationId, mode: 'post', stageDurations: { routingMs: (pTRoute - t0), proposingMs: (pTProp - pTRoute), validatingMs: 0, summarizingMs: 0 } } });
+  const parsedProposal = extractFirstJson(String(rawProposal || '')) || { operations: [] };
+  const ops0 = Array.isArray(parsedProposal.operations) ? parsedProposal.operations : [];
+
+  // Validate and maybe repair
+  let validation = validateProposal({ operations: ops0.map(o => inferOperationShape(o)) });
+  let finalOps = ops0;
+  let invalidCount0 = (validation.results || []).filter(r => r.errors.length).length;
+  let validCount0 = (validation.results || []).length - invalidCount0;
+  try { appendAudit({ action: 'validation_metrics', mode: 'post', meta: { correlationId, validCount: validCount0, invalidCount: invalidCount0, errorCodes: Array.from(new Set((validation.results||[]).flatMap(r=>r.errors||[]))), durations: { routingMs: (pTRoute - t0), validateMs: 0 } } }); } catch {}
+  if (invalidCount0 > 0) {
+    const errorCodes = (validation.results || []).flatMap(r => r.errors || []);
+    const repairPrompt = [
+      'You must repair the prior JSON operations to satisfy the schema and constraints. Output JSON only with key "operations".',
+      'Errors to fix:', JSON.stringify(errorCodes),
+      'Original operations:', JSON.stringify(ops0),
+      'Context:', JSON.stringify(focusedContext)
+    ].join('\n');
+    let rawRepair;
+    try { rawRepair = await codeLLM(repairPrompt, { model: getModels().code }); } catch (e) {
+      const validOnly = (validation.results || []).filter(r => r.errors.length === 0).map(r => r.op);
+      validation = validateProposal({ operations: validOnly.map(o => inferOperationShape(o)) });
+      finalOps = validOnly;
+    }
+    pTRepair = Date.now();
+    logIO('repair', { model: getModels().code, prompt: repairPrompt, output: rawRepair, meta: { correlationId, mode: 'post', stageDurations: { routingMs: (pTRoute - t0), proposingMs: (pTProp - pTRoute), validatingMs: 0, repairingMs: (pTRepair - pTProp), summarizingMs: 0 } } });
+    const parsedRepair = extractFirstJson(String(rawRepair || '')) || { operations: [] };
+    finalOps = Array.isArray(parsedRepair.operations) ? parsedRepair.operations : finalOps;
+    validation = validateProposal({ operations: finalOps.map(o => inferOperationShape(o)) });
+    const invalidCount1 = (validation.results || []).filter(r => r.errors.length).length;
+    const validCount1 = (validation.results || []).length - invalidCount1;
+    try { appendAudit({ action: 'validation_metrics', mode: 'post', meta: { correlationId, validCount: validCount1, invalidCount: invalidCount1, errorCodes: Array.from(new Set((validation.results||[]).flatMap(r=>r.errors||[]))), durations: { routingMs: (pTRoute - t0), validateMs: (Date.now() - pTProp) } } }); } catch {}
+  }
+
+  // Summary (Conversation LLM)
+  let summaryText;
+  try {
+    const prompt2 = buildConversationalSummaryPrompt({ instruction: message.trim(), operations: finalOps, todosSnapshot: listAllTodosRaw(), transcript });
+    const raw2 = await convoLLM(prompt2, { stream: false });
+    pTSum = Date.now();
+    logIO('summary', { model: getModels().convo, prompt: prompt2, output: raw2, meta: { correlationId, mode: 'post', stageDurations: { routingMs: (pTRoute - t0), proposingMs: (pTProp - pTRoute), validatingMs: (pTRepair ? (pTRepair - pTProp) : 0), repairingMs: (pTRepair ? (pTRepair - pTProp) : 0), summarizingMs: (pTSum - (pTRepair || pTProp)) } } });
+    summaryText = String(raw2 || '').replace(/```[\s\S]*?```/g, '').replace(/[\r\n]+/g, ' ').trim() || buildDeterministicSummaryText(finalOps);
+  } catch {
+    summaryText = buildDeterministicSummaryText(finalOps);
+  }
+
+  // Console breadcrumb
+  try {
+    if (String(process.env.ENABLE_ASSISTANT_DEBUG || '') === '1') {
+      const validCount = (validation.results || []).filter(r => r.errors.length === 0).length;
+      const invalidCount = (validation.results || []).length - validCount;
+      console.info(`[assistant][post] ${correlationId} routing=${pTRoute - t0}ms proposing=${pTProp - pTRoute}ms validating=${(pTRepair ? (pTRepair - pTProp) : 0)}ms summarizing=${pTSum - (pTRepair || pTProp)}ms valid=${validCount} invalid=${invalidCount}`);
+    }
+  } catch {}
+
+  const annotatedAll = (validation.results || []).map((r) => ({ ...r.op, errors: r.errors }));
+  return res.json({ text: summaryText, operations: annotatedAll, correlationId });
   } catch (err) {
     res.status(502).json({ error: 'assistant_failure', detail: String(err && err.message ? err.message : err) });
   }
@@ -2166,6 +2228,11 @@ app.post('/api/assistant/message', async (req, res) => {
 
 // SSE-friendly GET endpoint for browsers (streams summary and final result)
 app.get('/api/assistant/message/stream', async (req, res) => {
+  // Ensure we can gracefully end SSE on any error without hanging the client
+  let __sseStarted = false;
+  let __send;
+  let __heartbeat;
+  let __corr = null;
   try {
     const message = String(req.query.message || '');
     const transcriptParam = req.query.transcript;
@@ -2174,103 +2241,180 @@ app.get('/api/assistant/message/stream', async (req, res) => {
     })();
     if (message.trim() === '') return res.status(400).json({ error: 'invalid_message' });
     const clarify = (() => { try { return JSON.parse(String(req.query.clarify || 'null')); } catch { return null; } })();
-    const route = await runRouter({ instruction: message.trim(), transcript, clarify });
-    try { appendAudit({ action: 'router_decision', mode: 'sse', decision: route.decision, confidence: route.confidence, question: route.question || null }); } catch {}
-    if (route.decision === 'clarify' && route.question) {
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-      if (typeof res.flushHeaders === 'function') res.flushHeaders();
-      const send = (event, data) => { res.write(`event: ${event}\n`); res.write(`data: ${data}\n\n`); };
-      send('clarify', JSON.stringify({ question: route.question, options: Array.isArray(route.options) ? route.options.map(o => ({ id: o.id, title: o.title, scheduledFor: o.scheduledFor ?? null })) : [] }));
-      send('done', 'true');
-      return res.end();
-    }
-    if (route.decision === 'chat') {
-      // Stream just a chat summary and done
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-      if (typeof res.flushHeaders === 'function') res.flushHeaders();
-      const send = (event, data) => { res.write(`event: ${event}\n`); res.write(`data: ${data}\n\n`); };
-      const today = new Date();
-      const todayYmd = ymdInTimeZone(today, TIMEZONE);
-      const system = `You are a helpful assistant for a todo app. Keep answers concise and clear. Prefer 1–3 short sentences; no lists or JSON.`;
-      const transcriptParam = req.query.transcript;
-      const transcript = (() => { try { return Array.isArray(transcriptParam) ? transcriptParam : JSON.parse(String(transcriptParam || '[]')); } catch { return []; } })();
-      const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
-      const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
-      const user = `Today: ${todayYmd} (${TIMEZONE})\nConversation (last 3 turns):\n${convo}\nUser: ${String(req.query.message || '').trim()}`;
-      const prompt = `${system}\n\n${user}`;
+  const client = (() => { try { return JSON.parse(String(req.query.context || 'null')); } catch { return null; } })();
+  const correlationId = mkCorrelationId();
+  __corr = correlationId;
+  const t0 = Date.now();
+  let sseTRoute = t0, sseTProp = t0, sseTVal = t0, sseTSum = t0, sseTRepair = 0;
+
+  // Two‑LLM pipeline (Conversation LLM + Code/Tool LLM) — always on
+  // SSE setup
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  if (typeof res.flushHeaders === 'function') res.flushHeaders();
+  const send = (event, data) => { res.write(`event: ${event}\n`); res.write(`data: ${data}\n\n`); };
+  __sseStarted = true; __send = send;
+  send('stage', JSON.stringify({ stage: 'routing', correlationId }));
+  const route = await runRouterLLM({ instruction: message.trim(), transcript, clarify });
+  sseTRoute = Date.now();
+
+  if (route.decision === 'clarify' && route.question) {
+  send('clarify', JSON.stringify({ question: route.question, options: Array.isArray(route.options) ? route.options : [], correlationId }));
+        try { logIO('router', { model: getModels().convo, prompt: '(clarify)', output: JSON.stringify(route), meta: { correlationId, mode: 'sse', stageDurations: { routingMs: (sseTRoute - t0), proposingMs: 0, validatingMs: 0, summarizingMs: 0 } } }); } catch {}
+        send('done', 'true');
+        return res.end();
+      }
+      if (route.decision === 'chat') {
+  const today = new Date();
+  const todayYmd = ymdInTimeZone(today, TIMEZONE);
+  const system = `You are a helpful assistant for a todo app. Keep answers concise and clear. Prefer 1–3 short sentences; no lists or JSON.`;
+  const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
+  const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
+  const prompt = `${system}\n\nToday: ${todayYmd} (${TIMEZONE})\nConversation (last 3 turns):\n${convo}\nUser: ${String(req.query.message || '').trim()}`;
+        try {
+          const raw = await convoLLM(prompt, { stream: false });
+          sseTSum = Date.now();
+          logIO('summary', { model: getModels().convo, prompt, output: raw, meta: { correlationId, mode: 'sse', stageDurations: { routingMs: (sseTRoute - t0), proposingMs: 0, validatingMs: 0, summarizingMs: (sseTSum - sseTRoute) } } });
+          let text = String(raw || '').replace(/```[\s\S]*?```/g, '').replace(/[\r\n]+/g, ' ').trim();
+          if (!text) text = 'Okay.';
+          send('summary', JSON.stringify({ text, correlationId }));
+        } catch {
+          send('summary', JSON.stringify({ text: 'Okay.', correlationId }));
+        }
+        send('result', JSON.stringify({ text: '', operations: [], correlationId }));
+        send('done', 'true');
+        return res.end();
+      }
+
+      // Plan path
+  send('stage', JSON.stringify({ stage: 'proposing', correlationId }));
+  const heartbeat = setInterval(() => { try { send('heartbeat', JSON.stringify({ ts: new Date().toISOString() })); } catch {} }, 10000);
+      __heartbeat = heartbeat;
+      res.on('close', () => { try { clearInterval(heartbeat); } catch {} });
+
+      // Focused context for proposals
+      let focusedWhere = null;
       try {
-        const raw = await runOllamaWithThinkingIfGranite({ userContent: prompt });
-        let text = stripGraniteTags(String(raw || ''));
-        text = text.replace(/```[\s\S]*?```/g, '').trim();
-        text = text.replace(/[\r\n]+/g, ' ').trim();
-        send('summary', JSON.stringify({ text }));
-      } catch {
-        send('summary', JSON.stringify({ text: 'Okay.' }));
-      }
-      send('result', JSON.stringify({ text: '', operations: [] }));
-      send('done', 'true');
-      return res.end();
-    }
+        if (route && route.where && !Array.isArray(route.where) && typeof route.where === 'object') focusedWhere = route.where;
+      } catch {}
 
-    // Establish SSE for plan path
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    if (typeof res.flushHeaders === 'function') res.flushHeaders();
-    const send = (event, data) => { res.write(`event: ${event}\n`); res.write(`data: ${data}\n\n`); };
-    send('stage', JSON.stringify({ stage: 'routing' }));
-    // If router provided a narrowing where, prefer a focused snapshot for proposals
-    let focusedWhere = null;
-    try {
-      if (route && route.where && !Array.isArray(route.where) && typeof route.where === 'object') {
-        focusedWhere = route.where;
-      }
-    } catch {}
-    send('stage', JSON.stringify({ stage: 'proposing' }));
-    send('summary', JSON.stringify({ text: 'Planning…' }));
-    const heartbeat = setInterval(() => {
-      try { send('heartbeat', JSON.stringify({ ts: new Date().toISOString() })); } catch {}
-    }, 10000);
-    res.on('close', () => { try { clearInterval(heartbeat); } catch {} });
+  // Build focused context using shared helper
+  const focusedContext = buildFocusedContextLLM(focusedWhere || {});
 
-    const { ops: validOps, annotatedAll, validation } = await runProposalAndRepair({
-      instruction: message,
-      transcript,
-      focusedWhere,
-      mode: 'sse',
-      onValidating: () => send('stage', JSON.stringify({ stage: 'validating' })),
-      onOps: (version, operations, validCount, invalidCount) => send('ops', JSON.stringify({ version, operations, validCount, invalidCount })),
-      onRepairing: () => send('stage', JSON.stringify({ stage: 'repairing' }))
-    });
-
-    // Call 2 — conversational summary
-    let text;
-    try {
-      send('stage', JSON.stringify({ stage: 'summarizing' }));
-      const prompt2 = buildConversationalSummaryPrompt({ instruction: message.trim(), operations: validOps, todosSnapshot: listAllTodosRaw(), transcript });
-      const raw2 = await runOllamaWithThinkingIfGranite({ userContent: prompt2 });
-      let s2 = stripGraniteTags(String(raw2 || ''));
-      s2 = s2.replace(/```[\s\S]*?```/g, '').trim();
-      s2 = s2.replace(/[\r\n]+/g, ' ').trim();
-      if (!s2) throw new Error('empty_text');
-      text = s2;
-    } catch (e) {
-      text = buildDeterministicSummaryText(validOps);
-      appendAudit({ action: 'assistant_message', conversational_fallback: true, error: String(e && e.message ? e.message : e) });
-    }
-
-    // Stream SSE (headers already set)
-    send('summary', JSON.stringify({ text }));
-    send('result', JSON.stringify({ text, operations: annotatedAll }));
-    send('done', 'true');
+      // Proposal via Code LLM
+  // Compute today string for prompts (bugfix: was missing in plan path)
+  const today = new Date();
+  const todayYmd = ymdInTimeZone(today, TIMEZONE);
+      const proposalPrompt = [
+        'You are a planning assistant for a todo app. Output ONLY a single JSON object with key "operations" as an array. No prose.',
+        'Rules: each operation MUST include kind and action; for todo/event create/update include recurrence (use {"type":"none"} for non-repeating). If recurrence.type != "none", scheduledFor is REQUIRED. No bulk ops. ≤20 ops. Do NOT invent IDs.',
+        `Today: ${todayYmd}. Timezone: ${TIMEZONE}.`,
+        'Conversation (last 3):',
+        (Array.isArray(transcript) ? transcript.slice(-3) : []).map((t) => `- ${t.role}: ${t.text}`).join('\n'),
+        'Instruction:',
+        message.trim(),
+        'Context:',
+        JSON.stringify(focusedContext)
+      ].join('\n');
+  let rawProposal;
+  try { rawProposal = await codeLLM(proposalPrompt, { model: getModels().code }); }
+  catch (e) {
+    // Graceful SSE error: send fallback and close
+    try { send('summary', JSON.stringify({ text: 'Assistant planning failed. Please try again.', correlationId })); } catch {}
+    try { send('result', JSON.stringify({ text: '', operations: [], correlationId })); } catch {}
+    try { send('done', 'true'); } catch {}
     try { clearInterval(heartbeat); } catch {}
     return res.end();
+  }
+  sseTProp = Date.now();
+  logIO('proposal', { model: getModels().code, prompt: proposalPrompt, output: rawProposal, meta: { correlationId, mode: 'sse', stageDurations: { routingMs: (sseTRoute - t0), proposingMs: (sseTProp - sseTRoute), validatingMs: 0, summarizingMs: 0 } } });
+      const parsedProposal = extractFirstJson(String(rawProposal || '')) || { operations: [] };
+      const ops0 = Array.isArray(parsedProposal.operations) ? parsedProposal.operations : [];
+
+      // Validate and optionally repair
+      let validation = validateProposal({ operations: ops0.map(o => inferOperationShape(o)) });
+  const invalidCount0 = (validation.results || []).filter(r => r.errors.length).length;
+  const validCount0 = (validation.results || []).length - invalidCount0;
+  try { appendAudit({ action: 'validation_metrics', mode: 'sse', meta: { correlationId, validCount: validCount0, invalidCount: invalidCount0, errorCodes: Array.from(new Set((validation.results||[]).flatMap(r=>r.errors||[]))), durations: { routingMs: (sseTRoute - t0), validateMs: 0 } } }); } catch {}
+      if (typeof send === 'function') {
+  send('ops', JSON.stringify({ version: 1, operations: ops0, validCount: validCount0, invalidCount: invalidCount0, correlationId }));
+      }
+      let finalOps = ops0;
+      if (invalidCount0 > 0) {
+  send('stage', JSON.stringify({ stage: 'repairing', correlationId }));
+        const errorCodes = (validation.results || []).flatMap(r => r.errors || []);
+        const repairPrompt = [
+          'You must repair the prior JSON operations to satisfy the schema and constraints. Output JSON only with key "operations".',
+          'Errors to fix:', JSON.stringify(errorCodes),
+          'Original operations:', JSON.stringify(ops0),
+          'Context:', JSON.stringify(focusedContext)
+        ].join('\n');
+  let rawRepair;
+  try { rawRepair = await codeLLM(repairPrompt, { model: getModels().code }); }
+  catch (e) {
+    // Fall back to original valid subset
+    const validOnly = (validation.results || []).filter(r => r.errors.length === 0).map(r => r.op);
+    validation = validateProposal({ operations: validOnly.map(o => inferOperationShape(o)) });
+    const invalidCount1 = (validation.results || []).filter(r => r.errors.length).length;
+    const validCount1 = (validation.results || []).length - invalidCount1;
+    try { send('ops', JSON.stringify({ version: 2, operations: validOnly, validCount: validCount1, invalidCount: invalidCount1, correlationId })); } catch {}
+    // Continue to summary with validOnly
+    finalOps = validOnly;
+    // Skip further repair steps
+  }
+  sseTRepair = Date.now();
+  logIO('repair', { model: getModels().code, prompt: repairPrompt, output: rawRepair, meta: { correlationId, mode: 'sse', stageDurations: { routingMs: (sseTRoute - t0), proposingMs: (sseTProp - sseTRoute), validatingMs: 0, repairingMs: (sseTRepair - sseTProp), summarizingMs: 0 } } });
+        const parsedRepair = extractFirstJson(String(rawRepair || '')) || { operations: [] };
+        finalOps = Array.isArray(parsedRepair.operations) ? parsedRepair.operations : [];
+        validation = validateProposal({ operations: finalOps.map(o => inferOperationShape(o)) });
+        const invalidCount1 = (validation.results || []).filter(r => r.errors.length).length;
+        const validCount1 = (validation.results || []).length - invalidCount1;
+  send('ops', JSON.stringify({ version: 2, operations: finalOps, validCount: validCount1, invalidCount: invalidCount1, correlationId }));
+  try { appendAudit({ action: 'validation_metrics', mode: 'sse', meta: { correlationId, validCount: validCount1, invalidCount: invalidCount1, errorCodes: Array.from(new Set((validation.results||[]).flatMap(r=>r.errors||[]))), durations: { routingMs: (sseTRoute - t0), validateMs: (Date.now() - sseTProp) } } }); } catch {}
+      }
+
+      // Summary via Conversation LLM
+  send('stage', JSON.stringify({ stage: 'summarizing', correlationId }));
+    let summaryText;
+      try {
+        const prompt2 = buildConversationalSummaryPrompt({ instruction: message.trim(), operations: finalOps, todosSnapshot: listAllTodosRaw(), transcript });
+  const raw2 = await convoLLM(prompt2, { stream: false });
+  sseTSum = Date.now();
+  logIO('summary', { model: getModels().convo, prompt: prompt2, output: raw2, meta: { correlationId, mode: 'sse', stageDurations: { routingMs: (sseTRoute - t0), proposingMs: (sseTProp - sseTRoute), validatingMs: (sseTRepair ? (sseTRepair - sseTProp) : 0), repairingMs: (sseTRepair ? (sseTRepair - sseTProp) : 0), summarizingMs: (sseTSum - (sseTRepair || sseTProp)) } } });
+        summaryText = String(raw2 || '').replace(/```[\s\S]*?```/g, '').replace(/[\r\n]+/g, ' ').trim() || buildDeterministicSummaryText(finalOps);
+      } catch {
+        summaryText = buildDeterministicSummaryText(finalOps);
+      }
+
+  send('summary', JSON.stringify({ text: summaryText, correlationId }));
+      const annotatedAll = (validation.results || []).map((r) => ({ ...r.op, errors: r.errors }));
+  send('result', JSON.stringify({ text: summaryText, operations: annotatedAll, correlationId }));
+      try {
+        if (String(process.env.ENABLE_ASSISTANT_DEBUG || '') === '1') {
+          const validCount = (validation.results || []).filter(r => r.errors.length === 0).length;
+          const invalidCount = (validation.results || []).length - validCount;
+          console.info(`[assistant][sse] ${correlationId} routing=${sseTRoute - t0}ms proposing=${sseTProp - sseTRoute}ms validating=${(sseTRepair ? (sseTRepair - sseTProp) : 0)}ms summarizing=${sseTSum - (sseTRepair || sseTProp)}ms valid=${validCount} invalid=${invalidCount}`);
+        }
+      } catch {}
+      send('done', 'true');
+  try { clearInterval(heartbeat); } catch {}
+    return res.end();
   } catch (err) {
-    try { res.status(502).json({ error: 'assistant_failure', detail: String(err && err.message ? err.message : err) }); } catch {}
+    try {
+      const isSse = res.headersSent && String(res.getHeader('Content-Type') || '').includes('text/event-stream');
+      if (isSse) {
+        const send = __send || ((event, data) => { res.write(`event: ${event}\n`); res.write(`data: ${data}\n\n`); });
+        const cid = __corr;
+        try { send('summary', JSON.stringify({ text: 'Sorry, the assistant encountered an error.', correlationId: cid })); } catch {}
+        try { send('result', JSON.stringify({ text: '', operations: [], correlationId: cid })); } catch {}
+        try { send('done', 'true'); } catch {}
+        try { if (__heartbeat) clearInterval(__heartbeat); } catch {}
+        try { res.end(); } catch {}
+      } else {
+        res.status(502).json({ error: 'assistant_failure', detail: String(err && err.message ? err.message : err) });
+      }
+    } catch {}
   }
 });
 
@@ -2302,8 +2446,80 @@ app.post('/api/llm/dryrun', async (req, res) => {
   }
 });
 
+// Preview endpoint: summarize affected entities for a list of operations (no mutation)
+app.post('/api/llm/preview', async (req, res) => {
+  try {
+    const { operations } = req.body || {};
+    const shaped = Array.isArray(operations) ? operations.map(o => inferOperationShape(o)).filter(Boolean) : [];
+    const affected = [];
+    for (const op of shaped) {
+      try {
+        const entry = { op, before: null };
+        if (op.op === 'update' || op.op === 'delete' || op.op === 'complete') {
+          if (op.kind === 'event') entry.before = db.getEventById?.(op.id) || null;
+          else if (op.kind === 'habit') entry.before = db.getHabitById?.(op.id) || null;
+          else entry.before = db.getTodoById?.(op.id) || null;
+        }
+        affected.push(entry);
+      } catch {
+        affected.push({ op, before: null });
+      }
+    }
+    return res.json({ affected });
+  } catch (e) {
+    return res.status(400).json({ error: 'preview_failed', detail: String(e && e.message ? e.message : e) });
+  }
+});
+
+// Minimal POST endpoint to exercise conversation LLM and logging (non-invasive)
+app.post('/api/llm/message', async (req, res) => {
+  const correlationId = mkCorrelationId();
+  try {
+    const { message = '', transcript = [] } = req.body || {};
+    const msg = String(message || '').trim();
+    if (!msg) return res.status(400).json({ error: 'invalid_message' });
+    const todayYmd = ymdInTimeZone(new Date(), TIMEZONE);
+    const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
+    const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
+    const system = 'You are a helpful assistant for a todo app. Keep answers concise and clear. Prefer 1–3 short sentences; no lists or JSON.';
+    const prompt = `${system}\n\nToday: ${todayYmd} (${TIMEZONE})\nConversation (last 3):\n${convo}\nUser: ${msg}`;
+    const models = getModels();
+    const raw = await convoLLM(prompt, { stream: false, model: models.convo });
+    logIO('router', { model: models.convo, prompt, output: raw, meta: { correlationId, path: '/api/llm/message' } });
+    // Best-effort plain text extraction
+    let text = String(raw || '').replace(/```[\s\S]*?```/g, '').replace(/[\r\n]+/g, ' ').trim();
+    if (!text) text = 'Okay.';
+    return res.json({ ok: true, text, correlationId });
+  } catch (e) {
+    logIO('router', { model: (getModels().convo), prompt: '(error)', output: String(e && e.message ? e.message : e), meta: { correlationId, path: '/api/llm/message', error: true } });
+    return res.status(502).json({ error: 'llm_failed', correlationId });
+  }
+});
+
+// LLM health check: verifies Ollama connectivity and lists models
+app.get('/api/llm/health', async (_req, res) => {
+  try {
+    const models = await (async () => {
+      try {
+        const { getAvailableModels } = await import('./llm/clients.js');
+        return await getAvailableModels();
+      } catch { return { ok: false, models: [] }; }
+    })();
+    const configured = getModels();
+    const present = (Array.isArray(models.models) ? models.models : []).map(m => m.name);
+    const convoPresent = present.includes(configured.convo);
+    const codePresent = present.includes(configured.code);
+    return res.json({ ok: !!models.ok, models: present, configured, convoPresent, codePresent });
+  } catch (e) {
+    return res.status(200).json({ ok: false, error: String(e && e.message ? e.message : e) });
+  }
+});
+
 // Mount static assets last so API routes are matched first
 app.use(express.static(STATIC_DIR));
+
+// Silence noisy 404s for Flutter source maps when running in prod-like mode
+app.get('/flutter.js.map', (_req, res) => res.status(204).end());
 
 // Error handler
 // eslint-disable-next-line no-unused-vars

@@ -2,7 +2,7 @@
 
 ## Requirements
 - Node.js 20 (pinned for better-sqlite3 compatibility)
-- Ollama running locally with model `granite3.3:8b` (set `OLLAMA_BASE_URL` if not default `http://127.0.0.1:11434`)
+- Ollama running locally (default host `127.0.0.1:11434`)
 - Optional: `TZ_NAME` to control server timezone (default `America/New_York`)
 - Flutter (web) toolchain for building the client
 
@@ -19,7 +19,18 @@
 
 ## Notes
 - The server hosts the built Flutter web assets from `apps/web/flutter_app/build/web`.
-- The assistant uses a two-call pipeline (router → propose → validate/repair → summarize), with SSE streaming at `/api/assistant/message/stream`.
+- The assistant always uses a two‑LLM pipeline (router → propose → validate/repair → summarize). Streaming SSE is available at `/api/assistant/message/stream`; non‑streaming at `POST /api/assistant/message`.
+
+### Environment defaults
+- CONVO_MODEL=llama3.2:3b
+- CODE_MODEL=granite-code:8b
+- OLLAMA_HOST=127.0.0.1
+- OLLAMA_PORT=11434
+- LLM_TIMEOUT_MS=30000
+- TZ_NAME=America/New_York
+- ENABLE_ASSISTANT_DEBUG=1 (prints one-line breadcrumbs per request)
+
+Verify models with: GET `/api/llm/health`.
 
 ## Testing
 - Tests run against an isolated test database at `data/test/app.db` and will not touch your local data in `data/app.db`.

@@ -8,7 +8,9 @@ Actionable:
 -get a todo list app up and running fully and soundly (must have same functionality as reminders app and google calendar)
     *Make todos UI better (fix it from being so snappy when deleting todos or going between tabs)
         >Use google calendar and reminders app for inspo
+        >Make sure to display the month and have the toggle switch for Day/Week/Month
     *Add in a third option for tasks to have 'skipped/(didn't do it)'
+    *Get repeated tasks and events working properly
     *JUST FOCUS ON TODOS and EVENTS (Habits and goals can be buffed out later once solid foundation is laid)
     *Clear out database and insert real todos and events coming up (still use reminders app and google calendar for now to keep parity and have fail safe)
 
@@ -23,6 +25,7 @@ Actionable:
     *First map out current todo list and google calendar usage, then have it be able to facilitate these behaviours asap
     
 -look at current LLM setup and update the prompts and query flow
+    *look into JSON prompting (build a test suite to find best way to mix and match LLMs)
     *make sure it will just respond to a natural language query without making a tool call
     *fix the diffs for operations and have the ability to observe the recent ops and undo in current chat(like in cursor)
     *do two LLM calls; one to determine how to respond then the other to respond (plan response then respond)

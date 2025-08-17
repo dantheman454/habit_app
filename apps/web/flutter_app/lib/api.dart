@@ -1,6 +1,5 @@
 import 'package:dio/dio.dart';
 import 'dart:async';
-import 'util/storage.dart' as storage;
 import 'util/sse.dart' as sse;
 import 'dart:convert';
 
@@ -15,12 +14,7 @@ String _computeApiBase() {
 
 final Dio api = Dio(BaseOptions(baseUrl: _computeApiBase()));
 
-Future<String> fetchAssistantModel() async {
-  final res = await api.get('/api/assistant/model');
-  final data = Map<String, dynamic>.from(res.data as Map);
-  final m = data['model'];
-  return (m is String) ? m : '';
-}
+// Removed: fetchAssistantModel (endpoint deleted; badges removed)
 
 Future<List<dynamic>> fetchScheduled({
   required String from,
@@ -80,6 +74,27 @@ Future<List<dynamic>> searchTodos(
   return (res.data['todos'] as List<dynamic>);
 }
 
+// Unified search (server-side merge of todos + events; habits optional later)
+Future<List<dynamic>> searchUnified(
+  String q, {
+  String scope = 'all', // 'todo' | 'event' | 'habit' | 'all'
+  bool? completed,
+  CancelToken? cancelToken,
+  int? limit,
+}) async {
+  final res = await api.get(
+    '/api/search',
+    queryParameters: {
+      'q': q,
+      if (scope.isNotEmpty) 'scope': scope,
+      if (completed != null) 'completed': completed.toString(),
+      if (limit != null) 'limit': limit,
+    },
+    cancelToken: cancelToken,
+  );
+  return (res.data['items'] as List<dynamic>);
+}
+
 Future<Map<String, dynamic>> createTodo(Map<String, dynamic> data) async {
   final res = await api.post('/api/todos', data: data);
   return Map<String, dynamic>.from(res.data['todo'] as Map);
@@ -116,6 +131,7 @@ Future<Map<String, dynamic>> assistantMessage(
   void Function(String text)? onSummary,
   void Function(String question, List<Map<String, dynamic>> options)? onClarify,
   Map<String, dynamic>? priorClarify,
+  Map<String, dynamic>? clientContext,
   void Function(String stage)? onStage,
   void Function(
     List<Map<String, dynamic>> operations,
@@ -124,6 +140,7 @@ Future<Map<String, dynamic>> assistantMessage(
     int invalidCount,
   )?
   onOps,
+  void Function(String correlationId)? onTraceId,
 }) async {
   if (!streamSummary) {
     final res = await api.post(
@@ -131,10 +148,18 @@ Future<Map<String, dynamic>> assistantMessage(
       data: {
         'message': message,
         'transcript': transcript,
-        'options': {if (priorClarify != null) 'clarify': priorClarify},
+        'options': {
+          if (priorClarify != null) 'clarify': priorClarify,
+          if (clientContext != null) 'client': clientContext,
+        },
       },
     );
     final map = Map<String, dynamic>.from(res.data as Map);
+    // Surface correlationId on non-streaming path, if provided
+    try {
+      final cid = (map['correlationId'] as String?) ?? '';
+      if (cid.isNotEmpty && onTraceId != null) onTraceId(cid);
+    } catch (_) {}
     if (onClarify != null &&
         map['requiresClarification'] == true &&
         map['question'] is String) {
@@ -149,6 +174,7 @@ Future<Map<String, dynamic>> assistantMessage(
           'message': message,
           'transcript': transcript.isEmpty ? '[]' : jsonEncode(transcript),
           if (priorClarify != null) 'clarify': jsonEncode(priorClarify),
+          if (clientContext != null) 'context': jsonEncode(clientContext),
         },
       )
       .toString();
@@ -158,9 +184,14 @@ Future<Map<String, dynamic>> assistantMessage(
     Map<String, dynamic>? result;
     final close = sse.startSse(
       uri: uri,
-      onEvent: (event, data) {
+  onEvent: (event, data) {
         try {
           final obj = jsonDecode(data) as Map<String, dynamic>;
+          // Emit correlationId ASAP for any event that carries it
+          try {
+            final cid = (obj['correlationId'] as String?) ?? '';
+            if (cid.isNotEmpty && onTraceId != null) onTraceId(cid);
+          } catch (_) {}
           if (event == 'clarify') {
             if (onClarify != null) {
               final q = (obj['question'] as String?) ?? '';
@@ -217,10 +248,18 @@ Future<Map<String, dynamic>> assistantMessage(
             data: {
               'message': message,
               'transcript': transcript,
-              'options': {if (priorClarify != null) 'clarify': priorClarify},
+              'options': {
+                if (priorClarify != null) 'clarify': priorClarify,
+                if (clientContext != null) 'client': clientContext,
+              },
             },
           );
-          completer.complete(Map<String, dynamic>.from(res.data as Map));
+          final map = Map<String, dynamic>.from(res.data as Map);
+          try {
+            final cid = (map['correlationId'] as String?) ?? '';
+            if (cid.isNotEmpty && onTraceId != null) onTraceId(cid);
+          } catch (_) {}
+          completer.complete(map);
         } catch (e) {
           completer.completeError(Exception('sse_error'));
         }
@@ -235,16 +274,35 @@ Future<Map<String, dynamic>> assistantMessage(
     // Fallback to non-streaming on any error
     final res = await api.post(
       '/api/assistant/message',
-      data: {'message': message, 'transcript': transcript, 'options': {}},
+      data: {
+        'message': message,
+        'transcript': transcript,
+        'options': {if (clientContext != null) 'client': clientContext},
+      },
     );
-    return Map<String, dynamic>.from(res.data as Map);
+    final map = Map<String, dynamic>.from(res.data as Map);
+    try {
+      final cid = (map['correlationId'] as String?) ?? '';
+      if (cid.isNotEmpty && onTraceId != null) onTraceId(cid);
+    } catch (_) {}
+    return map;
   }
 }
 
 Future<Map<String, dynamic>> applyOperations(
-  List<Map<String, dynamic>> ops,
-) async {
-  final res = await api.post('/api/llm/apply', data: {'operations': ops});
+  List<Map<String, dynamic>> ops, {
+  String? correlationId,
+}) async {
+  final res = await api.post(
+    '/api/llm/apply',
+    data: {
+      'operations': ops,
+      if (correlationId != null) 'correlationId': correlationId,
+    },
+    options: Options(headers: {
+      if (correlationId != null) 'x-correlation-id': correlationId,
+    }),
+  );
   return Map<String, dynamic>.from(res.data as Map);
 }
 
@@ -252,6 +310,13 @@ Future<Map<String, dynamic>> dryRunOperations(
   List<Map<String, dynamic>> ops,
 ) async {
   final res = await api.post('/api/llm/dryrun', data: {'operations': ops});
+  return Map<String, dynamic>.from(res.data as Map);
+}
+
+Future<Map<String, dynamic>> previewOperations(
+  List<Map<String, dynamic>> ops,
+) async {
+  final res = await api.post('/api/llm/preview', data: {'operations': ops});
   return Map<String, dynamic>.from(res.data as Map);
 }
 
