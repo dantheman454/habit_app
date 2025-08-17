@@ -38,12 +38,12 @@ async function main() {
 
   // Create a todo (V3 apply)
   const apply1 = await request('POST', '/api/llm/dryrun', {
-    operations: [{ kind: 'todo', action: 'create', title: 'Smoke', scheduledFor: null, priority: 'medium', recurrence: { type: 'none' } }]
+    operations: [{ kind: 'todo', action: 'create', title: 'Smoke', scheduledFor: null, recurrence: { type: 'none' } }]
   });
   assert.equal(apply1.status, 200);
 
   const apply2 = await request('POST', '/api/llm/apply', {
-    operations: [{ kind: 'todo', action: 'create', title: 'Smoke', scheduledFor: null, priority: 'medium', recurrence: { type: 'none' } }]
+    operations: [{ kind: 'todo', action: 'create', title: 'Smoke', scheduledFor: null, recurrence: { type: 'none' } }]
   });
   assert.equal(apply2.status, 200);
   assert.ok(Array.isArray(apply2.body.results));
@@ -63,12 +63,12 @@ async function main() {
 
   // Create an event (V3 apply), update, complete occurrence, delete
   const evCreate = await request('POST', '/api/llm/apply', {
-    operations: [ { kind: 'event', action: 'create', title: 'Meeting', scheduledFor: ymd(), startTime: '09:00', endTime: '10:00', priority: 'low', recurrence: { type: 'none' } } ]
+    operations: [ { kind: 'event', action: 'create', title: 'Meeting', scheduledFor: ymd(), startTime: '09:00', endTime: '10:00', recurrence: { type: 'none' } } ]
   });
   assert.equal(evCreate.status, 200);
   const evId = (() => { try { return evCreate.body.results.find(x => x.event)?.event.id; } catch { return null; } })();
   assert.ok(Number.isFinite(evId));
-  const evUpdate = await request('POST', '/api/llm/apply', { operations: [ { kind: 'event', action: 'update', id: evId, priority: 'high', recurrence: { type: 'none' } } ] });
+  const evUpdate = await request('POST', '/api/llm/apply', { operations: [ { kind: 'event', action: 'update', id: evId, recurrence: { type: 'none' } } ] });
   assert.equal(evUpdate.status, 200);
   const evOcc = await request('POST', '/api/llm/apply', { operations: [ { kind: 'event', action: 'complete_occurrence', id: evId, occurrenceDate: ymd(), completed: true } ] });
   assert.equal(evOcc.status, 200);
@@ -76,7 +76,7 @@ async function main() {
   assert.equal(evDelete.status, 200);
 
   // Create a repeating todo and toggle an occurrence
-  const repCreate = await request('POST', '/api/llm/apply', { operations: [ { kind: 'todo', action: 'create', title: 'Repeat', scheduledFor: ymd(), priority: 'medium', recurrence: { type: 'weekly' } } ] });
+  const repCreate = await request('POST', '/api/llm/apply', { operations: [ { kind: 'todo', action: 'create', title: 'Repeat', scheduledFor: ymd(), recurrence: { type: 'weekly' } } ] });
   assert.equal(repCreate.status, 200);
   const repId = (() => { try { return repCreate.body.results.find(x => x.todo).todo.id; } catch { return null; } })();
   assert.ok(Number.isFinite(repId));
@@ -104,7 +104,7 @@ async function main() {
 
   // Idempotency replay: same payload and Idempotency-Key
   const idemKey = 'test-key-1';
-  const idemPayload = { operations: [{ kind: 'todo', action: 'create', title: 'Idem Task', scheduledFor: null, priority: 'low', recurrence: { type: 'none' } }] };
+  const idemPayload = { operations: [{ kind: 'todo', action: 'create', title: 'Idem Task', scheduledFor: null, recurrence: { type: 'none' } }] };
   const first = await request('POST', '/api/llm/apply', idemPayload, { 'Idempotency-Key': idemKey });
   const second = await request('POST', '/api/llm/apply', idemPayload, { 'Idempotency-Key': idemKey });
   assert.equal(first.status, 200);
@@ -116,7 +116,7 @@ async function main() {
   assert.ok(idemCount >= 1, 'Expected at least one todo with title containing "Idem Task"');
 
   // Bulk ops should be rejected in V3 (dryrun returns error annotation)
-  const bulkDry = await request('POST', '/api/llm/dryrun', { operations: [{ op: 'bulk_update', where: {}, set: { priority: 'high' } }] });
+  const bulkDry = await request('POST', '/api/llm/dryrun', { operations: [{ op: 'bulk_update', where: {}, set: { title: 'x' } }] });
   assert.equal(bulkDry.status, 200);
   const errors = bulkDry.body.results[0].errors || [];
   assert.ok(errors.includes('bulk_operations_removed'));
@@ -192,6 +192,36 @@ async function main() {
       if (!(found.currentStreak >= 1)) throw new Error('Expected currentStreak >= 1');
     }
   }
+
+  // Assistant endpoints
+  // 1) Non-stream assistant message should return either a clarify payload or a text summary
+  const asst1 = await request('POST', '/api/assistant/message', { message: 'update my task for today', transcript: [] });
+  assert.equal(asst1.status, 200);
+  assert.equal(typeof asst1.body.correlationId, 'string');
+  assert.equal(!!(asst1.body.clarify || typeof asst1.body.text === 'string'), true);
+
+  // 2) SSE stream should emit stage and done events
+  await new Promise((resolve, reject) => {
+    const req = http.request(BASE + `/api/assistant/message/stream?message=${encodeURIComponent('update my task for today')}` , { method: 'GET' }, (res) => {
+      let gotStage = false;
+      let gotDone = false;
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => {
+        if (chunk.includes('event: stage')) gotStage = true;
+        if (chunk.includes('event: done')) gotDone = true;
+      });
+      res.on('end', () => {
+        try {
+          assert.equal(res.statusCode, 200);
+          assert.equal(gotStage, true);
+          assert.equal(gotDone, true);
+          resolve();
+        } catch (e) { reject(e); }
+      });
+    });
+    req.on('error', reject);
+    req.end();
+  });
 
   console.log('OK');
 }

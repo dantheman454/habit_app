@@ -7,9 +7,9 @@ This document specifies the Todo/Event/Habit/Goal schemas, recurrence semantics,
 - Database file: `data/app.db` (created on demand)
 - Schema: `apps/server/database/schema.sql`
 - Tables (selected):
-  - `todos(id, title, notes, scheduled_for, time_of_day, priority, completed, recurrence TEXT(JSON), completed_dates TEXT(JSON), created_at, updated_at)`
-  - `events(id, title, notes, scheduled_for, start_time, end_time, location, priority, completed, recurrence TEXT(JSON), completed_dates TEXT(JSON), created_at, updated_at)`
-  - `habits(id, title, notes, scheduled_for, time_of_day, priority, completed, recurrence TEXT(JSON), completed_dates TEXT(JSON), created_at, updated_at)`
+  - `todos(id, title, notes, scheduled_for, time_of_day, completed, recurrence TEXT(JSON), completed_dates TEXT(JSON), created_at, updated_at)`
+  - `events(id, title, notes, scheduled_for, start_time, end_time, location, completed, recurrence TEXT(JSON), completed_dates TEXT(JSON), created_at, updated_at)`
+  - `habits(id, title, notes, scheduled_for, time_of_day, completed, recurrence TEXT(JSON), completed_dates TEXT(JSON), created_at, updated_at)`
   - `goals(id, title, notes, status, current_progress_value, target_progress_value, progress_unit, created_at, updated_at)`
   - Linking tables: `habit_todo_items(habit_id, todo_id)`, `habit_event_items(habit_id, event_id)`, `goal_todo_items(goal_id, todo_id)`, `goal_event_items(goal_id, event_id)`, `goal_hierarchy(parent_goal_id, child_goal_id)`
   - Supporting: `audit_log(ts, action, entity, entity_id, payload)`, `idempotency(idempotency_key, request_hash, response, ts)`
@@ -22,7 +22,7 @@ This document specifies the Todo/Event/Habit/Goal schemas, recurrence semantics,
 - `notes: string`
 - `scheduledFor: string|null` — `YYYY-MM-DD`; null for backlog
 - `timeOfDay: string|null` — `HH:MM` or null (all-day)
-- `priority: 'low'|'medium'|'high'`
+
 - `completed: boolean`
 - `recurrence: Recurrence` — `{ type: 'none'|'daily'|'weekdays'|'weekly'|'every_n_days', intervalDays?: number, until?: YYYY-MM-DD|null }`
 - `completedDates?: string[]|null` — present on repeating masters; null or `[]` otherwise

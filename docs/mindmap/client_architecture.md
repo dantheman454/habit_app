@@ -15,7 +15,7 @@ Entry files: `apps/web/flutter_app/lib/main.dart`, `apps/web/flutter_app/lib/api
 ### Data loading
 
 - `_refreshAll()`
-  - For day/week/month views: calls unified `fetchSchedule({ from, to, kinds, completed?, priority? })` to populate `scheduled`
+  - For day/week/month views: calls unified `fetchSchedule({ from, to, kinds, completed? })` to populate `scheduled`
   - Also calls `fetchScheduledAllTime({ completed? })` and `fetchBacklog()` for counts and backlog view
   - When showing Habits tab, also calls `listHabits({ from, to })` to collect per-habit stats (`currentStreak`, `longestStreak`, `weekHeatmap`)
   - When `showCompleted=false`, exclude completed in queries and UI
@@ -46,7 +46,7 @@ Entry files: `apps/web/flutter_app/lib/main.dart`, `apps/web/flutter_app/lib/api
 ### Presentation and grouping
 
 - Group by date, then sort by start/time-of-day (nulls first), then by kind order `event < todo < habit`, then by id
-- Overdue highlighting for Today based on time; chips and tabs filter by `kind` and priority
+- Overdue highlighting for Today based on time; chips and tabs filter by `kind`
 
 ### Networking and environment
 

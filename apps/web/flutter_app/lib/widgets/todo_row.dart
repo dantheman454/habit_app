@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_app/widgets/priority_chip.dart' as pc;
 
 class TodoLike {
   final int id;
@@ -7,7 +6,6 @@ class TodoLike {
   final String notes;
   final String? kind; // 'todo'|'event'|'habit'
   final String? timeOfDay;
-  final String priority;
   final bool completed;
   final bool overdue;
   const TodoLike({
@@ -16,7 +14,6 @@ class TodoLike {
     required this.notes,
     this.kind,
     this.timeOfDay,
-    required this.priority,
     required this.completed,
     this.overdue = false,
   });
@@ -28,10 +25,8 @@ class TodoRow extends StatelessWidget {
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final bool highlighted;
-  final Widget? extraBadge; // optional, placed in the header row after priority
+  final Widget? extraBadge; // optional, placed in the header row
   final void Function(String newTitle)? onTitleEdited;
-  final void Function(String newPriority)?
-  onPriorityEdited; // expects 'low'|'medium'|'high'
   final void Function(String? newTimeOfDay)? onTimeEdited; // 'HH:MM' or null
 
   const TodoRow({
@@ -43,7 +38,6 @@ class TodoRow extends StatelessWidget {
     this.highlighted = false,
     this.extraBadge,
     this.onTitleEdited,
-    this.onPriorityEdited,
     this.onTimeEdited,
   });
 
@@ -76,21 +70,6 @@ class TodoRow extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    GestureDetector(
-                      onTap: () {
-                        if (onPriorityEdited == null) return;
-                        final next = (todo.priority == 'low')
-                            ? 'medium'
-                            : (todo.priority == 'medium')
-                            ? 'high'
-                            : 'low';
-                        onPriorityEdited!(next);
-                      },
-                      child: pc.priorityChip(
-                        todo.priority,
-                        Theme.of(context).colorScheme,
-                      ),
-                    ),
                     if (extraBadge != null) ...[
                       const SizedBox(width: 6),
                       extraBadge!,

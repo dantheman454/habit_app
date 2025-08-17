@@ -32,12 +32,6 @@ function randInt(min, max) { // inclusive
 
 function randomChoice(list) { return list[Math.floor(Math.random() * list.length)]; }
 
-function randomPriority() {
-  const r = Math.random();
-  if (r < 0.2) return 'low';
-  if (r < 0.8) return 'medium';
-  return 'high';
-}
 
 function endOfYearYmd() {
   const n = new Date();
@@ -87,8 +81,8 @@ function bootstrapSchema(db) {
 function seedTodos(db, count) {
   const nowIso = new Date().toISOString();
   const insert = db.prepare(`
-    INSERT INTO todos(title, notes, scheduled_for, time_of_day, priority, completed, recurrence, completed_dates, created_at, updated_at)
-    VALUES (@title, @notes, @scheduled_for, @time_of_day, @priority, @completed, @recurrence, @completed_dates, @created_at, @updated_at)
+  INSERT INTO todos(title, notes, scheduled_for, time_of_day, completed, recurrence, completed_dates, created_at, updated_at)
+  VALUES (@title, @notes, @scheduled_for, @time_of_day, @completed, @recurrence, @completed_dates, @created_at, @updated_at)
   `);
   const tx = db.transaction(() => {
     for (let i = 0; i < count; i++) {
@@ -99,7 +93,6 @@ function seedTodos(db, count) {
         notes: '',
         scheduled_for: scheduledFor,
         time_of_day: randomTodoTimeOrNull(),
-        priority: randomPriority(),
         completed: 0,
         recurrence: JSON.stringify(rec),
         completed_dates: null,
@@ -135,8 +128,8 @@ function randomLocation() {
 function seedEvents(db, count) {
   const nowIso = new Date().toISOString();
   const insert = db.prepare(`
-    INSERT INTO events(title, notes, scheduled_for, start_time, end_time, location, priority, completed, recurrence, completed_dates, created_at, updated_at)
-    VALUES (@title, @notes, @scheduled_for, @start_time, @end_time, @location, @priority, @completed, @recurrence, @completed_dates, @created_at, @updated_at)
+  INSERT INTO events(title, notes, scheduled_for, start_time, end_time, location, completed, recurrence, completed_dates, created_at, updated_at)
+  VALUES (@title, @notes, @scheduled_for, @start_time, @end_time, @location, @completed, @recurrence, @completed_dates, @created_at, @updated_at)
   `);
   const tx = db.transaction(() => {
     for (let i = 0; i < count; i++) {
@@ -150,7 +143,6 @@ function seedEvents(db, count) {
         start_time: start,
         end_time: end,
         location: randomLocation(),
-        priority: randomPriority(),
         completed: 0,
         recurrence: JSON.stringify(rec),
         completed_dates: null,

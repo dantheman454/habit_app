@@ -8,7 +8,6 @@ class LlmOperationLike {
   final String? title;
   final String? notes;
   final String? scheduledFor;
-  final String? priority;
   final bool? completed;
   const LlmOperationLike({
     required this.op,
@@ -16,7 +15,6 @@ class LlmOperationLike {
     this.title,
     this.notes,
     this.scheduledFor,
-    this.priority,
     this.completed,
   });
 }
@@ -25,7 +23,6 @@ String defaultOpLabel(LlmOperationLike op) {
   final parts = <String>[op.op];
   if (op.id != null) parts.add('#${op.id}');
   if (op.title != null) parts.add('- ${op.title}');
-  if (op.priority != null) parts.add('(prio ${op.priority})');
   if (op.scheduledFor != null) parts.add('@${op.scheduledFor}');
   if (op.completed != null) parts.add(op.completed! ? '[done]' : '[undone]');
   return parts.join(' ');
@@ -53,7 +50,7 @@ class AssistantPanel extends StatelessWidget {
   final List<Map<String, dynamic>> clarifyOptions;
   final void Function(int id)? onToggleClarifyId;
   final void Function(String? date)? onSelectClarifyDate;
-  final void Function(String? priority)? onSelectClarifyPriority;
+  // priority clarification removed
   // Progress stage label
   final String? progressStage;
   // Optional progress metadata
@@ -65,7 +62,7 @@ class AssistantPanel extends StatelessWidget {
   // Selected clarify state for UI reflection
   final Set<int>? selectedClarifyIds;
   final String? selectedClarifyDate;
-  final String? selectedClarifyPriority;
+  
 
   const AssistantPanel({
     super.key,
@@ -87,7 +84,7 @@ class AssistantPanel extends StatelessWidget {
     this.clarifyOptions = const [],
     this.onToggleClarifyId,
     this.onSelectClarifyDate,
-    this.onSelectClarifyPriority,
+    
     this.progressStage,
   this.progressValid,
   this.progressInvalid,
@@ -95,7 +92,7 @@ class AssistantPanel extends StatelessWidget {
     this.todayYmd,
     this.selectedClarifyIds,
     this.selectedClarifyDate,
-    this.selectedClarifyPriority,
+    
   });
 
   @override
@@ -113,14 +110,12 @@ class AssistantPanel extends StatelessWidget {
           final id = _getInt(candidate, 'id');
           final title = _getString(candidate, 'title');
           final sched = _getString(candidate, 'scheduledFor');
-          final prio = _getString(candidate, 'priority');
           final done = _getBool(candidate, 'completed');
           // Prefer V3 label when present
           if (kind != null && action != null) {
             final parts = <String>[kind, action];
             if (id != null) parts.add('#$id');
             if (title != null) parts.add('– $title');
-            if (prio != null) parts.add('(prio $prio)');
             if (sched != null) parts.add('@$sched');
             if (done != null) parts.add(done ? '[done]' : '[undone]');
             return parts.join(' ');
@@ -131,7 +126,6 @@ class AssistantPanel extends StatelessWidget {
             title: title,
             notes: _getString(candidate, 'notes'),
             scheduledFor: sched,
-            priority: prio,
             completed: done,
           );
           return defaultOpLabel(like);
@@ -667,24 +661,6 @@ class AssistantPanel extends StatelessWidget {
                   'Unscheduled${(selectedClarifyDate == null) ? ' ✓' : ''}',
                 ),
               ),
-              OutlinedButton(
-                onPressed: () => onSelectClarifyPriority?.call('high'),
-                child: Text(
-                  'prio: high${(selectedClarifyPriority == 'high') ? ' ✓' : ''}',
-                ),
-              ),
-              OutlinedButton(
-                onPressed: () => onSelectClarifyPriority?.call('medium'),
-                child: Text(
-                  'prio: medium${(selectedClarifyPriority == 'medium') ? ' ✓' : ''}',
-                ),
-              ),
-              OutlinedButton(
-                onPressed: () => onSelectClarifyPriority?.call('low'),
-                child: Text(
-                  'prio: low${(selectedClarifyPriority == 'low') ? ' ✓' : ''}',
-                ),
-              ),
             ],
           ),
         ],
@@ -951,7 +927,6 @@ class _DiffPopupButton extends StatelessWidget {
     final beforeLocation = before != null ? fmt(before['location']) : null;
     final beforeRecurType = before != null ? fmt(getNested(before, ['recurrence', 'type'])) : null;
     final beforeRecurN = before != null ? fmt(getNested(before, ['recurrence', 'intervalDays'])) : null;
-    final beforePrio = before != null ? fmt(before['priority']) : null;
     final beforeDone = before != null ? fmt(before['completed']) : null;
     addRow('Title', beforeTitle, getAfter('title'));
     addRow('Notes', beforeNotes, getAfter('notes'));
@@ -978,7 +953,6 @@ class _DiffPopupButton extends StatelessWidget {
         }())),
       ],
     ));
-    addRow('Priority', beforePrio, getAfter('priority'));
     addRow('Completed', beforeDone, getAfter('completed'));
     return rows.where((w) => w is Row).toList();
   }

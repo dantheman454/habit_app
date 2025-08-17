@@ -54,19 +54,18 @@ export class DbService {
   }
 
   // Minimal Todos subset to validate wiring later
-  createTodo({ title, notes = '', scheduledFor = null, timeOfDay = null, priority = 'medium', recurrence = { type: 'none' }, completed = false }) {
+  createTodo({ title, notes = '', scheduledFor = null, timeOfDay = null, recurrence = { type: 'none' }, completed = false }) {
     this.openIfNeeded();
     const now = new Date().toISOString();
     const stmt = this.db.prepare(`
-      INSERT INTO todos(title, notes, scheduled_for, time_of_day, priority, completed, recurrence, completed_dates, created_at, updated_at)
-      VALUES (@title, @notes, @scheduled_for, @time_of_day, @priority, @completed, @recurrence, NULL, @created_at, @updated_at)
+      INSERT INTO todos(title, notes, scheduled_for, time_of_day, completed, recurrence, completed_dates, created_at, updated_at)
+      VALUES (@title, @notes, @scheduled_for, @time_of_day, @completed, @recurrence, NULL, @created_at, @updated_at)
     `);
     const info = stmt.run({
       title,
       notes,
       scheduled_for: scheduledFor,
       time_of_day: timeOfDay,
-      priority,
       completed: completed ? 1 : 0,
       recurrence: JSON.stringify(recurrence || { type: 'none' }),
       created_at: now,
@@ -88,13 +87,12 @@ export class DbService {
     if (!t) throw new Error('not_found');
     const merged = { ...t, ...patch };
     const now = new Date().toISOString();
-    this.db.prepare(`UPDATE todos SET title=@title, notes=@notes, scheduled_for=@scheduled_for, time_of_day=@time_of_day, priority=@priority, completed=@completed, recurrence=@recurrence, updated_at=@updated_at WHERE id=@id`).run({
+  this.db.prepare(`UPDATE todos SET title=@title, notes=@notes, scheduled_for=@scheduled_for, time_of_day=@time_of_day, completed=@completed, recurrence=@recurrence, updated_at=@updated_at WHERE id=@id`).run({
       id,
       title: merged.title,
       notes: merged.notes,
       scheduled_for: merged.scheduledFor ?? null,
       time_of_day: merged.timeOfDay ?? null,
-      priority: merged.priority,
       completed: merged.completed ? 1 : 0,
       recurrence: JSON.stringify(merged.recurrence || { type: 'none' }),
       updated_at: now,
@@ -103,12 +101,12 @@ export class DbService {
   }
 
   // Events
-  createEvent({ title, notes = '', scheduledFor = null, startTime = null, endTime = null, location = null, priority = 'medium', recurrence = { type: 'none' }, completed = false }) {
+  createEvent({ title, notes = '', scheduledFor = null, startTime = null, endTime = null, location = null, recurrence = { type: 'none' }, completed = false }) {
     this.openIfNeeded();
     const now = new Date().toISOString();
     const stmt = this.db.prepare(`
-      INSERT INTO events(title, notes, scheduled_for, start_time, end_time, location, priority, completed, recurrence, completed_dates, created_at, updated_at)
-      VALUES (@title, @notes, @scheduled_for, @start_time, @end_time, @location, @priority, @completed, @recurrence, NULL, @created_at, @updated_at)
+      INSERT INTO events(title, notes, scheduled_for, start_time, end_time, location, completed, recurrence, completed_dates, created_at, updated_at)
+      VALUES (@title, @notes, @scheduled_for, @start_time, @end_time, @location, @completed, @recurrence, NULL, @created_at, @updated_at)
     `);
     const info = stmt.run({
       title,
@@ -116,8 +114,7 @@ export class DbService {
       scheduled_for: scheduledFor,
       start_time: startTime,
       end_time: endTime,
-      location,
-      priority,
+  location,
       completed: completed ? 1 : 0,
       recurrence: JSON.stringify(recurrence || { type: 'none' }),
       created_at: now,
@@ -127,19 +124,18 @@ export class DbService {
   }
 
   // Habits (parity with todos)
-  createHabit({ title, notes = '', scheduledFor = null, timeOfDay = null, priority = 'medium', recurrence = { type: 'daily' }, completed = false }) {
+  createHabit({ title, notes = '', scheduledFor = null, timeOfDay = null, recurrence = { type: 'daily' }, completed = false }) {
     this.openIfNeeded();
     const now = new Date().toISOString();
     const stmt = this.db.prepare(`
-      INSERT INTO habits(title, notes, scheduled_for, time_of_day, priority, completed, recurrence, completed_dates, created_at, updated_at)
-      VALUES (@title, @notes, @scheduled_for, @time_of_day, @priority, @completed, @recurrence, NULL, @created_at, @updated_at)
+      INSERT INTO habits(title, notes, scheduled_for, time_of_day, completed, recurrence, completed_dates, created_at, updated_at)
+      VALUES (@title, @notes, @scheduled_for, @time_of_day, @completed, @recurrence, NULL, @created_at, @updated_at)
     `);
     const info = stmt.run({
       title,
       notes,
       scheduled_for: scheduledFor,
-      time_of_day: timeOfDay,
-      priority,
+  time_of_day: timeOfDay,
       completed: completed ? 1 : 0,
       recurrence: JSON.stringify(recurrence || { type: 'daily' }),
       created_at: now,
@@ -161,13 +157,12 @@ export class DbService {
     if (!h) throw new Error('not_found');
     const merged = { ...h, ...patch };
     const now = new Date().toISOString();
-    this.db.prepare(`UPDATE habits SET title=@title, notes=@notes, scheduled_for=@scheduled_for, time_of_day=@time_of_day, priority=@priority, completed=@completed, recurrence=@recurrence, updated_at=@updated_at WHERE id=@id`).run({
+  this.db.prepare(`UPDATE habits SET title=@title, notes=@notes, scheduled_for=@scheduled_for, time_of_day=@time_of_day, completed=@completed, recurrence=@recurrence, updated_at=@updated_at WHERE id=@id`).run({
       id,
       title: merged.title,
       notes: merged.notes,
       scheduled_for: merged.scheduledFor ?? null,
       time_of_day: merged.timeOfDay ?? null,
-      priority: merged.priority,
       completed: merged.completed ? 1 : 0,
       recurrence: JSON.stringify(merged.recurrence || { type: 'daily' }),
       updated_at: now,
@@ -180,13 +175,12 @@ export class DbService {
     this.db.prepare('DELETE FROM habits WHERE id = ?').run(id);
   }
 
-  listHabits({ from = null, to = null, priority = null, completed = null } = {}) {
+  listHabits({ from = null, to = null, completed = null } = {}) {
     this.openIfNeeded();
     const cond = ['scheduled_for IS NOT NULL'];
     const params = {};
     if (from) { cond.push('scheduled_for >= @from'); params.from = from; }
     if (to) { cond.push("scheduled_for < date(@to, '+1 day')"); params.to = to; }
-    if (priority) { cond.push('priority = @priority'); params.priority = priority; }
     if (completed !== null && completed !== undefined) { cond.push('completed = @completed'); params.completed = completed ? 1 : 0; }
     const sql = `SELECT * FROM habits WHERE ${cond.join(' AND ')} ORDER BY scheduled_for ASC, time_of_day ASC, id ASC`;
     const rows = this.db.prepare(sql).all(params);
@@ -296,15 +290,14 @@ export class DbService {
     if (!e) throw new Error('not_found');
     const merged = { ...e, ...patch };
     const now = new Date().toISOString();
-    this.db.prepare(`UPDATE events SET title=@title, notes=@notes, scheduled_for=@scheduled_for, start_time=@start_time, end_time=@end_time, location=@location, priority=@priority, completed=@completed, recurrence=@recurrence, updated_at=@updated_at WHERE id=@id`).run({
+  this.db.prepare(`UPDATE events SET title=@title, notes=@notes, scheduled_for=@scheduled_for, start_time=@start_time, end_time=@end_time, location=@location, completed=@completed, recurrence=@recurrence, updated_at=@updated_at WHERE id=@id`).run({
       id,
       title: merged.title,
       notes: merged.notes,
       scheduled_for: merged.scheduledFor ?? null,
       start_time: merged.startTime ?? null,
       end_time: merged.endTime ?? null,
-      location: merged.location ?? null,
-      priority: merged.priority,
+  location: merged.location ?? null,
       completed: merged.completed ? 1 : 0,
       recurrence: JSON.stringify(merged.recurrence || { type: 'none' }),
       updated_at: now,
@@ -317,13 +310,12 @@ export class DbService {
     this.db.prepare('DELETE FROM events WHERE id = ?').run(id);
   }
 
-  listEvents({ from = null, to = null, priority = null, completed = null } = {}) {
+  listEvents({ from = null, to = null, completed = null } = {}) {
     this.openIfNeeded();
     const cond = ['scheduled_for IS NOT NULL'];
     const params = {};
     if (from) { cond.push('scheduled_for >= @from'); params.from = from; }
     if (to) { cond.push("scheduled_for < date(@to, '+1 day')"); params.to = to; }
-    if (priority) { cond.push('priority = @priority'); params.priority = priority; }
     if (completed !== null && completed !== undefined) { cond.push('completed = @completed'); params.completed = completed ? 1 : 0; }
     const sql = `SELECT * FROM events WHERE ${cond.join(' AND ')} ORDER BY scheduled_for ASC, start_time ASC, id ASC`;
     const rows = this.db.prepare(sql).all(params);
@@ -373,13 +365,12 @@ export class DbService {
     this.db.prepare('DELETE FROM todos WHERE id = ?').run(id);
   }
 
-  listTodos({ from = null, to = null, priority = null, completed = null } = {}) {
+  listTodos({ from = null, to = null, completed = null } = {}) {
     this.openIfNeeded();
     const cond = ['scheduled_for IS NOT NULL'];
     const params = {};
     if (from) { cond.push('scheduled_for >= @from'); params.from = from; }
     if (to) { cond.push("scheduled_for < date(@to, '+1 day')"); params.to = to; }
-    if (priority) { cond.push('priority = @priority'); params.priority = priority; }
     if (completed !== null && completed !== undefined) { cond.push('completed = @completed'); params.completed = completed ? 1 : 0; }
     const sql = `SELECT * FROM todos WHERE ${cond.join(' AND ')} ORDER BY scheduled_for ASC, time_of_day ASC, id ASC`;
     const rows = this.db.prepare(sql).all(params);
@@ -431,7 +422,7 @@ export class DbService {
       notes: r.notes,
       scheduledFor: r.scheduled_for,
       timeOfDay: r.time_of_day,
-      priority: r.priority,
+      
       completed: !!r.completed,
       recurrence: (() => { try { return JSON.parse(r.recurrence || '{"type":"none"}'); } catch { return { type: 'none' }; } })(),
       completedDates: (() => { try { return r.completed_dates ? JSON.parse(r.completed_dates) : null; } catch { return null; } })(),
@@ -449,7 +440,7 @@ export class DbService {
       startTime: r.start_time,
       endTime: r.end_time,
       location: r.location,
-      priority: r.priority,
+      
       completed: !!r.completed,
       recurrence: (() => { try { return JSON.parse(r.recurrence || '{"type":"none"}'); } catch { return { type: 'none' }; } })(),
       completedDates: (() => { try { return r.completed_dates ? JSON.parse(r.completed_dates) : null; } catch { return null; } })(),
@@ -465,7 +456,7 @@ export class DbService {
       notes: r.notes,
       scheduledFor: r.scheduled_for,
       timeOfDay: r.time_of_day,
-      priority: r.priority,
+      
       completed: !!r.completed,
       recurrence: (() => { try { return JSON.parse(r.recurrence || '{"type":"daily"}'); } catch { return { type: 'daily' }; } })(),
       completedDates: (() => { try { return r.completed_dates ? JSON.parse(r.completed_dates) : null; } catch { return null; } })(),

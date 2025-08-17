@@ -14,7 +14,7 @@ void main() {
       '2025-01-12',
     ];
     final habits = [
-      const HabitRowData(id: 1, title: 'Drink water', priority: 'medium'),
+      const HabitRowData(id: 1, title: 'Drink water'),
     ];
     bool toggled = false;
     await tester.pumpWidget(

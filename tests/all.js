@@ -31,8 +31,45 @@ async function main() {
   // 1) Unit tests (Node test runner will discover our unit tests)
   await run(process.execPath, ['--test', path.join(__dirname, 'unit')]);
 
-  // 2) Start server for integration tests, wait for /health, then run smoke tests
-  const serverEnv = { ...process.env, APP_DB_PATH: process.env.APP_DB_PATH };
+  // 2) Start a stub LLM (fakes Ollama) so assistant endpoints can run without a real model
+  const llmStub = await new Promise((resolve) => {
+    const srv = http.createServer((req, res) => {
+      if (req.method === 'GET' && req.url === '/api/tags') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ models: [] }));
+      }
+      if (req.method === 'POST' && req.url === '/api/generate') {
+        let body = '';
+        req.on('data', (d) => body += d.toString());
+        req.on('end', () => {
+          try {
+            const j = JSON.parse(body || '{}');
+            const prompt = String(j.prompt || '');
+            // Router prompts should produce JSON; return clarify to avoid code path
+            if (/intent router/i.test(prompt) || /Output JSON only with fields: decision/i.test(prompt)) {
+              res.writeHead(200, { 'Content-Type': 'text/plain' });
+              return res.end('{"decision":"clarify","confidence":0.4,"question":"Which item do you want to update?"}');
+            }
+            // Other prompts (proposal/summary): return a short plain response
+            res.writeHead(200, { 'Content-Type': 'text/plain' });
+            return res.end('Okay.');
+          } catch {
+            res.writeHead(200, { 'Content-Type': 'text/plain' });
+            return res.end('Okay.');
+          }
+        });
+        return;
+      }
+      res.writeHead(404); res.end();
+    });
+    srv.listen(0, '127.0.0.1', () => {
+      const addr = srv.address();
+      resolve({ server: srv, port: addr.port });
+    });
+  });
+
+  // 3) Start server for integration tests, wait for /health, then run smoke tests
+  const serverEnv = { ...process.env, APP_DB_PATH: process.env.APP_DB_PATH, OLLAMA_HOST: '127.0.0.1', OLLAMA_PORT: String(llmStub.port) };
   const server = spawn(process.execPath, [path.join(__dirname, '..', 'apps', 'server', 'server.js')], {
     env: serverEnv,
     stdio: ['ignore', 'inherit', 'inherit']
@@ -57,6 +94,7 @@ async function main() {
     await run(process.execPath, [path.join(__dirname, 'run.js')]);
   } finally {
     try { server.kill('SIGTERM'); } catch {}
+  try { llmStub.server.close(); } catch {}
   }
 }
 

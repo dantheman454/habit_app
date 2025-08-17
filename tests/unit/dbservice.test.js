@@ -31,11 +31,11 @@ function ymd(d = new Date()) {
 test('todos: create/get/update/delete + search + list + toggle occurrence', () => {
   const today = ymd();
   // create non-repeating
-  const t1 = db.createTodo({ title: 'Buy milk', notes: '2%', scheduledFor: today, priority: 'high', recurrence: { type: 'none' } });
+  const t1 = db.createTodo({ title: 'Buy milk', notes: '2%', scheduledFor: today, recurrence: { type: 'none' } });
   assert.ok(t1 && t1.id);
   const got = db.getTodoById(t1.id);
   assert.equal(got.title, 'Buy milk');
-  assert.equal(got.priority, 'high');
+  // priority removed
 
   // update
   const up = db.updateTodo(t1.id, { notes: 'whole', completed: true });
@@ -54,7 +54,7 @@ test('todos: create/get/update/delete + search + list + toggle occurrence', () =
   assert.ok(Array.isArray(fallback) && fallback.length >= 1);
 
   // create repeating and toggle occurrence
-  const t2 = db.createTodo({ title: 'Repeat task', scheduledFor: today, priority: 'medium', recurrence: { type: 'weekly' } });
+  const t2 = db.createTodo({ title: 'Repeat task', scheduledFor: today, recurrence: { type: 'weekly' } });
   const toggled = db.toggleTodoOccurrence({ id: t2.id, occurrenceDate: today, completed: true });
   assert.ok(Array.isArray(toggled.completedDates) && toggled.completedDates.includes(today));
 
@@ -65,12 +65,11 @@ test('todos: create/get/update/delete + search + list + toggle occurrence', () =
 
 test('events: create/get/update/list/search/toggle occurrence/delete', () => {
   const today = ymd();
-  const e1 = db.createEvent({ title: 'Meeting', scheduledFor: today, startTime: '09:00', endTime: '10:00', priority: 'low', recurrence: { type: 'none' } });
+  const e1 = db.createEvent({ title: 'Meeting', scheduledFor: today, startTime: '09:00', endTime: '10:00', recurrence: { type: 'none' } });
   assert.ok(e1 && e1.id);
   const eGet = db.getEventById(e1.id);
   assert.equal(eGet.startTime, '09:00');
-  const eUpd = db.updateEvent(e1.id, { priority: 'high', notes: 'Scrum' });
-  assert.equal(eUpd.priority, 'high');
+  const eUpd = db.updateEvent(e1.id, { notes: 'Scrum' });
   const list = db.listEvents({ from: today, to: today });
   assert.ok(list.some(x => x.id === e1.id));
   const search = db.searchEvents({ q: 'meeting' });
@@ -86,7 +85,7 @@ test('events: create/get/update/list/search/toggle occurrence/delete', () => {
 test('habits: CRUD + list/search/toggle occurrence', () => {
   const today = ymd();
   // create repeating habit
-  const h1 = db.createHabit({ title: 'Meditate', scheduledFor: today, priority: 'medium', recurrence: { type: 'daily' } });
+  const h1 = db.createHabit({ title: 'Meditate', scheduledFor: today, recurrence: { type: 'daily' } });
   assert.ok(h1 && h1.id);
   const g = db.getHabitById(h1.id);
   assert.equal(g.title, 'Meditate');
@@ -111,7 +110,7 @@ test('habits: compute stats over range', () => {
   const today = ymd();
   const yesterday = ymd(new Date(Date.now() - 24*60*60*1000));
   const twoAgo = ymd(new Date(Date.now() - 2*24*60*60*1000));
-  const h = db.createHabit({ title: 'Stats Habit', scheduledFor: today, priority: 'medium', recurrence: { type: 'daily' } });
+  const h = db.createHabit({ title: 'Stats Habit', scheduledFor: today, recurrence: { type: 'daily' } });
   // Mark a 3-day current streak
   db.toggleHabitOccurrence({ id: h.id, occurrenceDate: twoAgo, completed: true });
   db.toggleHabitOccurrence({ id: h.id, occurrenceDate: yesterday, completed: true });

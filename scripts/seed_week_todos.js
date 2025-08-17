@@ -57,13 +57,6 @@ function randomTimeOrNull() {
   return randomChoice(opts);
 }
 
-function randomPriority() {
-  const r = Math.random();
-  if (r < 0.2) return 'low';
-  if (r < 0.8) return 'medium';
-  return 'high';
-}
-
 function randomRecurrence(forDate) {
   // 80% none, 20% one of daily|weekdays|weekly|every_n_days
   const r = Math.random();
@@ -93,8 +86,8 @@ function seedTodos(db, count, tz) {
   const { fromYmd, toYmd } = weekRangeFromToday(tz);
   const nowIso = new Date().toISOString();
   const insert = db.prepare(`
-    INSERT INTO todos(title, notes, scheduled_for, time_of_day, priority, completed, recurrence, completed_dates, created_at, updated_at)
-    VALUES (@title, @notes, @scheduled_for, @time_of_day, @priority, @completed, @recurrence, @completed_dates, @created_at, @updated_at)
+  INSERT INTO todos(title, notes, scheduled_for, time_of_day, completed, recurrence, completed_dates, created_at, updated_at)
+  VALUES (@title, @notes, @scheduled_for, @time_of_day, @completed, @recurrence, @completed_dates, @created_at, @updated_at)
   `);
   const tx = db.transaction(() => {
     for (let i = 0; i < count; i++) {
@@ -106,7 +99,6 @@ function seedTodos(db, count, tz) {
         notes: '',
         scheduled_for: scheduledFor,
         time_of_day: randomTimeOrNull(),
-        priority: randomPriority(),
         completed,
         recurrence: JSON.stringify(rec),
         completed_dates: null,

@@ -33,7 +33,7 @@ class Todo {
   String? kind; // 'todo'|'event'|'habit' for unified schedule rows
   String? scheduledFor; // YYYY-MM-DD or null
   String? timeOfDay; // HH:MM or null
-  String priority; // low|medium|high
+  String? priority; // low|medium|high
   bool completed;
   Map<String, dynamic>? recurrence; // {type,...}
   int? masterId; // present on expanded occurrences
@@ -47,7 +47,7 @@ class Todo {
     this.kind,
     required this.scheduledFor,
     required this.timeOfDay,
-    required this.priority,
+  this.priority,
     required this.completed,
     required this.recurrence,
     required this.masterId,
@@ -62,7 +62,7 @@ class Todo {
     kind: j['kind'] as String?,
     scheduledFor: j['scheduledFor'] as String?,
     timeOfDay: ((j['timeOfDay'] as String?) ?? (j['startTime'] as String?)),
-    priority: j['priority'] as String? ?? 'medium',
+  priority: j['priority'] as String?,
     completed: j['completed'] as bool? ?? false,
     recurrence: j['recurrence'] as Map<String, dynamic>?,
     masterId: j['masterId'] as int?,
@@ -127,7 +127,7 @@ class LlmOperation {
     title: j['title'] as String?,
     notes: j['notes'] as String?,
     scheduledFor: j['scheduledFor'] as String?,
-    priority: j['priority'] as String?,
+  // priority removed
     completed: j['completed'] as bool?,
     timeOfDay: j['timeOfDay'] as String?,
     startTime: j['startTime'] as String?,
@@ -146,7 +146,7 @@ class LlmOperation {
     if (title != null) 'title': title,
     if (notes != null) 'notes': notes,
     if (scheduledFor != null) 'scheduledFor': scheduledFor,
-    if (priority != null) 'priority': priority,
+  // priority removed
     if (completed != null) 'completed': completed,
     if (timeOfDay != null) 'timeOfDay': timeOfDay,
     if (startTime != null) 'startTime': startTime,
@@ -279,7 +279,7 @@ class _HomePageState extends State<HomePage> {
   // Sidebar state
   SmartList selected = SmartList.today;
   MainView mainView = MainView.tasks;
-  String? _priorityFilter; // null=all | 'low'|'medium'|'high'
+  
   String? _goalsStatusFilter; // null=all | 'active'|'completed'|'archived'
 
   // Data
@@ -320,7 +320,6 @@ class _HomePageState extends State<HomePage> {
   List<Map<String, dynamic>> _pendingClarifyOptions = const [];
   final Set<int> _clarifySelectedIds = <int>{};
   String? _clarifySelectedDate;
-  String? _clarifySelectedPriority;
   String _progressStage = '';
   String? _lastCorrelationId;
   int _progressValid = 0;
@@ -332,15 +331,15 @@ class _HomePageState extends State<HomePage> {
   // Quick-add controllers
   final TextEditingController _qaTodoTitle = TextEditingController();
   final TextEditingController _qaTodoTime = TextEditingController();
-  String _qaTodoPriority = 'medium';
+  
   final TextEditingController _qaEventTitle = TextEditingController();
   final TextEditingController _qaEventStart = TextEditingController();
   final TextEditingController _qaEventEnd = TextEditingController();
   final TextEditingController _qaEventLocation = TextEditingController();
-  String _qaEventPriority = 'medium';
+  
   final TextEditingController _qaHabitTitle = TextEditingController();
   final TextEditingController _qaHabitTime = TextEditingController();
-  String _qaHabitPriority = 'medium';
+  
   // Goals inline quick-add controllers
   final TextEditingController _qaGoalTitle = TextEditingController();
   final TextEditingController _qaGoalNotes = TextEditingController();
@@ -436,15 +435,6 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
           const SizedBox(width: 8),
-          DropdownButton<String>(
-            value: _qaTodoPriority,
-            items: const [
-              DropdownMenuItem(value: 'low', child: Text('Low')),
-              DropdownMenuItem(value: 'medium', child: Text('Medium')),
-              DropdownMenuItem(value: 'high', child: Text('High')),
-            ],
-            onChanged: (v) => setState(() => _qaTodoPriority = v ?? 'medium'),
-          ),
           const SizedBox(width: 8),
           FilledButton(
             onPressed:
@@ -498,15 +488,6 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
           const SizedBox(width: 8),
-          DropdownButton<String>(
-            value: _qaEventPriority,
-            items: const [
-              DropdownMenuItem(value: 'low', child: Text('Low')),
-              DropdownMenuItem(value: 'medium', child: Text('Medium')),
-              DropdownMenuItem(value: 'high', child: Text('High')),
-            ],
-            onChanged: (v) => setState(() => _qaEventPriority = v ?? 'medium'),
-          ),
           const SizedBox(width: 8),
           FilledButton(
             onPressed: _addingQuick ? null : _submitQuickAddEvent,
@@ -539,15 +520,6 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
           const SizedBox(width: 8),
-          DropdownButton<String>(
-            value: _qaHabitPriority,
-            items: const [
-              DropdownMenuItem(value: 'low', child: Text('Low')),
-              DropdownMenuItem(value: 'medium', child: Text('Medium')),
-              DropdownMenuItem(value: 'high', child: Text('High')),
-            ],
-            onChanged: (v) => setState(() => _qaHabitPriority = v ?? 'medium'),
-          ),
           const SizedBox(width: 8),
           FilledButton(
             onPressed: _addingQuick ? null : _submitQuickAddHabit,
@@ -580,16 +552,7 @@ class _HomePageState extends State<HomePage> {
           ),
         ),
         const SizedBox(width: 8),
-        DropdownButton<String>(
-          value: _qaTodoPriority,
-          items: const [
-            DropdownMenuItem(value: 'low', child: Text('Low')),
-            DropdownMenuItem(value: 'medium', child: Text('Medium')),
-            DropdownMenuItem(value: 'high', child: Text('High')),
-          ],
-          onChanged: (v) => setState(() => _qaTodoPriority = v ?? 'medium'),
-        ),
-        const SizedBox(width: 8),
+  const SizedBox(width: 8),
         FilledButton(
           onPressed:
               (_addingQuick || _enterSubmitting || _mustPaintDisabledOnce)
@@ -642,13 +605,11 @@ class _HomePageState extends State<HomePage> {
         'title': title,
         'scheduledFor': anchor,
         'timeOfDay': time.isEmpty ? null : time,
-        'priority': _qaTodoPriority,
         'recurrence': {'type': 'none'},
       });
       setState(() {
         _qaTodoTitle.clear();
         _qaTodoTime.clear();
-        _qaTodoPriority = 'medium';
       });
       if (!TestHooks.skipRefresh) {
         try {
@@ -697,8 +658,7 @@ class _HomePageState extends State<HomePage> {
         'scheduledFor': anchor,
         'startTime': start.isEmpty ? null : start,
         'endTime': end.isEmpty ? null : end,
-        'location': location.isEmpty ? null : location,
-        'priority': _qaEventPriority,
+  'location': location.isEmpty ? null : location,
         'recurrence': {'type': 'none'},
       });
       setState(() {
@@ -706,7 +666,6 @@ class _HomePageState extends State<HomePage> {
         _qaEventStart.clear();
         _qaEventEnd.clear();
         _qaEventLocation.clear();
-        _qaEventPriority = 'medium';
       });
       if (!TestHooks.skipRefresh) await _refreshAll();
     } catch (e) {
@@ -743,14 +702,12 @@ class _HomePageState extends State<HomePage> {
       await createHabitFn({
         'title': title,
         'scheduledFor': anchor,
-        'timeOfDay': time.isEmpty ? null : time,
-        'priority': _qaHabitPriority,
+  'timeOfDay': time.isEmpty ? null : time,
         'recurrence': {'type': 'daily'},
       });
       setState(() {
         _qaHabitTitle.clear();
         _qaHabitTime.clear();
-        _qaHabitPriority = 'medium';
       });
       if (!TestHooks.skipRefresh) await _refreshAll();
     } catch (e) {
@@ -878,7 +835,6 @@ class _HomePageState extends State<HomePage> {
           to: r.to,
           kinds: kinds,
           completed: showCompleted ? null : false,
-          priority: _priorityFilter,
         );
         sList = raw
             .map((e) => Todo.fromJson(Map<String, dynamic>.from(e as Map)))
@@ -924,7 +880,6 @@ class _HomePageState extends State<HomePage> {
       }
       final scheduledAllRaw = await api.fetchScheduledAllTime(
         completed: showCompleted ? null : false,
-        priority: _priorityFilter,
       );
       // For Events tab, load all scheduled events across time for counts
       List<Todo> eventsAllList = const <Todo>[];
@@ -936,7 +891,7 @@ class _HomePageState extends State<HomePage> {
               .toList();
         } catch (_) {}
       }
-      final backlogRaw = await api.fetchBacklog(priority: _priorityFilter);
+  final backlogRaw = await api.fetchBacklog();
       final sAllList = scheduledAllRaw
           .map((e) => Todo.fromJson(e as Map<String, dynamic>))
           .toList();
@@ -952,16 +907,14 @@ class _HomePageState extends State<HomePage> {
       int todayCount;
       int scheduledCount;
       int backlogCount = bList.length;
-      int flaggedCount;
+  int flaggedCount;
       int allCount;
       if (mainView == MainView.habits) {
         todayCount = sList
             .where((t) => t.kind == 'habit' && t.scheduledFor == nowYmd)
             .length;
         scheduledCount = sList.where((t) => t.kind == 'habit').length;
-        flaggedCount = sList
-            .where((t) => t.kind == 'habit' && t.priority == 'high')
-            .length;
+  flaggedCount = 0;
         allCount =
             scheduledCount +
             backlogCount; // backlog currently excludes habits; acceptable for tab-scoped count
@@ -975,12 +928,10 @@ class _HomePageState extends State<HomePage> {
             .length;
         if (eventsMode) {
           backlogCount = 0; // no backlog for events
-          flaggedCount = eventsAllList.where((t) => t.priority == 'high').length;
+          flaggedCount = 0;
           allCount = eventsAllList.length;
         } else {
-          flaggedCount = [...sAllList, ...bList]
-              .where((t) => (t.kind == null || t.kind == 'todo') && t.priority == 'high')
-              .length;
+          flaggedCount = 0;
           allCount = sAllList.where((t) => (t.kind == null || t.kind == 'todo')).length + backlogCount;
         }
       } else {
@@ -1078,17 +1029,20 @@ class _HomePageState extends State<HomePage> {
         if (_kindFilter.length == 1 && _kindFilter.contains('event')) return 'event';
         return 'todo';
       }();
-      final list = await api.searchUnified(
+      final raw = await api.searchUnified(
         q,
-        scope: (scope == 'habit') ? 'event' : scope, // exclude habits for now per requirements
+        // exclude habits for now per requirements
+        scope: (scope == 'habit') ? 'event' : scope,
         completed: showCompleted ? null : false,
         cancelToken: _searchCancelToken,
         limit: 30,
       );
-      final items = (list).map((raw) {
-        final m = Map<String, dynamic>.from(raw as Map);
-        // Normalize for view model
-        if ((m['kind'] as String?) == 'event' && m['startTime'] != null && m['timeOfDay'] == null) {
+      final items = raw.map((e) {
+        final m = Map<String, dynamic>.from(e as Map);
+        // Normalize event times for unified rendering
+        if ((m['kind'] as String?) == 'event' &&
+            m['startTime'] != null &&
+            m['timeOfDay'] == null) {
           m['timeOfDay'] = m['startTime'];
         }
         return Todo.fromJson(m);
@@ -1224,9 +1178,7 @@ class _HomePageState extends State<HomePage> {
                                                           (t.scheduledFor ??
                                                               'unscheduled'),
                                                         ),
-                                                        _chip(
-                                                          'prio ${t.priority}',
-                                                        ),
+                                                        
                                                         if ((t.kind ?? '').isNotEmpty)
                                                           _chip(t.kind ?? ''),
                                                       ],
@@ -1428,7 +1380,7 @@ class _HomePageState extends State<HomePage> {
           ? '${t.recurrence!['intervalDays']}'
           : '1',
     );
-    String prio = t.priority;
+  
     String recurType = (t.recurrence != null && t.recurrence!['type'] is String)
         ? (t.recurrence!['type'] as String)
         : 'daily';
@@ -1490,19 +1442,7 @@ class _HomePageState extends State<HomePage> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    DropdownButtonFormField<String>(
-                      value: prio,
-                      decoration: const InputDecoration(labelText: 'Priority'),
-                      items: const [
-                        DropdownMenuItem(value: 'low', child: Text('low')),
-                        DropdownMenuItem(
-                          value: 'medium',
-                          child: Text('medium'),
-                        ),
-                        DropdownMenuItem(value: 'high', child: Text('high')),
-                      ],
-                      onChanged: (v) => setDlgState(() => prio = v ?? 'medium'),
-                    ),
+                    const SizedBox.shrink(),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<String>(
                       value: recurType,
@@ -1650,7 +1590,7 @@ class _HomePageState extends State<HomePage> {
     final normalized = sched.isEmpty ? null : sched;
     if (normalized != (t.scheduledFor ?? ''))
       patch['scheduledFor'] = normalized;
-    if (prio != t.priority) patch['priority'] = prio;
+  // priority removed
     final time = timeCtrl.text.trim();
     if ((time.isEmpty ? null : time) != (t.timeOfDay))
       patch['timeOfDay'] = time.isEmpty ? null : time;
@@ -1712,7 +1652,7 @@ class _HomePageState extends State<HomePage> {
           ? '${t.recurrence!['intervalDays']}'
           : '1',
     );
-    String prio = t.priority;
+  
     String recurType = (t.recurrence != null && t.recurrence!['type'] is String)
         ? (t.recurrence!['type'] as String)
         : 'none';
@@ -1748,16 +1688,7 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  DropdownButtonFormField<String>(
-                    value: prio,
-                    decoration: const InputDecoration(labelText: 'Priority'),
-                    items: const [
-                      DropdownMenuItem(value: 'low', child: Text('low')),
-                      DropdownMenuItem(value: 'medium', child: Text('medium')),
-                      DropdownMenuItem(value: 'high', child: Text('high')),
-                    ],
-                    onChanged: (v) => setDlgState(() => prio = v ?? 'medium'),
-                  ),
+                  const SizedBox.shrink(),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
                     value: recurType,
@@ -1826,7 +1757,7 @@ class _HomePageState extends State<HomePage> {
     final normalized = sched.isEmpty ? null : sched;
     if (normalized != (t.scheduledFor ?? ''))
       patch['scheduledFor'] = normalized;
-    if (prio != t.priority) patch['priority'] = prio;
+  // priority removed
     final time = timeCtrl.text.trim();
     if ((time.isEmpty ? null : time) != (t.timeOfDay))
       patch['timeOfDay'] = time.isEmpty ? null : time;
@@ -1880,8 +1811,7 @@ class _HomePageState extends State<HomePage> {
     final dateCtrl = TextEditingController(text: t.scheduledFor ?? '');
     final startCtrl = TextEditingController(text: t.timeOfDay ?? '');
     final endCtrl = TextEditingController();
-    final locationCtrl = TextEditingController();
-    String prio = t.priority;
+  final locationCtrl = TextEditingController();
     String recurType = (t.recurrence != null && t.recurrence!['type'] is String)
         ? (t.recurrence!['type'] as String)
         : 'none';
@@ -1941,16 +1871,7 @@ class _HomePageState extends State<HomePage> {
                     decoration: const InputDecoration(labelText: 'Location'),
                   ),
                   const SizedBox(height: 8),
-                  DropdownButtonFormField<String>(
-                    value: prio,
-                    decoration: const InputDecoration(labelText: 'Priority'),
-                    items: const [
-                      DropdownMenuItem(value: 'low', child: Text('low')),
-                      DropdownMenuItem(value: 'medium', child: Text('medium')),
-                      DropdownMenuItem(value: 'high', child: Text('high')),
-                    ],
-                    onChanged: (v) => setDlgState(() => prio = v ?? 'medium'),
-                  ),
+                  const SizedBox.shrink(),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
                     value: recurType,
@@ -2007,7 +1928,7 @@ class _HomePageState extends State<HomePage> {
     final normalized = date.isEmpty ? null : date;
     if (normalized != (t.scheduledFor ?? ''))
       patch['scheduledFor'] = normalized;
-    if (prio != t.priority) patch['priority'] = prio;
+  // priority removed
     final start = startCtrl.text.trim();
     final end = endCtrl.text.trim();
     patch['startTime'] = start.isEmpty ? null : start;
@@ -2082,7 +2003,6 @@ class _HomePageState extends State<HomePage> {
           return {
             'range': {'from': dr.from, 'to': dr.to},
             'kinds': kinds,
-  if (_priorityFilter != null) 'priority': _priorityFilter,
   'mainView': mainView.name,
   // New: include completion and search context to further scope planning
   'completed': showCompleted,
@@ -2110,7 +2030,7 @@ class _HomePageState extends State<HomePage> {
             }
           });
         },
-        onClarify: (q, options) {
+  onClarify: (q, options) {
           if (!mounted) return;
           setState(() {
             // Replace placeholder with clarify question if emitted
@@ -2128,7 +2048,6 @@ class _HomePageState extends State<HomePage> {
             _pendingClarifyOptions = options;
             _clarifySelectedIds.clear();
             _clarifySelectedDate = null;
-            _clarifySelectedPriority = null;
           });
         },
         priorClarify: (_pendingClarifyQuestion == null)
@@ -2136,15 +2055,12 @@ class _HomePageState extends State<HomePage> {
             : {
                 'question': _pendingClarifyQuestion,
                 if (_clarifySelectedIds.isNotEmpty ||
-                    _clarifySelectedDate != null ||
-                    _clarifySelectedPriority != null)
+                    _clarifySelectedDate != null)
                   'selection': {
                     if (_clarifySelectedIds.isNotEmpty)
                       'ids': _clarifySelectedIds.toList(),
                     if (_clarifySelectedDate != null)
                       'date': _clarifySelectedDate,
-                    if (_clarifySelectedPriority != null)
-                      'priority': _clarifySelectedPriority,
                   },
               },
         onStage: (st) {
@@ -2241,7 +2157,7 @@ class _HomePageState extends State<HomePage> {
               ? priorChecked[i]
               : true);
         }
-        assistantOpsChecked = List<bool>.generate(assistantOps.length, (i) {
+  assistantOpsChecked = List<bool>.generate(assistantOps.length, (i) {
           final key = kOp(assistantOps[i]);
           final preserved = prevMap[key] ?? assistantOps[i].errors.isEmpty;
           return preserved && assistantOps[i].errors.isEmpty;
@@ -2251,7 +2167,6 @@ class _HomePageState extends State<HomePage> {
         _pendingClarifyOptions = const [];
         _clarifySelectedIds.clear();
         _clarifySelectedDate = null;
-        _clarifySelectedPriority = null;
   _progressStage = '';
   _progressValid = 0;
   _progressInvalid = 0;
@@ -2883,10 +2798,6 @@ class _HomePageState extends State<HomePage> {
                                       onSelectClarifyDate: (d) => setState(() {
                                         _clarifySelectedDate = d;
                                       }),
-                                      onSelectClarifyPriority: (p) =>
-                                          setState(() {
-                                            _clarifySelectedPriority = p;
-                                          }),
                                       progressStage: _progressStage,
                                       progressValid: _progressValid,
                                       progressInvalid: _progressInvalid,
@@ -2894,8 +2805,7 @@ class _HomePageState extends State<HomePage> {
                                       todayYmd: ymd(DateTime.now()),
                                       selectedClarifyIds: _clarifySelectedIds,
                                       selectedClarifyDate: _clarifySelectedDate,
-                                      selectedClarifyPriority:
-                                          _clarifySelectedPriority,
+                                      
                                     ),
                                   ),
                               ],
@@ -2917,7 +2827,7 @@ class _HomePageState extends State<HomePage> {
     final parts = <String>['${op.op}'];
     if (op.id != null) parts.add('#${op.id}');
     if (op.title != null) parts.add('– ${op.title}');
-    if (op.priority != null) parts.add('(prio ${op.priority})');
+  // priority removed from label
     if (op.scheduledFor != null) parts.add('@${op.scheduledFor}');
     if (op.completed != null) parts.add(op.completed! ? '[done]' : '[undone]');
     return parts.join(' ');
@@ -3006,24 +2916,6 @@ class _HomePageState extends State<HomePage> {
                   _quickAddInline(),
                 if (mainView == MainView.tasks) ...[
                   const SizedBox(width: 12),
-                  SegmentedButton<String>(
-                    segments: const [
-                      ButtonSegment(value: 'all', label: Text('All')),
-                      ButtonSegment(value: 'low', label: Text('Low')),
-                      ButtonSegment(value: 'medium', label: Text('Medium')),
-                      ButtonSegment(value: 'high', label: Text('High')),
-                    ],
-                    selected: <String>{(_priorityFilter ?? 'all')},
-                    onSelectionChanged: (s) {
-                      setState(() {
-                        _priorityFilter = (s.first == 'all') ? null : s.first;
-                      });
-                      _refreshAll();
-                    },
-                    style: const ButtonStyle(
-                      visualDensity: VisualDensity.compact,
-                    ),
-                  ),
                   const SizedBox(width: 12),
                   Row(
                     mainAxisSize: MainAxisSize.min,
@@ -4061,13 +3953,12 @@ class _HomePageState extends State<HomePage> {
         }
       }
     } catch (_) {}
-    final like = row.TodoLike(
+  final like = row.TodoLike(
       id: t.id,
       title: t.title,
       notes: t.notes,
       kind: t.kind,
       timeOfDay: t.timeOfDay,
-      priority: t.priority,
       completed: t.completed,
       overdue: isOverdue,
     );
@@ -4149,7 +4040,7 @@ class _HomePageState extends State<HomePage> {
         onDelete: () => _deleteTodo(t),
         highlighted: _highlightedId == t.id,
         extraBadge: extraBadge,
-        onTitleEdited: (newTitle) async {
+  onTitleEdited: (newTitle) async {
           try {
             if (t.kind == 'event') {
               await api.updateEvent(t.id, {
@@ -4172,29 +4063,7 @@ class _HomePageState extends State<HomePage> {
             });
           } catch (_) {}
         },
-        onPriorityEdited: (newPriority) async {
-          try {
-            if (t.kind == 'event') {
-              await api.updateEvent(t.id, {
-                'priority': newPriority,
-                'recurrence': t.recurrence ?? {'type': 'none'},
-              });
-            } else if (t.kind == 'habit') {
-              await api.updateHabit(t.id, {
-                'priority': newPriority,
-                'recurrence': t.recurrence ?? {'type': 'daily'},
-              });
-            } else {
-              await api.updateTodo(t.id, {
-                'priority': newPriority,
-                'recurrence': t.recurrence ?? {'type': 'none'},
-              });
-            }
-            setState(() {
-              t.priority = newPriority;
-            });
-          } catch (_) {}
-        },
+        
         onTimeEdited: (newTime) async {
           try {
             if (t.kind == 'event') {
@@ -4262,7 +4131,6 @@ class _HomePageState extends State<HomePage> {
           (t) => ht.HabitRowData(
             id: t.masterId ?? t.id,
             title: t.title,
-            priority: t.priority,
           ),
         )
         .toList();
@@ -4383,8 +4251,7 @@ class _HomePageState extends State<HomePage> {
                         ),
                         child: Row(
                           children: [
-                            _priorityBadge(h.priority),
-                            const SizedBox(width: 6),
+                            const SizedBox(width: 0),
                             Expanded(
                               child: Text(
                                 h.title,
@@ -4558,30 +4425,5 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _priorityBadge(String p) {
-    Color bg;
-    Color fg;
-    switch (p) {
-      case 'high':
-        bg = const Color(0xFFFFC9C9);
-        fg = const Color(0xFF7D1414);
-        break;
-      case 'low':
-        bg = const Color(0xFFD3F9D8);
-        fg = const Color(0xFF205B2A);
-        break;
-      default:
-        bg = const Color(0xFFFFE8CC);
-        fg = const Color(0xFF9C3B00);
-        break;
-    }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(p, style: TextStyle(color: fg, fontSize: 12)),
-    );
-  }
+  
 }

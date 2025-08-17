@@ -21,8 +21,8 @@ Entrypoints: POST `/api/assistant/message` and GET `/api/assistant/message/strea
 - Output JSON: `{ decision: 'chat'|'plan'|'clarify', category, entities, missing, confidence, question? }`.
 - Thresholds: `CLARIFY_THRESHOLD = 0.45`, `CHAT_THRESHOLD = 0.70`.
 - Context grounding: A Mon–Sun week snapshot (completed=false) and a backlog sample, built from DB queries.
-- Clarify decoration: Server adds a concise `question` and structured `options: [{id,title,scheduledFor|null}]` ranked by fuzzy title tokens and priority.
-- Selection feedback: Client may send `options.clarify.selection` with `ids`, `date`, `priority` to bias routing toward plan with a seeded `where`.
+- Clarify decoration: Server adds a concise `question` and structured `options: [{id,title,scheduledFor|null}]` ranked by fuzzy title tokens.
+- Selection feedback: Client may send `options.clarify.selection` with `ids` and `date` to bias routing toward plan with a seeded `where`.
 
 ### Proposal generation
 
@@ -36,7 +36,7 @@ Entrypoints: POST `/api/assistant/message` and GET `/api/assistant/message/strea
   - Prefer JSON response; if fenced code blocks are present, fences are removed.
   - If free-form text, brace-match the first top-level `{...}` JSON object.
   - Granite `<response>` extraction precedes parsing.
-- Operation shaping: `inferOperationShape` normalizes partially specified ops, sets `op` (create|update|delete|complete|complete_occurrence|goal_*), lowercases priority, and coerces empty strings to `null` for nullable fields.
+- Operation shaping: `inferOperationShape` normalizes partially specified ops, sets `op` (create|update|delete|complete|complete_occurrence|goal_*), and coerces empty strings to `null` for nullable fields.
 
 ### Validation and repair
 

@@ -84,10 +84,7 @@ function filterByWhere(items, where = {}, { todayY } = {}) {
       return true;
     });
   }
-  if (typeof where.priority === 'string') {
-    const p = where.priority.toLowerCase();
-    filtered = filtered.filter((t) => String(t.priority || '').toLowerCase() === p);
-  }
+  // priority removed
   if (typeof where.completed === 'boolean') {
     filtered = filtered.filter((t) => !!t.completed === where.completed);
   }
@@ -118,17 +115,33 @@ export function buildRouterSnapshots({ timezone = DEFAULT_TZ } = {}) {
   const weekItems = [...todosWeek, ...eventsWeek, ...habitsWeek];
   const backlogTodos = filterByWhere(listAllTodosRaw(), { completed: false }, { todayY: ymdInTimeZone(new Date(), tz) });
   const backlogSample = backlogTodos.filter(t => t.scheduledFor === null).slice(0, 40);
-  const compact = (t) => ({ id: t.id, title: t.title, scheduledFor: t.scheduledFor, priority: t.priority });
+  const compact = (t) => ({ id: t.id, title: t.title, scheduledFor: t.scheduledFor });
   return { week: { from: fromYmd, to: toYmd, items: weekItems.map(compact) }, backlog: backlogSample.map(compact) };
 }
 
 export function buildFocusedContext(where = {}, { timezone = DEFAULT_TZ } = {}) {
   const tz = timezone || DEFAULT_TZ;
   const todayY = ymdInTimeZone(new Date(), tz);
-  const items = filterByWhere(listAllTodosRaw(), where || {}, { todayY }).slice(0, 50);
+  const w = where || {};
+  const kindsHint = (() => {
+    // where.kind: 'todo'|'event'|'habit' or array
+    if (typeof w.kind === 'string') return [w.kind.toLowerCase()];
+    if (Array.isArray(w.kind)) return w.kind.map((k) => String(k).toLowerCase());
+    return null;
+  })();
+  const includeTodo = !kindsHint || kindsHint.includes('todo');
+  const includeEvent = kindsHint && kindsHint.includes('event');
+  const includeHabit = kindsHint && kindsHint.includes('habit');
+
+  const todos = includeTodo ? filterByWhere(listAllTodosRaw(), w, { todayY }).slice(0, 50) : [];
+  const events = includeEvent ? filterByWhere(listAllEventsRaw(), w, { todayY }).slice(0, 50) : [];
+  const habits = includeHabit ? filterByWhere(listAllHabitsRaw(), w, { todayY }).slice(0, 50) : [];
+
   return {
-    where: where || {},
-    todos: items.map(t => ({ id: t.id, title: t.title, scheduledFor: t.scheduledFor ?? null, priority: t.priority ?? 'medium', recurrence: t.recurrence || { type: 'none' }, completed: !!t.completed })),
+    where: w,
+  todos: todos.map(t => ({ id: t.id, title: t.title, scheduledFor: t.scheduledFor ?? null, recurrence: t.recurrence || { type: 'none' }, completed: !!t.completed })),
+  events: events.map(e => ({ id: e.id, title: e.title, scheduledFor: e.scheduledFor ?? null, startTime: e.startTime ?? null, endTime: e.endTime ?? null, location: e.location ?? null, recurrence: e.recurrence || { type: 'none' }, completed: !!e.completed })),
+  habits: habits.map(h => ({ id: h.id, title: h.title, scheduledFor: h.scheduledFor ?? null, timeOfDay: h.timeOfDay ?? null, recurrence: h.recurrence || { type: 'daily' }, completed: !!h.completed })),
     aggregates: {}
   };
 }
@@ -140,7 +153,7 @@ export function topClarifyCandidates(instruction, snapshot, limit = 5) {
     const title = String(item.title || '').toLowerCase();
     let s = 0;
     for (const t of tokens) if (title.includes(t)) s += 1;
-    if (item.priority === 'high') s += 0.25;
+  // priority removed from scoring
     return s;
   };
   return all

@@ -34,22 +34,20 @@ Future<List<dynamic>> fetchScheduled({
 
 Future<List<dynamic>> fetchScheduledAllTime({
   bool? completed,
-  String? priority,
 }) async {
   final res = await api.get(
     '/api/todos',
     queryParameters: {
       if (completed != null) 'completed': completed.toString(),
-      if (priority != null) 'priority': priority,
     },
   );
   return (res.data['todos'] as List<dynamic>);
 }
 
-Future<List<dynamic>> fetchBacklog({bool? completed, String? priority}) async {
+Future<List<dynamic>> fetchBacklog({bool? completed}) async {
   final res = await api.get(
     '/api/todos/backlog',
-    queryParameters: {if (priority != null) 'priority': priority},
+  queryParameters: const {},
   );
   final items = (res.data['todos'] as List<dynamic>);
   if (completed == null) return items;
@@ -393,7 +391,6 @@ Future<void> removeGoalChild(int parentId, int childId) async {
 Future<List<dynamic>> listEvents({
   String? from,
   String? to,
-  String? priority,
   bool? completed,
 }) async {
   final res = await api.get(
@@ -401,7 +398,6 @@ Future<List<dynamic>> listEvents({
     queryParameters: {
       if (from != null) 'from': from,
       if (to != null) 'to': to,
-      if (priority != null) 'priority': priority,
       if (completed != null) 'completed': completed.toString(),
     },
   );
@@ -457,7 +453,6 @@ Future<List<dynamic>> searchEvents(
 Future<List<dynamic>> listHabits({
   String? from,
   String? to,
-  String? priority,
   bool? completed,
 }) async {
   final res = await api.get(
@@ -465,7 +460,6 @@ Future<List<dynamic>> listHabits({
     queryParameters: {
       if (from != null) 'from': from,
       if (to != null) 'to': to,
-      if (priority != null) 'priority': priority,
       if (completed != null) 'completed': completed.toString(),
     },
   );
@@ -545,7 +539,6 @@ Future<List<dynamic>> fetchSchedule({
   required String to,
   List<String>? kinds,
   bool? completed,
-  String? priority,
 }) async {
   final res = await api.get(
     '/api/schedule',
@@ -554,7 +547,6 @@ Future<List<dynamic>> fetchSchedule({
       'to': to,
       if (kinds != null && kinds.isNotEmpty) 'kinds': kinds.join(','),
       if (completed != null) 'completed': completed.toString(),
-      if (priority != null) 'priority': priority,
     },
   );
   return (res.data['items'] as List<dynamic>);

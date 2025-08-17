@@ -1,14 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_app/widgets/priority_chip.dart' as pc;
 
 class HabitRowData {
   final int id;
   final String title;
-  final String priority; // low|medium|high
   const HabitRowData({
     required this.id,
     required this.title,
-    required this.priority,
   });
 }
 
@@ -62,11 +59,6 @@ class HabitsTracker extends StatelessWidget {
                       flex: 2,
                       child: Row(
                         children: [
-                          pc.priorityChip(
-                            h.priority,
-                            Theme.of(context).colorScheme,
-                          ),
-                          const SizedBox(width: 6),
                           Expanded(
                             child: Text(
                               h.title,
@@ -198,5 +190,5 @@ class HabitsTracker extends StatelessWidget {
     );
   }
 
-  // Priority chip now centralized in priority_chip.dart
+  
 }

@@ -39,16 +39,16 @@ Edge behaviors:
 ### Snapshots and aggregates
 
 - Aggregates for prompts: computed from DB (overdue, next7Days, backlog, scheduled)
-- Router snapshots: Mon–Sun week range + backlog sample from DB (not an in-memory index), with compact `{id,title,scheduledFor,priority}`
-- Clarify candidate ranking: token inclusion plus small high-priority bonus
+- Router snapshots: Mon–Sun week range + backlog sample from DB (not an in-memory index), with compact `{id,title,scheduledFor}`
+- Clarify candidate ranking: token inclusion
 
 ### Assistant router and proposal pipeline
 
 - Router thresholds: `CLARIFY_THRESHOLD = 0.45`, `CHAT_THRESHOLD = 0.70`
 - Router prompt includes week snapshot + backlog and last-3 transcript; low confidence → `clarify` with structured `options`
-- Clarify feedback: client may pass `options.clarify.selection` with `ids/date/priority` to seed `where` and bias planning
+- Clarify feedback: client may pass `options.clarify.selection` with `ids/date` to seed `where` and bias planning
 - Proposal prompt: outputs JSON-only operations; enforces recurrence and anchor; includes topK/focused snapshot and aggregates
-- Operation inference: `inferOperationShape` sets `op` when omitted; normalizes priority and `scheduledFor: ''→null`
+- Operation inference: `inferOperationShape` sets `op` when omitted; normalizes `scheduledFor: ''→null`
 - Validation + single repair attempt: `buildRepairPrompt` uses schema excerpt and last-3 transcript; re-validate and fall back to valid subset
 - Summarization: chat-style plain text; Granite tags stripped; deterministic fallback when LLM fails
 
@@ -60,7 +60,7 @@ Edge behaviors:
 
 ### Error messages catalog (quick reference)
 
-- Endpoints: `invalid_title`, `missing_recurrence`, `invalid_notes`, `invalid_scheduledFor`, `invalid_priority`, `invalid_timeOfDay`, `invalid_recurrence`, `missing_anchor_for_recurrence`, `invalid_completed`, `invalid_id`, `not_found`, `not_repeating`, `invalid_occurrenceDate`, plus event-specific `invalid_start_time`, `invalid_end_time`, `invalid_time_range`
+- Endpoints: `invalid_title`, `missing_recurrence`, `invalid_notes`, `invalid_scheduledFor`, `invalid_timeOfDay`, `invalid_recurrence`, `missing_anchor_for_recurrence`, `invalid_completed`, `invalid_id`, `not_found`, `not_repeating`, `invalid_occurrenceDate`, plus event-specific `invalid_start_time`, `invalid_end_time`, `invalid_time_range`
 - Apply/Dry-run: `invalid_operations`, `invalid_op`, `missing_or_invalid_id`, `id_not_found`, `use_complete_occurrence_for_repeating`, `bulk_operations_removed`, `too_many_operations`
 
 

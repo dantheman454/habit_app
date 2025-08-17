@@ -54,8 +54,7 @@ export async function runRouter({ instruction, transcript = [], clarify }) {
     const wantsAction = /\b(update|change|set|reschedul|move|delete|remove|complete|finish|create|add)\b/.test(lower);
 
     // Extract simple scope hints
-    const priorityMatch = lower.match(/\bpriority\s*[:=]?\s*(high|medium|low)\b/);
-    const idMatch = msg.match(/#(\d+)/);
+  const idMatch = msg.match(/#(\d+)/);
 
     // Helpers for date ranges
     const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -98,10 +97,7 @@ export async function runRouter({ instruction, transcript = [], clarify }) {
       forcedPlan = true;
     }
 
-    if (priorityMatch) {
-      forcedPlan = true;
-      w.priority = priorityMatch[1];
-    }
+  // priority removed
 
     // If message strongly suggests an action or we have a focused where, force plan
     if (wantsAction || Object.keys(w).length > 0) {

@@ -14,7 +14,7 @@
 
 - Router: Auto-mode decision step returning `{ decision, confidence, question? }`; may ask to clarify and includes `options` for disambiguation.
 
-- Clarify options: Structured list `{ id, title, scheduledFor|null }[]` to guide selection. The client may return a `selection` object `{ ids?, date?, priority? }` to bias planning.
+- Clarify options: Structured list `{ id, title, scheduledFor|null }[]` to guide selection. The client may return a `selection` object `{ ids?, date? }` to bias planning.
 
 - Idempotency: Apply endpoint deduplicates by `Idempotency-Key` + request hash to avoid re-applying the same changes.
 
@@ -26,7 +26,7 @@
 
 - SSE events: Streaming assistant emits `stage`, `clarify`, `ops`, `summary`, `result`, periodic `heartbeat`, and `done`.
 
-- Priority: `low | medium | high`.
+
 
 - Time formats: Dates are `YYYY-MM-DD`; `timeOfDay`, `startTime`, `endTime` are `HH:MM` or null.
 

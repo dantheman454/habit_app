@@ -36,16 +36,16 @@ graph TD
     I --> M
 ```
 
-## Detailed Flow Analysis: "update my task for today to be high priority"
+## Detailed Flow Analysis: "update my task for today"
 
 ### 1. User Input & Client Processing
 
-**Input**: User types "update my task for today to be high priority" and clicks Send
+**Input**: User types "update my task for today" and clicks Send
 
 **Client State**:
 ```dart
 // In main.dart _sendAssistantMessage()
-assistantTranscript.add({'role': 'user', 'text': 'update my task for today to be high priority'});
+assistantTranscript.add({'role': 'user', 'text': 'update my task for today'});
 assistantSending = true;
 // Insert placeholder assistant bubble
 assistantTranscript.add({'role': 'assistant', 'text': ''});
@@ -57,7 +57,7 @@ assistantStreamingIndex = assistantTranscript.length - 1;
 // Send last 3 turns for context
 final recent = assistantTranscript.sublist(assistantTranscript.length - 3);
 final res = await api.assistantMessage(
-  'update my task for today to be high priority',
+  'update my task for today',
   transcript: recent,
   streamSummary: true,
   onSummary: (s) => { /* Update placeholder bubble */ },
@@ -91,23 +91,23 @@ Use the Context section below (this week Mon–Sun anchored to today, backlog sa
 
 Today: 2024-01-15 (America/New_York)
 Transcript (last 3):
-- user: update my task for today to be high priority
+- user: update my task for today
 
 Context (this week, Mon–Sun, master-level, backlog sample, completed=false):
 {
   "week": {
     "items": [
-      {"id": 1, "title": "Review project proposal", "scheduledFor": "2024-01-15", "priority": "medium"},
-      {"id": 2, "title": "Call client", "scheduledFor": "2024-01-15", "priority": "low"},
-      {"id": 3, "title": "Prepare presentation", "scheduledFor": "2024-01-16", "priority": "high"}
+  {"id": 1, "title": "Review project proposal", "scheduledFor": "2024-01-15"},
+  {"id": 2, "title": "Call client", "scheduledFor": "2024-01-15"},
+  {"id": 3, "title": "Prepare presentation", "scheduledFor": "2024-01-16"}
     ]
   },
   "backlog": [
-    {"id": 4, "title": "Update documentation", "scheduledFor": null, "priority": "medium"}
+  {"id": 4, "title": "Update documentation", "scheduledFor": null}
   ]
 }
 
-User: update my task for today to be high priority
+User: update my task for today
 ```
 
 **Expected LLM Response**:
@@ -115,7 +115,7 @@ User: update my task for today to be high priority
 {
   "decision": "clarify",
   "category": "task",
-  "entities": {"priority": "high", "date": "today"},
+  "entities": {"date": "today"},
   "missing": ["specific_task"],
   "confidence": 0.3,
   "question": "Which task do you want to update?"
@@ -132,7 +132,7 @@ if (c < CLARIFY_THRESHOLD) { // 0.3 < 0.45
 
 // Generate clarification options
 const cands = topClarifyCandidates(instruction, snapshots, 5);
-// Returns tasks matching "task" token + priority bonus
+// Returns tasks matching "task" token
 // Example: [{"id": 1, "title": "Review project proposal", "scheduledFor": "2024-01-15"}]
 
 result.question = "Which task do you want to update? Options: #1 \"Review project proposal\" @2024-01-15; #2 \"Call client\" @2024-01-15.";
@@ -175,7 +175,7 @@ Widget _buildClarifySection() {
             ),
           ],
         ),
-        // Date and priority quick-selects
+  // Date quick-selects
       ],
     ),
   );
@@ -230,24 +230,24 @@ No bulk operations. Emit independent operations; limit to ≤20 per apply.
 Today's date is 2024-01-15. Do NOT invent invalid IDs. Prefer fewer changes over hallucination.
 
 Conversation (last 3 turns):
-- user: update my task for today to be high priority
+- user: update my task for today
 - assistant: Which task do you want to update? Options: #1 "Review project proposal" @2024-01-15; #2 "Call client" @2024-01-15.
 - user: the first one
 
 Timezone: America/New_York
-Instruction: update my task for today to be high priority
+Instruction: update my task for today
 
 Context:
 {
   "todos": [
-    {"id": 1, "title": "Review project proposal", "scheduledFor": "2024-01-15", "priority": "medium", "recurrence": {"type": "none"}}
+  {"id": 1, "title": "Review project proposal", "scheduledFor": "2024-01-15", "recurrence": {"type": "none"}}
   ]
 }
 
 Respond with JSON ONLY that matches this exact example format:
 {
   "operations": [
-    {"kind":"todo","action":"update","id":1,"priority":"high","recurrence":{"type":"none"}}
+    {"kind":"todo","action":"update","id":1,"recurrence":{"type":"none"}}
   ]
 }
 ```
@@ -260,7 +260,6 @@ Respond with JSON ONLY that matches this exact example format:
       "kind": "todo",
       "action": "update",
       "id": 1,
-      "priority": "high",
       "recurrence": {"type": "none"}
     }
   ]
@@ -276,7 +275,6 @@ const op = {
   kind: "todo",
   action: "update", 
   id: 1,
-  priority: "high",
   recurrence: {"type": "none"}
 };
 
@@ -334,7 +332,7 @@ const compactOps = operations.map((op) => {
   parts.push('#1');
   parts.push('"Review project proposal"');
   parts.push('@2024-01-15');
-  parts.push('prio:high');
+  // no priority field
   return `- ${parts.join(' ')}`;
 }).join('\n');
 
@@ -342,22 +340,22 @@ const compactOps = operations.map((op) => {
 You are a helpful assistant for a todo app. Keep answers concise and clear. Prefer 1–3 short sentences; no lists or JSON.
 
 Conversation (last 3 turns):
-- user: update my task for today to be high priority
+- user: update my task for today
 - assistant: Which task do you want to update? Options: #1 "Review project proposal" @2024-01-15; #2 "Call client" @2024-01-15.
 - user: the first one
 
 Today: 2024-01-15 (America/New_York)
 Proposed operations (count: 1):
-- update #1 "Review project proposal" @2024-01-15 prio:high
+- update #1 "Review project proposal" @2024-01-15
 
-User instruction: update my task for today to be high priority
+User instruction: update my task for today
 
 Summarize the plan in plain English grounded in the proposed operations above.
 ```
 
 **Expected LLM Response**:
 ```
-I'll update the "Review project proposal" task to high priority.
+I'll update the "Review project proposal" task.
 ```
 
 ### 8. Client Display & User Action
@@ -370,14 +368,13 @@ send('ops', JSON.stringify({
     kind: "todo",
     action: "update", 
     id: 1,
-    priority: "high",
     recurrence: {"type": "none"}
   }],
   version: 1,
   validCount: 1,
   invalidCount: 0
 }));
-send('summary', JSON.stringify({ text: "I'll update the \"Review project proposal\" task to high priority." }));
+send('summary', JSON.stringify({ text: "I'll update the \"Review project proposal\" task." }));
 send('result', JSON.stringify({ text: "...", operations: [...] }));
 send('done', 'true');
 ```
@@ -398,9 +395,7 @@ Widget _buildGroupedOperationList() {
         children: [
           Checkbox(value: true, onChanged: (v) => onToggleOperation(0, v!)),
           Icon(Icons.check_box_outline_blank),
-          Expanded(
-            child: Text("update #1 - Review project proposal @2024-01-15 (prio high)"),
-          ),
+          Expanded(child: Text("update #1 - Review project proposal @2024-01-15")),
         ],
       ),
     ],
@@ -421,7 +416,6 @@ Widget _buildGroupedOperationList() {
       "kind": "todo",
       "action": "update",
       "id": 1,
-      "priority": "high",
       "recurrence": {"type": "none"}
     }
   ]
@@ -442,7 +436,6 @@ await withDbTransaction(async () => {
       if (!t) throw new Error('not_found');
       
       // Update fields
-      if (op.priority !== undefined) t.priority = op.priority; // "high"
       t.updatedAt = new Date().toISOString();
       
       results.push({ ok: true, op, todo: t });
@@ -454,14 +447,10 @@ await withDbTransaction(async () => {
 
 **Database Update**:
 ```sql
--- Update in SQLite
+-- Update in SQLite (example)
 UPDATE todos 
-SET priority = 'high', updated_at = '2024-01-15T10:30:00.000Z'
+SET updated_at = '2024-01-15T10:30:00.000Z'
 WHERE id = 1;
-
--- Audit log entry
-INSERT INTO audit_log (ts, action, entity, entity_id, payload)
-VALUES ('2024-01-15T10:30:00.000Z', 'update', 'todo', 1, '{"priority":"high"}');
 ```
 
 **Response**:
@@ -470,11 +459,10 @@ VALUES ('2024-01-15T10:30:00.000Z', 'update', 'todo', 1, '{"priority":"high"}');
   "results": [
     {
       "ok": true,
-      "op": { "kind": "todo", "action": "update", "id": 1, "priority": "high" },
+  "op": { "kind": "todo", "action": "update", "id": 1 },
       "todo": {
         "id": 1,
         "title": "Review project proposal",
-        "priority": "high",
         "scheduledFor": "2024-01-15",
         "updatedAt": "2024-01-15T10:30:00.000Z"
       }
@@ -491,20 +479,19 @@ VALUES ('2024-01-15T10:30:00.000Z', 'update', 'todo', 1, '{"priority":"high"}');
 // _refreshAll() called after successful apply
 await _refreshAll(); // Refreshes scheduled list
 
-// UI shows updated task with high priority
-// Task "Review project proposal" now shows with high priority styling
+// UI shows updated task
 ```
 
 ## Expected System Behavior Summary
 
-For the query "update my task for today to be high priority":
+For the query "update my task for today":
 
 1. **Router Decision**: Should route to `clarify` due to ambiguity (multiple tasks today)
 2. **Clarification**: Present options for tasks scheduled today
 3. **User Selection**: Allow user to choose specific task
 4. **Re-routing**: Route to `plan` with focused context
 5. **Proposal**: Generate update operation for selected task
-6. **Validation**: All checks pass (valid ID, priority, recurrence)
+6. **Validation**: All checks pass (valid ID, recurrence)
 7. **Summary**: Clear English description of the change
 8. **Execution**: Update database and audit log
 9. **Feedback**: Show success and refresh UI
@@ -636,19 +623,17 @@ Future<Map<String, dynamic>> assistantMessage(
 ### 2. Selection Options
 **Structured Choices**:
 - Item IDs with titles and dates
-- Priority filters (high/medium/low)
 - Date quick-selects (today/unscheduled)
 
 **Selection State**:
 - `selectedClarifyIds`: Set of selected item IDs
 - `selectedClarifyDate`: Date filter
-- `selectedClarifyPriority`: Priority filter
 
 ### 3. Bias Injection
 When clarification selection is provided:
 - Routes to 'plan' decision
 - Seeds `where` context for proposal generation
-- Focuses on selected items/date/priority
+- Focuses on selected items/date
 
 ## Operation Execution
 

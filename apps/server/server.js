@@ -126,11 +126,6 @@ function filterTodosByWhere(where = {}) {
       return true;
     });
   }
-  // priority
-  if (typeof where.priority === 'string') {
-    const p = where.priority.toLowerCase();
-    filtered = filtered.filter((t) => String(t.priority || '').toLowerCase() === p);
-  }
   // completed
   if (typeof where.completed === 'boolean') {
     filtered = filtered.filter((t) => !!t.completed === where.completed);
@@ -173,10 +168,6 @@ function filterItemsByWhere(items, where = {}) {
       return true;
     });
   }
-  if (typeof where.priority === 'string') {
-    const p = where.priority.toLowerCase();
-    filtered = filtered.filter((t) => String(t.priority || '').toLowerCase() === p);
-  }
   if (typeof where.completed === 'boolean') {
     filtered = filtered.filter((t) => !!t.completed === where.completed);
   }
@@ -215,7 +206,7 @@ function buildRouterSnapshots() {
   const weekItems = [...todosWeek, ...eventsWeek, ...habitsWeek];
   const backlogTodos = filterTodosByWhere({ completed: false });
   const backlogSample = backlogTodos.filter(t => t.scheduledFor === null).slice(0, 40);
-  const compact = (t) => ({ id: t.id, title: t.title, scheduledFor: t.scheduledFor, priority: t.priority });
+  const compact = (t) => ({ id: t.id, title: t.title, scheduledFor: t.scheduledFor });
   return { week: { from: fromYmd, to: toYmd, items: weekItems.map(compact) }, backlog: backlogSample.map(compact) };
 }
 
@@ -227,7 +218,7 @@ function topClarifyCandidates(instruction, snapshot, limit = 5) {
     const title = String(item.title || '').toLowerCase();
     let s = 0;
     for (const t of tokens) if (title.includes(t)) s += 1;
-    if (item.priority === 'high') s += 0.25;
+  // priority removed
     return s;
   };
   return all
@@ -308,8 +299,8 @@ function applyRecurrenceMutation(targetTodo, incomingRecurrence) {
   } catch {}
 }
 
-function createTodoDb({ title, notes = '', scheduledFor = null, priority = 'medium', timeOfDay = null, recurrence = undefined }) {
-  return db.createTodo({ title, notes, scheduledFor, timeOfDay, priority, recurrence: recurrence || { type: 'none' }, completed: false });
+function createTodoDb({ title, notes = '', scheduledFor = null, timeOfDay = null, recurrence = undefined }) {
+  return db.createTodo({ title, notes, scheduledFor, timeOfDay, recurrence: recurrence || { type: 'none' }, completed: false });
 }
 
 function findTodoById(id) { return db.getTodoById(parseInt(id, 10)); }
@@ -394,7 +385,6 @@ function expandOccurrences(todo, fromDate, toDate) {
         notes: todo.notes,
         scheduledFor: dateStr,
         timeOfDay: todo.timeOfDay,
-        priority: todo.priority,
         completed: !!occCompleted,
         recurrence: todo.recurrence,
         createdAt: todo.createdAt,
@@ -428,7 +418,6 @@ function expandEventOccurrences(event, fromDate, toDate) {
         startTime: event.startTime ?? null,
         endTime: event.endTime ?? null,
         location: event.location ?? null,
-        priority: event.priority,
         completed: !!occCompleted,
         recurrence: event.recurrence,
         createdAt: event.createdAt,
@@ -471,7 +460,7 @@ if (process.env.ENABLE_DEBUG_ROUTES === 'true') {
 // --- CRUD Endpoints ---
 // Create
 app.post('/api/todos', (req, res) => {
-  const { title, notes, scheduledFor, priority, timeOfDay, recurrence } = req.body || {};
+  const { title, notes, scheduledFor, timeOfDay, recurrence } = req.body || {};
   if (typeof title !== 'string' || title.trim() === '') {
     return res.status(400).json({ error: 'invalid_title' });
   }
@@ -485,9 +474,6 @@ app.post('/api/todos', (req, res) => {
   if (!(scheduledFor === undefined || scheduledFor === null || isYmdString(scheduledFor))) {
     return res.status(400).json({ error: 'invalid_scheduledFor' });
   }
-  if (priority !== undefined && !['low', 'medium', 'high'].includes(String(priority))) {
-    return res.status(400).json({ error: 'invalid_priority' });
-  }
   if (!isValidTimeOfDay(timeOfDay === '' ? null : timeOfDay)) {
     return res.status(400).json({ error: 'invalid_timeOfDay' });
   }
@@ -500,18 +486,15 @@ app.post('/api/todos', (req, res) => {
     }
   }
 
-  const todo = createTodoDb({ title: title.trim(), notes: notes || '', scheduledFor: scheduledFor ?? null, priority: priority || 'medium', timeOfDay: (timeOfDay === '' ? null : timeOfDay) ?? null, recurrence: recurrence });
+  const todo = createTodoDb({ title: title.trim(), notes: notes || '', scheduledFor: scheduledFor ?? null, timeOfDay: (timeOfDay === '' ? null : timeOfDay) ?? null, recurrence: recurrence });
   res.json({ todo });
 });
 
 // List (scheduled only within range)
 app.get('/api/todos', (req, res) => {
-  const { from, to, priority, completed } = req.query;
+  const { from, to, completed } = req.query;
   if (from !== undefined && !isYmdString(from)) return res.status(400).json({ error: 'invalid_from' });
   if (to !== undefined && !isYmdString(to)) return res.status(400).json({ error: 'invalid_to' });
-  if (priority !== undefined && !['low', 'medium', 'high'].includes(String(priority))) {
-    return res.status(400).json({ error: 'invalid_priority' });
-  }
   let completedBool;
   if (completed !== undefined) {
     if (completed === 'true' || completed === true) completedBool = true;
@@ -523,7 +506,6 @@ app.get('/api/todos', (req, res) => {
   const toDate = to ? parseYMD(to) : null;
 
   let items = db.listTodos({ from: null, to: null }).filter(t => t.scheduledFor !== null);
-  if (priority) items = items.filter(t => String(t.priority).toLowerCase() === String(priority).toLowerCase());
   if (completedBool !== undefined) items = items.filter(t => t.completed === completedBool);
 
   const doExpand = !!(fromDate && toDate);
@@ -568,14 +550,7 @@ app.get('/api/todos', (req, res) => {
 
 // Backlog (unscheduled only)
 app.get('/api/todos/backlog', (req, res) => {
-  const { priority } = req.query || {};
-  if (priority !== undefined && !['low','medium','high'].includes(String(priority))) {
-    return res.status(400).json({ error: 'invalid_priority' });
-  }
-  let items = listAllTodosRaw().filter(t => t.scheduledFor === null);
-  if (priority) {
-    items = items.filter(t => String(t.priority || '').toLowerCase() === String(priority).toLowerCase());
-  }
+  const items = listAllTodosRaw().filter(t => t.scheduledFor === null);
   res.json({ todos: items });
 });
 
@@ -598,14 +573,12 @@ app.get('/api/todos/search', (req, res) => {
       const ql = q.toLowerCase();
       items = items.filter(t => String(t.title || '').toLowerCase().includes(ql) || String(t.notes || '').toLowerCase().includes(ql));
     }
-    // Boosters: overdue +0.5; priority high +0.25, medium +0.1; tie-break by scheduledFor ASC then id ASC
+  // Boosters: overdue +0.5; tie-break by scheduledFor ASC then id ASC
     const todayY = ymdInTimeZone(new Date(), TIMEZONE);
     const score = (t) => {
       let s = 0;
       const overdue = (!t.completed && t.scheduledFor && String(t.scheduledFor) < String(todayY));
       if (overdue) s += 0.5;
-      if (t.priority === 'high') s += 0.25;
-      else if (t.priority === 'medium') s += 0.1;
       return s;
     };
     items = items.map(t => ({ t, s: score(t) }))
@@ -628,7 +601,7 @@ app.get('/api/todos/:id', (req, res) => {
 
 // Events (mirror Todos minimal wiring)
 app.post('/api/events', (req, res) => {
-  const { title, notes, scheduledFor, startTime, endTime, location, priority, recurrence } = req.body || {};
+  const { title, notes, scheduledFor, startTime, endTime, location, recurrence } = req.body || {};
   if (typeof title !== 'string' || title.trim() === '') return res.status(400).json({ error: 'invalid_title' });
   if (startTime !== undefined && !(startTime === null || /^([01]\d|2[0-3]):[0-5]\d$/.test(String(startTime)))) return res.status(400).json({ error: 'invalid_start_time' });
   if (endTime !== undefined && !(endTime === null || /^([01]\d|2[0-3]):[0-5]\d$/.test(String(endTime)))) return res.status(400).json({ error: 'invalid_end_time' });
@@ -638,14 +611,14 @@ app.post('/api/events', (req, res) => {
     if (!(scheduledFor && isYmdString(scheduledFor))) return res.status(400).json({ error: 'missing_anchor_for_recurrence' });
   }
   try {
-    const ev = db.createEvent({ title: title.trim(), notes: notes || '', scheduledFor: scheduledFor ?? null, startTime: startTime ?? null, endTime: endTime ?? null, location: location ?? null, priority: priority || 'medium', recurrence: rec, completed: false });
+  const ev = db.createEvent({ title: title.trim(), notes: notes || '', scheduledFor: scheduledFor ?? null, startTime: startTime ?? null, endTime: endTime ?? null, location: location ?? null, recurrence: rec, completed: false });
     return res.json({ event: ev });
   } catch (e) { return res.status(500).json({ error: 'create_failed' }); }
 });
 
 // Habits (mirror Todos but must be repeating)
 app.post('/api/habits', (req, res) => {
-  const { title, notes, scheduledFor, priority, timeOfDay, recurrence } = req.body || {};
+  const { title, notes, scheduledFor, timeOfDay, recurrence } = req.body || {};
   if (typeof title !== 'string' || title.trim() === '') return res.status(400).json({ error: 'invalid_title' });
   if (!(scheduledFor !== null && isYmdString(scheduledFor))) return res.status(400).json({ error: 'missing_anchor_for_recurrence' });
   if (!isValidTimeOfDay(timeOfDay === '' ? null : timeOfDay)) return res.status(400).json({ error: 'invalid_timeOfDay' });
@@ -653,16 +626,15 @@ app.post('/api/habits', (req, res) => {
   if (!(recurrence && typeof recurrence === 'object' && typeof recurrence.type === 'string')) return res.status(400).json({ error: 'missing_recurrence' });
   if (!isValidRecurrence(recurrence) || recurrence.type === 'none') return res.status(400).json({ error: 'invalid_recurrence' });
   try {
-    const h = db.createHabit({ title: title.trim(), notes: notes || '', scheduledFor, timeOfDay: (timeOfDay === '' ? null : timeOfDay) ?? null, priority: priority || 'medium', recurrence, completed: false });
+  const h = db.createHabit({ title: title.trim(), notes: notes || '', scheduledFor, timeOfDay: (timeOfDay === '' ? null : timeOfDay) ?? null, recurrence, completed: false });
     return res.json({ habit: h });
   } catch { return res.status(500).json({ error: 'create_failed' }); }
 });
 
 app.get('/api/habits', (req, res) => {
-  const { from, to, priority, completed } = req.query;
+  const { from, to, completed } = req.query;
   if (from !== undefined && !isYmdString(from)) return res.status(400).json({ error: 'invalid_from' });
   if (to !== undefined && !isYmdString(to)) return res.status(400).json({ error: 'invalid_to' });
-  if (priority !== undefined && !['low','medium','high'].includes(String(priority))) return res.status(400).json({ error: 'invalid_priority' });
   let completedBool;
   if (completed !== undefined) {
     if (completed === 'true' || completed === true) completedBool = true;
@@ -672,7 +644,6 @@ app.get('/api/habits', (req, res) => {
   const fromDate = from ? parseYMD(from) : null;
   const toDate = to ? parseYMD(to) : null;
   let items = db.listHabits({ from: null, to: null }).filter(h => h.scheduledFor !== null);
-  if (priority) items = items.filter(h => String(h.priority).toLowerCase() === String(priority).toLowerCase());
   // Filter masters by range if provided (no expansion here)
   if (fromDate || toDate) {
     items = items.filter(h => {
@@ -767,11 +738,10 @@ app.delete('/api/habits/:id/items/event/:eventId', (req, res) => {
 app.patch('/api/habits/:id', (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
-  const { title, notes, scheduledFor, priority, completed, timeOfDay, recurrence } = req.body || {};
+  const { title, notes, scheduledFor, completed, timeOfDay, recurrence } = req.body || {};
   if (title !== undefined && typeof title !== 'string') return res.status(400).json({ error: 'invalid_title' });
   if (notes !== undefined && typeof notes !== 'string') return res.status(400).json({ error: 'invalid_notes' });
   if (!(scheduledFor === undefined || scheduledFor === null || isYmdString(scheduledFor))) return res.status(400).json({ error: 'invalid_scheduledFor' });
-  if (priority !== undefined && !['low','medium','high'].includes(String(priority))) return res.status(400).json({ error: 'invalid_priority' });
   if (completed !== undefined && typeof completed !== 'boolean') return res.status(400).json({ error: 'invalid_completed' });
   if (timeOfDay !== undefined && !isValidTimeOfDay(timeOfDay === '' ? null : timeOfDay)) return res.status(400).json({ error: 'invalid_timeOfDay' });
   if (recurrence !== undefined) {
@@ -784,7 +754,7 @@ app.patch('/api/habits/:id', (req, res) => {
     }
   }
   try {
-    const h = db.updateHabit(id, { title, notes, scheduledFor, timeOfDay, priority, completed, recurrence });
+  const h = db.updateHabit(id, { title, notes, scheduledFor, timeOfDay, completed, recurrence });
     return res.json({ habit: h });
   } catch (e) {
     const msg = String(e && e.message ? e.message : e);
@@ -810,10 +780,9 @@ app.patch('/api/habits/:id/occurrence', (req, res) => {
   }
 });
 app.get('/api/events', (req, res) => {
-  const { from, to, priority, completed } = req.query;
+  const { from, to, completed } = req.query;
   if (from !== undefined && !isYmdString(from)) return res.status(400).json({ error: 'invalid_from' });
   if (to !== undefined && !isYmdString(to)) return res.status(400).json({ error: 'invalid_to' });
-  if (priority !== undefined && !['low','medium','high'].includes(String(priority))) return res.status(400).json({ error: 'invalid_priority' });
   let completedBool;
   if (completed !== undefined) {
     if (completed === 'true' || completed === true) completedBool = true;
@@ -823,9 +792,8 @@ app.get('/api/events', (req, res) => {
   try {
     const fromDate = from ? parseYMD(from) : null;
     const toDate = to ? parseYMD(to) : null;
-    // Load scheduled masters; filter priority pre-expansion
-    let items = db.listEvents({ from: null, to: null, priority: null, completed: null }).filter(e => e.scheduledFor !== null);
-    if (priority) items = items.filter(e => String(e.priority).toLowerCase() === String(priority).toLowerCase());
+  // Load scheduled masters
+  let items = db.listEvents({ from: null, to: null, completed: null }).filter(e => e.scheduledFor !== null);
 
     const doExpand = !!(fromDate && toDate);
     if (!doExpand) {
@@ -904,11 +872,10 @@ app.get('/api/events/:id', (req, res) => {
 app.patch('/api/events/:id', (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
-  const { title, notes, scheduledFor, startTime, endTime, location, priority, completed, recurrence } = req.body || {};
+  const { title, notes, scheduledFor, startTime, endTime, location, completed, recurrence } = req.body || {};
   if (title !== undefined && typeof title !== 'string') return res.status(400).json({ error: 'invalid_title' });
   if (notes !== undefined && typeof notes !== 'string') return res.status(400).json({ error: 'invalid_notes' });
   if (!(scheduledFor === undefined || scheduledFor === null || isYmdString(scheduledFor))) return res.status(400).json({ error: 'invalid_scheduledFor' });
-  if (priority !== undefined && !['low','medium','high'].includes(String(priority))) return res.status(400).json({ error: 'invalid_priority' });
   if (completed !== undefined && typeof completed !== 'boolean') return res.status(400).json({ error: 'invalid_completed' });
   if (startTime !== undefined && !(startTime === null || /^([01]\d|2[0-3]):[0-5]\d$/.test(String(startTime)))) return res.status(400).json({ error: 'invalid_start_time' });
   if (endTime !== undefined && !(endTime === null || /^([01]\d|2[0-3]):[0-5]\d$/.test(String(endTime)))) return res.status(400).json({ error: 'invalid_end_time' });
@@ -919,7 +886,7 @@ app.patch('/api/events/:id', (req, res) => {
     if (!(anchor !== null && isYmdString(anchor))) return res.status(400).json({ error: 'missing_anchor_for_recurrence' });
   }
   try {
-    const ev = db.updateEvent(id, { title, notes, scheduledFor, startTime, endTime, location, priority, completed, recurrence });
+  const ev = db.updateEvent(id, { title, notes, scheduledFor, startTime, endTime, location, completed, recurrence });
     return res.json({ event: ev });
   } catch (e) {
     const msg = String(e && e.message ? e.message : e);
@@ -966,13 +933,11 @@ app.get('/api/events/search', (req, res) => {
       const ql = q.toLowerCase();
       items = items.filter(e => String(e.title || '').toLowerCase().includes(ql) || String(e.notes || '').toLowerCase().includes(ql) || String(e.location || '').toLowerCase().includes(ql));
     }
-    const todayY = ymdInTimeZone(new Date(), TIMEZONE);
-    const score = (e) => {
+  const todayY = ymdInTimeZone(new Date(), TIMEZONE);
+  const score = (e) => {
       let s = 0;
       const overdue = (!e.completed && e.scheduledFor && String(e.scheduledFor) < String(todayY));
       if (overdue) s += 0.5;
-      if (e.priority === 'high') s += 0.25;
-      else if (e.priority === 'medium') s += 0.1;
       return s;
     };
     items = items.map(e => ({ e, s: score(e) }))
@@ -1014,7 +979,7 @@ app.get('/api/search', (req, res) => {
       let s = 0;
       const overdue = (!rec.completed && rec.scheduledFor && String(rec.scheduledFor) < String(todayY));
       if (overdue) s += 0.5;
-      if (rec.priority === 'high') s += 0.25; else if (rec.priority === 'medium') s += 0.1;
+  // priority removed
       const hasTime = !!(rec.timeOfDay || rec.startTime);
       if (hasTime) s += 0.05;
       return s;
@@ -1026,13 +991,12 @@ app.get('/api/search', (req, res) => {
         const ql = q.toLowerCase();
         items = items.filter(t => String(t.title || '').toLowerCase().includes(ql) || String(t.notes || '').toLowerCase().includes(ql));
       }
-      out.push(...items.map(t => ({
+  out.push(...items.map(t => ({
         kind: 'todo',
         id: t.id,
         title: t.title,
         notes: t.notes,
         scheduledFor: t.scheduledFor,
-        priority: t.priority,
         completed: t.completed,
         timeOfDay: t.timeOfDay ?? null,
         createdAt: t.createdAt,
@@ -1045,13 +1009,12 @@ app.get('/api/search', (req, res) => {
         const ql = q.toLowerCase();
         items = items.filter(e => String(e.title || '').toLowerCase().includes(ql) || String(e.notes || '').toLowerCase().includes(ql) || String(e.location || '').toLowerCase().includes(ql));
       }
-      out.push(...items.map(e => ({
+  out.push(...items.map(e => ({
         kind: 'event',
         id: e.id,
         title: e.title,
         notes: e.notes,
         scheduledFor: e.scheduledFor,
-        priority: e.priority,
         completed: e.completed,
         startTime: e.startTime ?? null,
         endTime: e.endTime ?? null,
@@ -1080,7 +1043,7 @@ app.get('/api/search', (req, res) => {
 
 // Unified schedule (todos + events; habits added once implemented)
 app.get('/api/schedule', (req, res) => {
-  const { from, to, kinds, completed, priority } = req.query || {};
+  const { from, to, kinds, completed } = req.query || {};
   if (!isYmdString(from)) return res.status(400).json({ error: 'invalid_from' });
   if (!isYmdString(to)) return res.status(400).json({ error: 'invalid_to' });
   let completedBool;
@@ -1089,7 +1052,7 @@ app.get('/api/schedule', (req, res) => {
     else if (completed === 'false' || completed === false) completedBool = false;
     else return res.status(400).json({ error: 'invalid_completed' });
   }
-  if (priority !== undefined && !['low','medium','high'].includes(String(priority))) return res.status(400).json({ error: 'invalid_priority' });
+  // priority removed
 
   const requestedKinds = (() => {
     // Default to tasks + events; client should pass kinds explicitly to include habits
@@ -1111,8 +1074,7 @@ app.get('/api/schedule', (req, res) => {
     const items = [];
 
     if (requestedKinds.includes('todo')) {
-      let todos = db.listTodos({ from: null, to: null }).filter(t => t.scheduledFor !== null);
-      if (priority) todos = todos.filter(t => String(t.priority).toLowerCase() === String(priority).toLowerCase());
+  let todos = db.listTodos({ from: null, to: null }).filter(t => t.scheduledFor !== null);
       // Expand where needed
       for (const t of todos) {
         const isRepeating = (t.recurrence && t.recurrence.type && t.recurrence.type !== 'none');
@@ -1126,7 +1088,7 @@ app.get('/api/schedule', (req, res) => {
                 title: occ.title,
                 notes: occ.notes,
                 scheduledFor: occ.scheduledFor,
-                priority: occ.priority,
+                // priority removed
                 completed: occ.completed,
                 timeOfDay: occ.timeOfDay ?? null,
                 recurrence: occ.recurrence,
@@ -1144,7 +1106,7 @@ app.get('/api/schedule', (req, res) => {
               title: t.title,
               notes: t.notes,
               scheduledFor: t.scheduledFor,
-              priority: t.priority,
+              // priority removed
               completed: t.completed,
               timeOfDay: t.timeOfDay ?? null,
               recurrence: t.recurrence,
@@ -1157,8 +1119,7 @@ app.get('/api/schedule', (req, res) => {
     }
 
     if (requestedKinds.includes('event')) {
-      let events = db.listEvents({ from: null, to: null }).filter(e => e.scheduledFor !== null);
-      if (priority) events = events.filter(e => String(e.priority).toLowerCase() === String(priority).toLowerCase());
+  let events = db.listEvents({ from: null, to: null }).filter(e => e.scheduledFor !== null);
       for (const e of events) {
         const isRepeating = (e.recurrence && e.recurrence.type && e.recurrence.type !== 'none');
         if (isRepeating) {
@@ -1171,7 +1132,7 @@ app.get('/api/schedule', (req, res) => {
                 title: occ.title,
                 notes: occ.notes,
                 scheduledFor: occ.scheduledFor,
-                priority: occ.priority,
+                // priority removed
                 completed: occ.completed,
                 startTime: occ.startTime ?? null,
                 endTime: occ.endTime ?? null,
@@ -1191,7 +1152,7 @@ app.get('/api/schedule', (req, res) => {
               title: e.title,
               notes: e.notes,
               scheduledFor: e.scheduledFor,
-              priority: e.priority,
+              // priority removed
               completed: e.completed,
               startTime: e.startTime ?? null,
               endTime: e.endTime ?? null,
@@ -1206,8 +1167,7 @@ app.get('/api/schedule', (req, res) => {
     }
 
     if (requestedKinds.includes('habit')) {
-      let habits = db.listHabits({ from: null, to: null }).filter(h => h.scheduledFor !== null);
-      if (priority) habits = habits.filter(h => String(h.priority).toLowerCase() === String(priority).toLowerCase());
+  let habits = db.listHabits({ from: null, to: null }).filter(h => h.scheduledFor !== null);
       for (const h of habits) {
         // habits must be repeating; always expand
         for (const occ of expandOccurrences(h, fromDate, toDate)) {
@@ -1219,7 +1179,7 @@ app.get('/api/schedule', (req, res) => {
               title: occ.title,
               notes: occ.notes,
               scheduledFor: occ.scheduledFor,
-              priority: occ.priority,
+              // priority removed
               completed: occ.completed,
               timeOfDay: occ.timeOfDay ?? null,
               recurrence: occ.recurrence,
@@ -1345,14 +1305,11 @@ app.delete('/api/goals/:parentId/children/:childId', (req, res) => {
 app.patch('/api/todos/:id', (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
-  const { title, notes, scheduledFor, priority, completed, timeOfDay, recurrence } = req.body || {};
+  const { title, notes, scheduledFor, completed, timeOfDay, recurrence } = req.body || {};
   if (title !== undefined && typeof title !== 'string') return res.status(400).json({ error: 'invalid_title' });
   if (notes !== undefined && typeof notes !== 'string') return res.status(400).json({ error: 'invalid_notes' });
   if (!(scheduledFor === undefined || scheduledFor === null || isYmdString(scheduledFor))) {
     return res.status(400).json({ error: 'invalid_scheduledFor' });
-  }
-  if (priority !== undefined && !['low', 'medium', 'high'].includes(String(priority))) {
-    return res.status(400).json({ error: 'invalid_priority' });
   }
   if (completed !== undefined && typeof completed !== 'boolean') {
     return res.status(400).json({ error: 'invalid_completed' });
@@ -1380,7 +1337,7 @@ app.patch('/api/todos/:id', (req, res) => {
   if (title !== undefined) t.title = title;
   if (notes !== undefined) t.notes = notes;
   if (scheduledFor !== undefined) t.scheduledFor = scheduledFor;
-  if (priority !== undefined) t.priority = priority;
+  // priority removed
   if (completed !== undefined) t.completed = completed;
   if (timeOfDay !== undefined) t.timeOfDay = (timeOfDay === '' ? null : timeOfDay);
   if (recurrence !== undefined) { applyRecurrenceMutation(t, recurrence); }
@@ -1439,7 +1396,7 @@ function validateWhere(where) {
       if (r.to !== undefined && !(r.to === null || isYmdString(r.to))) errors.push('invalid_where_scheduled_range_to');
     }
   }
-  if (w.priority !== undefined && !['low','medium','high'].includes(String(w.priority))) errors.push('invalid_where_priority');
+  // priority removed from where
   if (w.completed !== undefined && typeof w.completed !== 'boolean') errors.push('invalid_where_completed');
   if (w.repeating !== undefined && typeof w.repeating !== 'boolean') errors.push('invalid_where_repeating');
   return errors;
@@ -1454,7 +1411,7 @@ function validateOperation(op) {
   const kind = inferred?.op;
   const allowedKinds = ['create', 'update', 'delete', 'complete', 'complete_occurrence', 'goal_create', 'goal_update', 'goal_delete', 'goal_add_items', 'goal_remove_item', 'goal_add_child', 'goal_remove_child'];
   if (!allowedKinds.includes(kind)) errors.push('invalid_op');
-  if (op.priority !== undefined && !['low','medium','high'].includes(String(op.priority))) errors.push('invalid_priority');
+  // priority removed from validation
   if (op.scheduledFor !== undefined && !(op.scheduledFor === null || isYmdString(op.scheduledFor))) errors.push('invalid_scheduledFor');
   if (op.timeOfDay !== undefined && !isValidTimeOfDay(op.timeOfDay === '' ? null : op.timeOfDay)) errors.push('invalid_timeOfDay');
   if (op.recurrence !== undefined && !isValidRecurrence(op.recurrence)) errors.push('invalid_recurrence');
@@ -1562,18 +1519,18 @@ function inferOperationShape(o) {
   if (!op.op) {
     const hasId = Number.isFinite(op.id);
     const hasCompleted = typeof op.completed === 'boolean';
-    const hasTitleOrNotesOrSchedOrPrio = !!(op.title || op.notes || (op.scheduledFor !== undefined) || op.priority);
-    if (!hasId && (op.title || op.scheduledFor !== undefined || op.priority)) {
+    const hasTitleOrNotesOrSched = !!(op.title || op.notes || (op.scheduledFor !== undefined));
+    if (!hasId && (op.title || op.scheduledFor !== undefined)) {
       op.op = 'create';
       delete op.id;
-    } else if (hasId && hasCompleted && !hasTitleOrNotesOrSchedOrPrio) {
+    } else if (hasId && hasCompleted && !hasTitleOrNotesOrSched) {
       op.op = 'complete';
-    } else if (hasId && hasTitleOrNotesOrSchedOrPrio) {
+    } else if (hasId && hasTitleOrNotesOrSched) {
       op.op = 'update';
     }
   }
   // Normalize fields
-  if (op.priority && typeof op.priority === 'string') op.priority = op.priority.toLowerCase();
+  // priority removed
   if (op.scheduledFor === '') op.scheduledFor = null;
   return op;
 }
@@ -1732,7 +1689,7 @@ function buildProposalPrompt({ instruction, todosSnapshot, transcript }) {
   const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
   const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
   const context = JSON.stringify({ todos: todosSnapshot }, null, 2);
-  const user = `Conversation (last 3 turns):\n${convo}\n\nTimezone: ${TIMEZONE}\nInstruction:\n${instruction}\n\nContext:\n${context}\n\nRespond with JSON ONLY that matches this exact example format:\n{\n  "operations": [\n    {"kind":"todo","action":"create","title":"<contextually relevant title>","scheduledFor":"${todayYmd}","priority":"high","recurrence":{"type":"none"}}\n  ]\n}`;
+  const user = `Conversation (last 3 turns):\n${convo}\n\nTimezone: ${TIMEZONE}\nInstruction:\n${instruction}\n\nContext:\n${context}\n\nRespond with JSON ONLY that matches this exact example format:\n{\n  "operations": [\n    {"kind":"todo","action":"create","title":"<contextually relevant title>","scheduledFor":"${todayYmd}","recurrence":{"type":"none"}}\n  ]\n}`;
   return `${system}\n\n${user}`;
 }
 
@@ -1769,7 +1726,7 @@ app.post('/api/llm/apply', async (req, res) => {
     for (const op of shapedOps) {
       try {
         // Event-kind V3 handling
-        if (op.kind && String(op.kind).toLowerCase() === 'event' && op.op === 'create') {
+  if (op.kind && String(op.kind).toLowerCase() === 'event' && op.op === 'create') {
           const ev = db.createEvent({
             title: String(op.title || '').trim(),
             notes: op.notes || '',
@@ -1777,7 +1734,6 @@ app.post('/api/llm/apply', async (req, res) => {
             startTime: (op.startTime === '' ? null : op.startTime) ?? null,
             endTime: (op.endTime === '' ? null : op.endTime) ?? null,
             location: op.location ?? null,
-            priority: op.priority || 'medium',
             recurrence: op.recurrence,
             completed: false,
           });
@@ -1793,7 +1749,6 @@ app.post('/api/llm/apply', async (req, res) => {
             startTime: (op.startTime === '' ? null : op.startTime),
             endTime: (op.endTime === '' ? null : op.endTime),
             location: op.location,
-            priority: op.priority,
             completed: op.completed,
             recurrence: op.recurrence,
           });
@@ -1819,13 +1774,12 @@ app.post('/api/llm/apply', async (req, res) => {
           const ev = db.toggleEventOccurrence({ id, occurrenceDate: op.occurrenceDate, completed: (op.completed === undefined) ? true : !!op.completed });
           results.push({ ok: true, op, event: ev });
           appendAudit({ action: 'event_complete_occurrence', op, result: 'ok', id, meta: { correlationId } });
-        } else if (op.kind && String(op.kind).toLowerCase() === 'habit' && op.op === 'create') {
+  } else if (op.kind && String(op.kind).toLowerCase() === 'habit' && op.op === 'create') {
           const h = db.createHabit({
             title: String(op.title || '').trim(),
             notes: op.notes || '',
             scheduledFor: op.scheduledFor ?? null,
             timeOfDay: (op.timeOfDay === '' ? null : op.timeOfDay) ?? null,
-            priority: op.priority || 'medium',
             recurrence: op.recurrence,
             completed: false,
           });
@@ -1839,7 +1793,6 @@ app.post('/api/llm/apply', async (req, res) => {
             notes: op.notes,
             scheduledFor: op.scheduledFor,
             timeOfDay: (op.timeOfDay === '' ? null : op.timeOfDay),
-            priority: op.priority,
             completed: op.completed,
             recurrence: op.recurrence,
           });
@@ -1866,7 +1819,7 @@ app.post('/api/llm/apply', async (req, res) => {
           results.push({ ok: true, op, habit: h });
           appendAudit({ action: 'habit_complete_occurrence', op, result: 'ok', id, meta: { correlationId } });
         } else if (op.op === 'create') {
-          const t = createTodoDb({ title: String(op.title || '').trim(), notes: op.notes || '', scheduledFor: op.scheduledFor ?? null, priority: op.priority || 'medium', timeOfDay: (op.timeOfDay === '' ? null : op.timeOfDay) ?? null, recurrence: op.recurrence });
+          const t = createTodoDb({ title: String(op.title || '').trim(), notes: op.notes || '', scheduledFor: op.scheduledFor ?? null, timeOfDay: (op.timeOfDay === '' ? null : op.timeOfDay) ?? null, recurrence: op.recurrence });
           mutatedSinceRefresh = true; results.push({ ok: true, op, todo: t }); created++;
           appendAudit({ action: 'create', op, result: 'ok', id: t.id, meta: { correlationId } });
         } else if (op.op === 'update') {
@@ -1875,7 +1828,6 @@ app.post('/api/llm/apply', async (req, res) => {
           if (op.title !== undefined) t.title = op.title;
           if (op.notes !== undefined) t.notes = op.notes;
           if (op.scheduledFor !== undefined) t.scheduledFor = op.scheduledFor;
-          if (op.priority !== undefined) t.priority = op.priority;
           if (op.completed !== undefined) t.completed = !!op.completed;
           if (op.timeOfDay !== undefined) t.timeOfDay = (op.timeOfDay === '' ? null : op.timeOfDay);
           if (op.recurrence !== undefined) { applyRecurrenceMutation(t, op.recurrence); }
@@ -1979,7 +1931,6 @@ function buildConversationalSummaryPrompt({ instruction, operations, todosSnapsh
     if (Number.isFinite(op.id)) parts.push(`#${op.id}`);
     if (op.title) parts.push(`"${String(op.title).slice(0, 60)}"`);
     if (op.scheduledFor !== undefined) parts.push(`@${op.scheduledFor === null ? 'unscheduled' : op.scheduledFor}`);
-    if (op.priority) parts.push(`prio:${op.priority}`);
     if (typeof op.completed === 'boolean') parts.push(op.completed ? '[done]' : '[undone]');
     return `- ${parts.join(' ')}`;
   }).join('\n');
@@ -2149,9 +2100,8 @@ app.post('/api/assistant/message', async (req, res) => {
   try { if (route && route.where && !Array.isArray(route.where) && typeof route.where === 'object') focusedWhere = route.where; } catch {}
   // Apply client filters
   try {
-    if (client && client.range && client.range.from && client.range.to) focusedWhere = { ...(focusedWhere || {}), scheduled_range: { from: String(client.range.from), to: String(client.range.to) } };
-    if (client && Array.isArray(client.kinds) && client.kinds.length === 1) focusedWhere = { ...(focusedWhere || {}), kind: String(client.kinds[0]) };
-    if (client && typeof client.priority === 'string') focusedWhere = { ...(focusedWhere || {}), priority: String(client.priority) };
+  if (client && client.range && client.range.from && client.range.to) focusedWhere = { ...(focusedWhere || {}), scheduled_range: { from: String(client.range.from), to: String(client.range.to) } };
+  if (client && Array.isArray(client.kinds) && client.kinds.length === 1) focusedWhere = { ...(focusedWhere || {}), kind: String(client.kinds[0]) };
     if (client && typeof client.completed === 'boolean') focusedWhere = { ...(focusedWhere || {}), completed: !!client.completed };
     if (client && typeof client.search === 'string' && client.search.trim()) focusedWhere = { ...(focusedWhere || {}), title_contains: String(client.search).trim() };
   } catch {}
