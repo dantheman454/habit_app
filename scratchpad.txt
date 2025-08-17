@@ -2,7 +2,10 @@ Keep in mind:
 -Have full functionality (BEFORE SCHOOL STARTS)so I can get my actual todos and events in
 
 
-
+TODO TODAY 8/17:
+    -Get assistant pipeline working for basic tasks
+    -Get fundamental functions of tasks and events working
+    -Clean up UI
 
 Actionable:
 -get a todo list app up and running fully and soundly (must have same functionality as reminders app and google calendar)

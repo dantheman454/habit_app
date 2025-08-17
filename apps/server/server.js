@@ -1407,7 +1407,7 @@ app.delete('/api/todos/:id', (req, res) => {
 });
 
 // --- LLM proposal-and-verify (Ollama) ---
-const OLLAMA_MODEL = 'deepcoder:14b';
+// Model selection now uses `getModels()` from `apps/server/llm/clients.js` (convo/code).
 const OLLAMA_TEMPERATURE = 0.1;
 const GLOBAL_TIMEOUT_SECS = parseInt('300', 10);
 const CLARIFY_THRESHOLD = 0.45;
@@ -1570,10 +1570,12 @@ function inferOperationShape(o) {
 
 function runOllamaPrompt(prompt) {
   return new Promise((resolve, reject) => {
-    if (!OLLAMA_MODEL) return reject(new Error('ollama_model_not_set'));
+    const models = (typeof getModels === 'function') ? getModels() : null;
+    const modelToRun = (models && models.code) ? models.code : (process.env.OLLAMA_MODEL || null);
+    if (!modelToRun) return reject(new Error('ollama_model_not_set'));
     const tryArgsList = [
-      ['run', OLLAMA_MODEL, '--temperature', String(OLLAMA_TEMPERATURE)],
-      ['run', OLLAMA_MODEL], // fallback for CLI versions without temperature flag
+      ['run', modelToRun, '--temperature', String(OLLAMA_TEMPERATURE)],
+      ['run', modelToRun], // fallback for CLI versions without temperature flag
     ];
     let attempt = 0;
     const tryOnce = () => {
@@ -1606,7 +1608,9 @@ function runOllamaPrompt(prompt) {
 async function tryRunOllamaJsonFormat({ userContent }) {
   const base = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
   const url = `${base}/api/generate`;
-  const payload = { model: OLLAMA_MODEL, prompt: userContent, format: 'json', stream: false };
+  const models = (typeof getModels === 'function') ? getModels() : null;
+  const modelName = (models && models.code) ? models.code : (process.env.OLLAMA_MODEL || null);
+  const payload = { model: modelName, prompt: userContent, format: 'json', stream: false };
   const controller = new AbortController();
   const timeoutMs = Math.max(1000, GLOBAL_TIMEOUT_SECS * 1000);
   const timer = setTimeout(() => { try { controller.abort(); } catch {} }, timeoutMs);
@@ -2020,7 +2024,7 @@ async function runProposalAndRepair({ instruction, transcript, focusedWhere, mod
   // Propose
   const prompt1 = buildProposalPrompt({ instruction: instruction.trim(), todosSnapshot: snapshot, transcript });
   const raw1 = await runOllamaForJsonPreferred({ userContent: prompt1 });
-  try { logIO('proposal', { model: (getModels && typeof getModels === 'function' ? getModels().code : OLLAMA_MODEL), prompt: prompt1, output: raw1, meta: { correlationId, mode } }); } catch {}
+  try { const models = (typeof getModels === 'function') ? getModels() : null; const modelName = (models && models.code) ? models.code : (process.env.OLLAMA_MODEL || null); logIO('proposal', { model: modelName, prompt: prompt1, output: raw1, meta: { correlationId, mode } }); } catch {}
   let parsed1 = parseJsonLenient(raw1);
   let ops = [];
   if (Array.isArray(parsed1)) ops = parsed1;
@@ -2062,7 +2066,7 @@ async function runProposalAndRepair({ instruction, transcript, focusedWhere, mod
     try {
   const repairPrompt = buildRepairPrompt({ instruction: instruction.trim(), originalOps: ops, errors: validation.results, transcript });
   const rawRepair = await runOllamaForJsonPreferred({ userContent: repairPrompt });
-  try { logIO('repair', { model: (getModels && typeof getModels === 'function' ? getModels().code : OLLAMA_MODEL), prompt: repairPrompt, output: rawRepair, meta: { correlationId, mode } }); } catch {}
+  try { const models = (typeof getModels === 'function') ? getModels() : null; const modelName = (models && models.code) ? models.code : (process.env.OLLAMA_MODEL || null); logIO('repair', { model: modelName, prompt: repairPrompt, output: rawRepair, meta: { correlationId, mode } }); } catch {}
       let parsedR = parseJsonLenient(rawRepair);
       const repairedOps = (parsedR && Array.isArray(parsedR.operations)) ? parsedR.operations : [];
       const shaped = repairedOps.filter(o => o && typeof o === 'object').map(o => inferOperationShape(o)).filter(Boolean);

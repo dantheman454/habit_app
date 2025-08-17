@@ -12,7 +12,7 @@ Entrypoints: POST `/api/assistant/message` and GET `/api/assistant/message/strea
 
 ### Model runtime
 
-- Local model via Ollama; model name is configurable. Default is `deepcoder:14b` in code today.
+- Local model via Ollama; model names are configurable via environment. Current defaults in the code are `llama3.2:3b` for the conversational model and `granite-code:8b` for the code/proposal model.
 - JSON-first: tries Ollama HTTP `/api/generate` with `format: 'json'`, falls back to CLI.
 - Granite compatibility: if the model outputs `<think>...</think><response>...</response>`, the server extracts `<response>` before JSON parsing and strips tags for summaries.
 

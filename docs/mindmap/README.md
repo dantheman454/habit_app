@@ -17,7 +17,7 @@ graph TD
     P[("SQLite (data/app.db)\nTables: todos, events, habits, goals, audit_log, idempotency")]
   end
   subgraph "LLM"
-    F[["Ollama local model\nconfigurable (default: deepcoder:14b)"]]
+    F[["Ollama local model\nconfigurable (defaults: convo=llama3.2:3b, code=granite-code:8b)"]]
   end
 
   A --> A2

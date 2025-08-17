@@ -66,8 +66,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
   - Response: `{ items: Array<{ kind, id, masterId?, scheduledFor, ... }> }`
 
 - Assistant
-  - GET `/api/assistant/model` → `{ model: string }`
-  - POST `/api/assistant/message` → auto pipeline; returns `{ text, operations }` or `{ requiresClarification, question }`
+  - POST `/api/assistant/message` → auto pipeline; returns `{ text, operations }` or `{ clarify: { question, options } }`
   - GET `/api/assistant/message/stream` → SSE: emits `stage`, `clarify`, `ops`, `summary`, `result`, `heartbeat`, `done`
 
 - LLM Apply + Dry-run
@@ -89,7 +88,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 - Habits: `listHabits` (range adds stats), CRUD + `toggleHabitOccurrence`, linking helpers
 - Goals: `listGoals`, `getGoal`, CRUD, link/unlink items, add/remove child
 - Unified: `fetchSchedule({ from, to, kinds, completed, priority })`
-- Assistant: `assistantMessage()` supports SSE or POST fallback; `applyOperations`, `dryRunOperations`; `fetchAssistantModel()` for UI badge
+ - Assistant: `assistantMessage()` supports SSE or POST fallback; `applyOperations`, `dryRunOperations`. Note: the server does not expose a dedicated `/api/assistant/model` endpoint; client code that previously fetched a model badge has been removed.
 
 ### Types
 
@@ -110,7 +109,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 - `/api/habits*` → `listHabits`, `createHabit`, `updateHabit`, `deleteHabit`, `searchHabits`, `toggleHabitOccurrence`, `linkHabitItems`, `unlinkHabitTodo`, `unlinkHabitEvent`
 - `/api/goals*` → `listGoals`, `getGoal`, `createGoal`, `updateGoal`, `deleteGoal`, `addGoalItems`, `removeGoalTodoItem`, `removeGoalEventItem`, `addGoalChild`, `removeGoalChild`
 - `/api/schedule` → `fetchSchedule`
-- `/api/assistant/model` → `fetchAssistantModel`
+-- `/api/assistant/message` and `/api/assistant/message/stream` → `assistantMessage`
 - `/api/assistant/message` and `/api/assistant/message/stream` → `assistantMessage`
 - `/api/llm/apply` → `applyOperations`; `/api/llm/dryrun` → `dryRunOperations`
 
