@@ -10,6 +10,9 @@ const CLARIFY_THRESHOLD = 0.45;
 const CHAT_THRESHOLD = 0.70;
 const TIMEZONE = process.env.TZ_NAME || 'America/New_York';
 
+// Cache models locally for this module so logs and calls stay consistent.
+const MODELS = (typeof getModels === 'function') ? getModels() : { convo: process.env.CONVO_MODEL || 'llama3.2:3b' };
+
 export async function runRouter({ instruction, transcript = [], clarify }) {
   const msg = String(instruction || '').trim();
   if (!msg) return { decision: 'clarify', confidence: 0, question: 'What would you like to do?' };
@@ -35,8 +38,8 @@ export async function runRouter({ instruction, transcript = [], clarify }) {
     msg,
   ].join('\n');
 
-  const raw = await convoLLM(prompt, { stream: false });
-  logIO('router', { model: getModels().convo, prompt, output: raw, meta: { correlationId, module: 'router' } });
+  const raw = await convoLLM(prompt, { stream: false, model: MODELS.convo });
+  logIO('router', { model: MODELS.convo, prompt, output: raw, meta: { correlationId, module: 'router' } });
   const parsed = extractFirstJson(String(raw || '')) || {};
   let decision = parsed.decision || 'clarify';
   const confidence = Number(parsed.confidence || 0);

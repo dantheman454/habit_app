@@ -19,6 +19,16 @@ import { runRouter as runRouterLLM } from './llm/router.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Cache configured LLM models once at startup to keep a single source of truth
+// throughout the server process. This is intentionally read-once so runtime
+// behaviour is consistent and so we can log configured models at startup.
+const MODELS = (typeof getModels === 'function') ? getModels() : {
+  convo: process.env.CONVO_MODEL || 'llama3.2:3b',
+  code: process.env.CODE_MODEL || 'granite-code:8b',
+  host: process.env.OLLAMA_HOST || '127.0.0.1',
+  port: process.env.OLLAMA_PORT || '11434',
+};
+
 // --- Paths ---
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const DATA_DIR = path.join(REPO_ROOT, 'data');
@@ -1570,8 +1580,7 @@ function inferOperationShape(o) {
 
 function runOllamaPrompt(prompt) {
   return new Promise((resolve, reject) => {
-    const models = (typeof getModels === 'function') ? getModels() : null;
-    const modelToRun = (models && models.code) ? models.code : (process.env.OLLAMA_MODEL || null);
+    const modelToRun = (MODELS && MODELS.code) ? MODELS.code : (process.env.OLLAMA_MODEL || null);
     if (!modelToRun) return reject(new Error('ollama_model_not_set'));
     const tryArgsList = [
       ['run', modelToRun, '--temperature', String(OLLAMA_TEMPERATURE)],
@@ -1602,14 +1611,11 @@ function runOllamaPrompt(prompt) {
   });
 }
 
-// Removed: granite helpers (isGraniteModel, runOllamaWithThinkingIfGranite) - legacy from single-LLM path
-
 // Attempt HTTP JSON-biased generation via Ollama; falls back to CLI on error at call sites
 async function tryRunOllamaJsonFormat({ userContent }) {
   const base = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
   const url = `${base}/api/generate`;
-  const models = (typeof getModels === 'function') ? getModels() : null;
-  const modelName = (models && models.code) ? models.code : (process.env.OLLAMA_MODEL || null);
+  const modelName = (MODELS && MODELS.code) ? MODELS.code : (process.env.OLLAMA_MODEL || null);
   const payload = { model: modelName, prompt: userContent, format: 'json', stream: false };
   const controller = new AbortController();
   const timeoutMs = Math.max(1000, GLOBAL_TIMEOUT_SECS * 1000);
@@ -2024,7 +2030,7 @@ async function runProposalAndRepair({ instruction, transcript, focusedWhere, mod
   // Propose
   const prompt1 = buildProposalPrompt({ instruction: instruction.trim(), todosSnapshot: snapshot, transcript });
   const raw1 = await runOllamaForJsonPreferred({ userContent: prompt1 });
-  try { const models = (typeof getModels === 'function') ? getModels() : null; const modelName = (models && models.code) ? models.code : (process.env.OLLAMA_MODEL || null); logIO('proposal', { model: modelName, prompt: prompt1, output: raw1, meta: { correlationId, mode } }); } catch {}
+  try { const modelName = (MODELS && MODELS.code) ? MODELS.code : (process.env.OLLAMA_MODEL || null); logIO('proposal', { model: modelName, prompt: prompt1, output: raw1, meta: { correlationId, mode } }); } catch {}
   let parsed1 = parseJsonLenient(raw1);
   let ops = [];
   if (Array.isArray(parsed1)) ops = parsed1;
@@ -2066,7 +2072,7 @@ async function runProposalAndRepair({ instruction, transcript, focusedWhere, mod
     try {
   const repairPrompt = buildRepairPrompt({ instruction: instruction.trim(), originalOps: ops, errors: validation.results, transcript });
   const rawRepair = await runOllamaForJsonPreferred({ userContent: repairPrompt });
-  try { const models = (typeof getModels === 'function') ? getModels() : null; const modelName = (models && models.code) ? models.code : (process.env.OLLAMA_MODEL || null); logIO('repair', { model: modelName, prompt: repairPrompt, output: rawRepair, meta: { correlationId, mode } }); } catch {}
+  try { const modelName = (MODELS && MODELS.code) ? MODELS.code : (process.env.OLLAMA_MODEL || null); logIO('repair', { model: modelName, prompt: repairPrompt, output: rawRepair, meta: { correlationId, mode } }); } catch {}
       let parsedR = parseJsonLenient(rawRepair);
       const repairedOps = (parsedR && Array.isArray(parsedR.operations)) ? parsedR.operations : [];
       const shaped = repairedOps.filter(o => o && typeof o === 'object').map(o => inferOperationShape(o)).filter(Boolean);
@@ -2113,7 +2119,7 @@ app.post('/api/assistant/message', async (req, res) => {
 
   // Clarify branch
   if (route.decision === 'clarify' && route.question) {
-    try { logIO('router', { model: getModels().convo, prompt: '(clarify)', output: JSON.stringify(route), meta: { correlationId, mode: 'post', stageDurations: { routingMs: (pTRoute - t0), proposingMs: 0, validatingMs: 0, summarizingMs: 0 } } }); } catch {}
+  try { logIO('router', { model: MODELS.convo, prompt: '(clarify)', output: JSON.stringify(route), meta: { correlationId, mode: 'post', stageDurations: { routingMs: (pTRoute - t0), proposingMs: 0, validatingMs: 0, summarizingMs: 0 } } }); } catch {}
     return res.json({ clarify: { question: route.question, options: Array.isArray(route.options) ? route.options : [] }, correlationId });
   }
 
@@ -2129,7 +2135,7 @@ app.post('/api/assistant/message', async (req, res) => {
     try {
       const raw = await convoLLM(prompt, { stream: false });
       pTSum = Date.now();
-      logIO('summary', { model: getModels().convo, prompt, output: raw, meta: { correlationId, mode: 'post', stageDurations: { routingMs: (pTRoute - t0), proposingMs: 0, validatingMs: 0, summarizingMs: (pTSum - pTRoute) } } });
+  logIO('summary', { model: MODELS.convo, prompt, output: raw, meta: { correlationId, mode: 'post', stageDurations: { routingMs: (pTRoute - t0), proposingMs: 0, validatingMs: 0, summarizingMs: (pTSum - pTRoute) } } });
       text = String(raw || '').replace(/```[\s\S]*?```/g, '').replace(/[\r\n]+/g, ' ').trim() || 'Okay.';
     } catch {}
     if (String(process.env.ENABLE_ASSISTANT_DEBUG || '') === '1') {
@@ -2166,9 +2172,9 @@ app.post('/api/assistant/message', async (req, res) => {
     JSON.stringify(focusedContext)
   ].join('\n');
   let rawProposal;
-  try { rawProposal = await codeLLM(proposalPrompt, { model: getModels().code }); } catch (e) { return res.json({ text: 'Assistant planning failed. Please try again.', operations: [], correlationId }); }
+  try { rawProposal = await codeLLM(proposalPrompt, { model: MODELS.code }); } catch (e) { return res.json({ text: 'Assistant planning failed. Please try again.', operations: [], correlationId }); }
   pTProp = Date.now();
-  logIO('proposal', { model: getModels().code, prompt: proposalPrompt, output: rawProposal, meta: { correlationId, mode: 'post', stageDurations: { routingMs: (pTRoute - t0), proposingMs: (pTProp - pTRoute), validatingMs: 0, summarizingMs: 0 } } });
+  logIO('proposal', { model: MODELS.code, prompt: proposalPrompt, output: rawProposal, meta: { correlationId, mode: 'post', stageDurations: { routingMs: (pTRoute - t0), proposingMs: (pTProp - pTRoute), validatingMs: 0, summarizingMs: 0 } } });
   const parsedProposal = extractFirstJson(String(rawProposal || '')) || { operations: [] };
   const ops0 = Array.isArray(parsedProposal.operations) ? parsedProposal.operations : [];
 
@@ -2187,13 +2193,13 @@ app.post('/api/assistant/message', async (req, res) => {
       'Context:', JSON.stringify(focusedContext)
     ].join('\n');
     let rawRepair;
-    try { rawRepair = await codeLLM(repairPrompt, { model: getModels().code }); } catch (e) {
+  try { rawRepair = await codeLLM(repairPrompt, { model: MODELS.code }); } catch (e) {
       const validOnly = (validation.results || []).filter(r => r.errors.length === 0).map(r => r.op);
       validation = validateProposal({ operations: validOnly.map(o => inferOperationShape(o)) });
       finalOps = validOnly;
     }
     pTRepair = Date.now();
-    logIO('repair', { model: getModels().code, prompt: repairPrompt, output: rawRepair, meta: { correlationId, mode: 'post', stageDurations: { routingMs: (pTRoute - t0), proposingMs: (pTProp - pTRoute), validatingMs: 0, repairingMs: (pTRepair - pTProp), summarizingMs: 0 } } });
+  logIO('repair', { model: MODELS.code, prompt: repairPrompt, output: rawRepair, meta: { correlationId, mode: 'post', stageDurations: { routingMs: (pTRoute - t0), proposingMs: (pTProp - pTRoute), validatingMs: 0, repairingMs: (pTRepair - pTProp), summarizingMs: 0 } } });
     const parsedRepair = extractFirstJson(String(rawRepair || '')) || { operations: [] };
     finalOps = Array.isArray(parsedRepair.operations) ? parsedRepair.operations : finalOps;
     validation = validateProposal({ operations: finalOps.map(o => inferOperationShape(o)) });
@@ -2208,7 +2214,7 @@ app.post('/api/assistant/message', async (req, res) => {
     const prompt2 = buildConversationalSummaryPrompt({ instruction: message.trim(), operations: finalOps, todosSnapshot: listAllTodosRaw(), transcript });
     const raw2 = await convoLLM(prompt2, { stream: false });
     pTSum = Date.now();
-    logIO('summary', { model: getModels().convo, prompt: prompt2, output: raw2, meta: { correlationId, mode: 'post', stageDurations: { routingMs: (pTRoute - t0), proposingMs: (pTProp - pTRoute), validatingMs: (pTRepair ? (pTRepair - pTProp) : 0), repairingMs: (pTRepair ? (pTRepair - pTProp) : 0), summarizingMs: (pTSum - (pTRepair || pTProp)) } } });
+  logIO('summary', { model: MODELS.convo, prompt: prompt2, output: raw2, meta: { correlationId, mode: 'post', stageDurations: { routingMs: (pTRoute - t0), proposingMs: (pTProp - pTRoute), validatingMs: (pTRepair ? (pTRepair - pTProp) : 0), repairingMs: (pTRepair ? (pTRepair - pTProp) : 0), summarizingMs: (pTSum - (pTRepair || pTProp)) } } });
     summaryText = String(raw2 || '').replace(/```[\s\S]*?```/g, '').replace(/[\r\n]+/g, ' ').trim() || buildDeterministicSummaryText(finalOps);
   } catch {
     summaryText = buildDeterministicSummaryText(finalOps);
@@ -2265,7 +2271,7 @@ app.get('/api/assistant/message/stream', async (req, res) => {
 
   if (route.decision === 'clarify' && route.question) {
   send('clarify', JSON.stringify({ question: route.question, options: Array.isArray(route.options) ? route.options : [], correlationId }));
-        try { logIO('router', { model: getModels().convo, prompt: '(clarify)', output: JSON.stringify(route), meta: { correlationId, mode: 'sse', stageDurations: { routingMs: (sseTRoute - t0), proposingMs: 0, validatingMs: 0, summarizingMs: 0 } } }); } catch {}
+  try { logIO('router', { model: MODELS.convo, prompt: '(clarify)', output: JSON.stringify(route), meta: { correlationId, mode: 'sse', stageDurations: { routingMs: (sseTRoute - t0), proposingMs: 0, validatingMs: 0, summarizingMs: 0 } } }); } catch {}
         send('done', 'true');
         return res.end();
       }
@@ -2279,7 +2285,7 @@ app.get('/api/assistant/message/stream', async (req, res) => {
         try {
           const raw = await convoLLM(prompt, { stream: false });
           sseTSum = Date.now();
-          logIO('summary', { model: getModels().convo, prompt, output: raw, meta: { correlationId, mode: 'sse', stageDurations: { routingMs: (sseTRoute - t0), proposingMs: 0, validatingMs: 0, summarizingMs: (sseTSum - sseTRoute) } } });
+          logIO('summary', { model: MODELS.convo, prompt, output: raw, meta: { correlationId, mode: 'sse', stageDurations: { routingMs: (sseTRoute - t0), proposingMs: 0, validatingMs: 0, summarizingMs: (sseTSum - sseTRoute) } } });
           let text = String(raw || '').replace(/```[\s\S]*?```/g, '').replace(/[\r\n]+/g, ' ').trim();
           if (!text) text = 'Okay.';
           send('summary', JSON.stringify({ text, correlationId }));
@@ -2322,7 +2328,7 @@ app.get('/api/assistant/message/stream', async (req, res) => {
         JSON.stringify(focusedContext)
       ].join('\n');
   let rawProposal;
-  try { rawProposal = await codeLLM(proposalPrompt, { model: getModels().code }); }
+  try { rawProposal = await codeLLM(proposalPrompt, { model: MODELS.code }); }
   catch (e) {
     // Graceful SSE error: send fallback and close
     try { send('summary', JSON.stringify({ text: 'Assistant planning failed. Please try again.', correlationId })); } catch {}
@@ -2332,7 +2338,7 @@ app.get('/api/assistant/message/stream', async (req, res) => {
     return res.end();
   }
   sseTProp = Date.now();
-  logIO('proposal', { model: getModels().code, prompt: proposalPrompt, output: rawProposal, meta: { correlationId, mode: 'sse', stageDurations: { routingMs: (sseTRoute - t0), proposingMs: (sseTProp - sseTRoute), validatingMs: 0, summarizingMs: 0 } } });
+  logIO('proposal', { model: MODELS.code, prompt: proposalPrompt, output: rawProposal, meta: { correlationId, mode: 'sse', stageDurations: { routingMs: (sseTRoute - t0), proposingMs: (sseTProp - sseTRoute), validatingMs: 0, summarizingMs: 0 } } });
       const parsedProposal = extractFirstJson(String(rawProposal || '')) || { operations: [] };
       const ops0 = Array.isArray(parsedProposal.operations) ? parsedProposal.operations : [];
 
@@ -2355,7 +2361,7 @@ app.get('/api/assistant/message/stream', async (req, res) => {
           'Context:', JSON.stringify(focusedContext)
         ].join('\n');
   let rawRepair;
-  try { rawRepair = await codeLLM(repairPrompt, { model: getModels().code }); }
+  try { rawRepair = await codeLLM(repairPrompt, { model: MODELS.code }); }
   catch (e) {
     // Fall back to original valid subset
     const validOnly = (validation.results || []).filter(r => r.errors.length === 0).map(r => r.op);
@@ -2368,7 +2374,7 @@ app.get('/api/assistant/message/stream', async (req, res) => {
     // Skip further repair steps
   }
   sseTRepair = Date.now();
-  logIO('repair', { model: getModels().code, prompt: repairPrompt, output: rawRepair, meta: { correlationId, mode: 'sse', stageDurations: { routingMs: (sseTRoute - t0), proposingMs: (sseTProp - sseTRoute), validatingMs: 0, repairingMs: (sseTRepair - sseTProp), summarizingMs: 0 } } });
+  logIO('repair', { model: MODELS.code, prompt: repairPrompt, output: rawRepair, meta: { correlationId, mode: 'sse', stageDurations: { routingMs: (sseTRoute - t0), proposingMs: (sseTProp - sseTRoute), validatingMs: 0, repairingMs: (sseTRepair - sseTProp), summarizingMs: 0 } } });
         const parsedRepair = extractFirstJson(String(rawRepair || '')) || { operations: [] };
         finalOps = Array.isArray(parsedRepair.operations) ? parsedRepair.operations : [];
         validation = validateProposal({ operations: finalOps.map(o => inferOperationShape(o)) });
@@ -2385,7 +2391,7 @@ app.get('/api/assistant/message/stream', async (req, res) => {
         const prompt2 = buildConversationalSummaryPrompt({ instruction: message.trim(), operations: finalOps, todosSnapshot: listAllTodosRaw(), transcript });
   const raw2 = await convoLLM(prompt2, { stream: false });
   sseTSum = Date.now();
-  logIO('summary', { model: getModels().convo, prompt: prompt2, output: raw2, meta: { correlationId, mode: 'sse', stageDurations: { routingMs: (sseTRoute - t0), proposingMs: (sseTProp - sseTRoute), validatingMs: (sseTRepair ? (sseTRepair - sseTProp) : 0), repairingMs: (sseTRepair ? (sseTRepair - sseTProp) : 0), summarizingMs: (sseTSum - (sseTRepair || sseTProp)) } } });
+  logIO('summary', { model: MODELS.convo, prompt: prompt2, output: raw2, meta: { correlationId, mode: 'sse', stageDurations: { routingMs: (sseTRoute - t0), proposingMs: (sseTProp - sseTRoute), validatingMs: (sseTRepair ? (sseTRepair - sseTProp) : 0), repairingMs: (sseTRepair ? (sseTRepair - sseTProp) : 0), summarizingMs: (sseTSum - (sseTRepair || sseTProp)) } } });
         summaryText = String(raw2 || '').replace(/```[\s\S]*?```/g, '').replace(/[\r\n]+/g, ' ').trim() || buildDeterministicSummaryText(finalOps);
       } catch {
         summaryText = buildDeterministicSummaryText(finalOps);
@@ -2487,15 +2493,14 @@ app.post('/api/llm/message', async (req, res) => {
     const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
     const system = 'You are a helpful assistant for a todo app. Keep answers concise and clear. Prefer 1–3 short sentences; no lists or JSON.';
     const prompt = `${system}\n\nToday: ${todayYmd} (${TIMEZONE})\nConversation (last 3):\n${convo}\nUser: ${msg}`;
-    const models = getModels();
-    const raw = await convoLLM(prompt, { stream: false, model: models.convo });
-    logIO('router', { model: models.convo, prompt, output: raw, meta: { correlationId, path: '/api/llm/message' } });
+  const raw = await convoLLM(prompt, { stream: false, model: MODELS.convo });
+  logIO('router', { model: MODELS.convo, prompt, output: raw, meta: { correlationId, path: '/api/llm/message' } });
     // Best-effort plain text extraction
     let text = String(raw || '').replace(/```[\s\S]*?```/g, '').replace(/[\r\n]+/g, ' ').trim();
     if (!text) text = 'Okay.';
     return res.json({ ok: true, text, correlationId });
   } catch (e) {
-    logIO('router', { model: (getModels().convo), prompt: '(error)', output: String(e && e.message ? e.message : e), meta: { correlationId, path: '/api/llm/message', error: true } });
+  logIO('router', { model: MODELS.convo, prompt: '(error)', output: String(e && e.message ? e.message : e), meta: { correlationId, path: '/api/llm/message', error: true } });
     return res.status(502).json({ error: 'llm_failed', correlationId });
   }
 });
@@ -2509,7 +2514,7 @@ app.get('/api/llm/health', async (_req, res) => {
         return await getAvailableModels();
       } catch { return { ok: false, models: [] }; }
     })();
-    const configured = getModels();
+  const configured = MODELS;
     const present = (Array.isArray(models.models) ? models.models : []).map(m => m.name);
     const convoPresent = present.includes(configured.convo);
     const codePresent = present.includes(configured.code);
@@ -2534,8 +2539,25 @@ app.use((err, _req, res, _next) => {
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = process.env.HOST || '127.0.0.1';
-app.listen(PORT, HOST, () => {
+app.listen(PORT, HOST, async () => {
   console.log(`Server listening at http://${HOST}:${PORT}`);
+  try {
+    // Best-effort: query Ollama for available models to report presence of configured names
+    const { getAvailableModels } = await import('./llm/clients.js');
+    try {
+      const avail = await getAvailableModels();
+      const present = Array.isArray(avail.models) ? avail.models.map(m => m.name) : [];
+      const convoPresent = present.includes(MODELS.convo);
+      const codePresent = present.includes(MODELS.code);
+      console.log('Configured LLM models:', MODELS);
+      console.log('Available Ollama models:', present.slice(0, 50));
+      console.log(`Convo model present: ${convoPresent}, Code model present: ${codePresent}`);
+    } catch (e) {
+      console.log('Configured LLM models (availability unknown):', MODELS);
+    }
+  } catch (e) {
+    console.log('Configured LLM models (getAvailableModels not available):', MODELS);
+  }
 });
 
 

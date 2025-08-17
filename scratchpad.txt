@@ -3,9 +3,11 @@ Keep in mind:
 
 
 TODO TODAY 8/17:
-    -Get assistant pipeline working for basic tasks
+    -Remove priority levels 
+    -Have two types of completions for task (completed and skipped)
     -Get fundamental functions of tasks and events working
     -Clean up UI
+    -Get assistant pipeline working for basic tasks
 
 Actionable:
 -get a todo list app up and running fully and soundly (must have same functionality as reminders app and google calendar)
