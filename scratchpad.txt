@@ -3,7 +3,6 @@ Keep in mind:
 
 
 TODO TODAY 8/17:
-    -Remove priority levels 
     -Have two types of completions for task (completed and skipped)
     -Get fundamental functions of tasks and events working
     -Clean up UI
@@ -20,8 +19,6 @@ Actionable:
     *Clear out database and insert real todos and events coming up (still use reminders app and google calendar for now to keep parity and have fail safe)
 
 
--Make a Product Requirments Document
-
 -get behaviours the app needs to faciliate (use notebookLM for this and make a detailed spec for the application; Frontend, backend, and everything needed to fully make a prototype of this app)
     *Daily/Weekly check in 
     *Task allocation/planning
@@ -29,6 +26,8 @@ Actionable:
     *Habit/Goal Tracking
     *First map out current todo list and google calendar usage, then have it be able to facilitate these behaviours asap
     
+-Modularize main and clean up/optimize the flutter directory
+
 -look at current LLM setup and update the prompts and query flow
     *look into JSON prompting (build a test suite to find best way to mix and match LLMs)
     *make sure it will just respond to a natural language query without making a tool call

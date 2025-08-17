@@ -6,8 +6,8 @@ This document specifies the Todo/Event/Habit/Goal schemas, recurrence semantics,
 
 - Database file: `data/app.db` (created on demand)
 - Schema: `apps/server/database/schema.sql`
-- Tables (selected):
-  - `todos(id, title, notes, scheduled_for, time_of_day, completed, recurrence TEXT(JSON), completed_dates TEXT(JSON), created_at, updated_at)`
+ - Tables (selected):
+  - `todos(id, title, notes, scheduled_for, time_of_day, status, recurrence TEXT(JSON), completed_dates TEXT(JSON), skipped_dates TEXT(JSON), created_at, updated_at)`
   - `events(id, title, notes, scheduled_for, start_time, end_time, location, completed, recurrence TEXT(JSON), completed_dates TEXT(JSON), created_at, updated_at)`
   - `habits(id, title, notes, scheduled_for, time_of_day, completed, recurrence TEXT(JSON), completed_dates TEXT(JSON), created_at, updated_at)`
   - `goals(id, title, notes, status, current_progress_value, target_progress_value, progress_unit, created_at, updated_at)`
@@ -23,15 +23,16 @@ This document specifies the Todo/Event/Habit/Goal schemas, recurrence semantics,
 - `scheduledFor: string|null` — `YYYY-MM-DD`; null for backlog
 - `timeOfDay: string|null` — `HH:MM` or null (all-day)
 
-- `completed: boolean`
+ - `status: 'pending'|'completed'|'skipped'`
 - `recurrence: Recurrence` — `{ type: 'none'|'daily'|'weekdays'|'weekly'|'every_n_days', intervalDays?: number, until?: YYYY-MM-DD|null }`
-- `completedDates?: string[]|null` — present on repeating masters; null or `[]` otherwise
+ - `completedDates?: string[]|null` — present on repeating masters; null or `[]` otherwise
+ - `skippedDates?: string[]|null` — present on repeating masters; null or `[]` otherwise 
 - `createdAt: ISO-8601 string`
 - `updatedAt: ISO-8601 string`
 
 Normalization highlights:
 - Default `timeOfDay` to null; ensure `recurrence` with `type`; default `until` when absent
-- For repeating, ensure `completedDates` array exists; ensure `completed` is boolean
+- For repeating, ensure `completedDates`/`skippedDates` arrays exist; master `status` defaults to `pending`
 
 ### Event schema (normalized)
 
@@ -62,7 +63,7 @@ Normalization highlights:
 
 - Expand occurrences per day between `[from, to]` when listing with a range
 - Each expanded occurrence uses the master `id` and sets `masterId = id`
-- Completion for repeating derived from `completedDates`
+- Status for repeating derived from dates: `completedDates` → completed; `skippedDates` → skipped; else pending
 - Unified schedule items add `kind: 'todo'|'event'|'habit'` and appropriate time field (`timeOfDay` or `startTime`)
 
 ### Aggregates and snapshots
@@ -72,7 +73,7 @@ Normalization highlights:
 
 ### Invariants
 
-- For repeating: master `completed` does not mark occurrences; use `completedDates` or occurrence endpoints/ops
+- For repeating: master `status` does not mark occurrences; use `completedDates`/`skippedDates` or occurrence endpoints/ops
 - Switching repeating→none clears `completedDates`
 - `timeOfDay`/`startTime` accept `HH:MM` or null
 - `id` stable across edits; expanded occurrences are view constructs

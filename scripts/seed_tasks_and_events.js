@@ -81,8 +81,8 @@ function bootstrapSchema(db) {
 function seedTodos(db, count) {
   const nowIso = new Date().toISOString();
   const insert = db.prepare(`
-  INSERT INTO todos(title, notes, scheduled_for, time_of_day, completed, recurrence, completed_dates, created_at, updated_at)
-  VALUES (@title, @notes, @scheduled_for, @time_of_day, @completed, @recurrence, @completed_dates, @created_at, @updated_at)
+  INSERT INTO todos(title, notes, scheduled_for, time_of_day, status, recurrence, completed_dates, skipped_dates, created_at, updated_at)
+  VALUES (@title, @notes, @scheduled_for, @time_of_day, @status, @recurrence, @completed_dates, @skipped_dates, @created_at, @updated_at)
   `);
   const tx = db.transaction(() => {
     for (let i = 0; i < count; i++) {
@@ -93,9 +93,10 @@ function seedTodos(db, count) {
         notes: '',
         scheduled_for: scheduledFor,
         time_of_day: randomTodoTimeOrNull(),
-        completed: 0,
+        status: 'pending',
         recurrence: JSON.stringify(rec),
         completed_dates: null,
+        skipped_dates: null,
         created_at: nowIso,
         updated_at: nowIso,
       };

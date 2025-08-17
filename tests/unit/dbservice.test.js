@@ -58,6 +58,11 @@ test('todos: create/get/update/delete + search + list + toggle occurrence', () =
   const toggled = db.toggleTodoOccurrence({ id: t2.id, occurrenceDate: today, completed: true });
   assert.ok(Array.isArray(toggled.completedDates) && toggled.completedDates.includes(today));
 
+  // switch the same occurrence to skipped via new status API, ensure completed removed and skipped added
+  const afterSkip = db.setTodoOccurrenceStatus({ id: t2.id, occurrenceDate: today, status: 'skipped' });
+  assert.equal(Array.isArray(afterSkip.completedDates) && afterSkip.completedDates.includes(today), false);
+  assert.ok(Array.isArray(afterSkip.skippedDates) && afterSkip.skippedDates.includes(today));
+
   // delete
   db.deleteTodo(t1.id);
   assert.equal(db.getTodoById(t1.id), null);

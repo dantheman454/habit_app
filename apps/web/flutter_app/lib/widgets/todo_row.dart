@@ -6,7 +6,8 @@ class TodoLike {
   final String notes;
   final String? kind; // 'todo'|'event'|'habit'
   final String? timeOfDay;
-  final bool completed;
+  final String? status; // 'pending'|'completed'|'skipped' (todos)
+  final bool completed; // events/habits or derived for UI
   final bool overdue;
   const TodoLike({
     required this.id,
@@ -14,6 +15,7 @@ class TodoLike {
     required this.notes,
     this.kind,
     this.timeOfDay,
+    this.status,
     required this.completed,
     this.overdue = false,
   });
@@ -22,6 +24,7 @@ class TodoLike {
 class TodoRow extends StatelessWidget {
   final TodoLike todo;
   final VoidCallback onToggleCompleted;
+  final VoidCallback? onToggleSkipped; // only meaningful for todos
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final bool highlighted;
@@ -39,11 +42,14 @@ class TodoRow extends StatelessWidget {
     this.extraBadge,
     this.onTitleEdited,
     this.onTimeEdited,
+    this.onToggleSkipped,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+  final isSkipped = (todo.status == 'skipped');
+  final isCompleted = todo.completed || (todo.status == 'completed');
+  return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         border: Border.all(
@@ -53,14 +59,16 @@ class TodoRow extends StatelessWidget {
           width: highlighted ? 2 : 1,
         ),
         borderRadius: BorderRadius.circular(6),
-        color: highlighted
-            ? Theme.of(context).colorScheme.primary.withOpacity(0.06)
-            : (todo.completed ? Colors.grey.withOpacity(0.1) : null),
+    color: highlighted
+      ? Theme.of(context).colorScheme.primary.withOpacity(0.06)
+      : (isCompleted
+        ? Colors.grey.withOpacity(0.1)
+        : (isSkipped ? Colors.orange.withOpacity(0.06) : null)),
       ),
       child: Row(
         children: [
           Checkbox(
-            value: todo.completed,
+      value: isCompleted,
             onChanged: (_) => onToggleCompleted(),
           ),
           const SizedBox(width: 6),
@@ -110,9 +118,11 @@ class TodoRow extends StatelessWidget {
                         child: Text(
                           todo.title,
                           style: TextStyle(
-                            decoration: todo.completed
+                            decoration: isCompleted
                                 ? TextDecoration.lineThrough
                                 : null,
+                            color: isSkipped ? Colors.black54 : null,
+                            fontStyle: isSkipped ? FontStyle.italic : null,
                           ),
                         ),
                       ),
@@ -200,6 +210,18 @@ class TodoRow extends StatelessWidget {
           Wrap(
             spacing: 6,
             children: [
+              if (todo.kind == 'todo')
+                OutlinedButton.icon(
+                  onPressed: onToggleSkipped,
+                  icon: Icon(
+                    Icons.do_not_disturb_on,
+                    size: 16,
+                    color: isSkipped
+                        ? Theme.of(context).colorScheme.primary
+                        : Colors.black54,
+                  ),
+                  label: Text(isSkipped ? 'Unskip' : 'Skip'),
+                ),
               OutlinedButton(onPressed: onEdit, child: const Text('Edit')),
               OutlinedButton(onPressed: onDelete, child: const Text('Delete')),
             ],

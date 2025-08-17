@@ -7,9 +7,10 @@ CREATE TABLE IF NOT EXISTS todos (
   notes TEXT NOT NULL DEFAULT '',
   scheduled_for TEXT NULL,
   time_of_day TEXT NULL,
-  completed INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL CHECK(status IN ('pending','completed','skipped')) DEFAULT 'pending',
   recurrence TEXT NOT NULL DEFAULT '{"type":"none"}',
   completed_dates TEXT NULL,
+  skipped_dates TEXT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

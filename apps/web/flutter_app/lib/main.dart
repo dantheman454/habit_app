@@ -35,6 +35,7 @@ class Todo {
   String? timeOfDay; // HH:MM or null
   String? priority; // low|medium|high
   bool completed;
+  String? status; // 'pending'|'completed'|'skipped' for todos
   Map<String, dynamic>? recurrence; // {type,...}
   int? masterId; // present on expanded occurrences
   final String createdAt;
@@ -49,6 +50,7 @@ class Todo {
     required this.timeOfDay,
   this.priority,
     required this.completed,
+    this.status,
     required this.recurrence,
     required this.masterId,
     required this.createdAt,
@@ -64,6 +66,7 @@ class Todo {
     timeOfDay: ((j['timeOfDay'] as String?) ?? (j['startTime'] as String?)),
   priority: j['priority'] as String?,
     completed: j['completed'] as bool? ?? false,
+    status: j['status'] as String?,
     recurrence: j['recurrence'] as Map<String, dynamic>?,
     masterId: j['masterId'] as int?,
     createdAt: j['createdAt'] as String? ?? '',
@@ -835,6 +838,7 @@ class _HomePageState extends State<HomePage> {
           to: r.to,
           kinds: kinds,
           completed: showCompleted ? null : false,
+          statusTodo: showCompleted ? null : 'pending',
         );
         sList = raw
             .map((e) => Todo.fromJson(Map<String, dynamic>.from(e as Map)))
@@ -872,14 +876,14 @@ class _HomePageState extends State<HomePage> {
         final scheduledRaw = await api.fetchScheduled(
           from: r.from,
           to: r.to,
-          completed: showCompleted ? null : false,
+          status: showCompleted ? null : 'pending',
         );
         sList = scheduledRaw
             .map((e) => Todo.fromJson(e as Map<String, dynamic>))
             .toList();
       }
       final scheduledAllRaw = await api.fetchScheduledAllTime(
-        completed: showCompleted ? null : false,
+        status: showCompleted ? null : 'pending',
       );
       // For Events tab, load all scheduled events across time for counts
       List<Todo> eventsAllList = const <Todo>[];
@@ -1034,6 +1038,7 @@ class _HomePageState extends State<HomePage> {
         // exclude habits for now per requirements
         scope: (scope == 'habit') ? 'event' : scope,
         completed: showCompleted ? null : false,
+        statusTodo: showCompleted ? null : 'pending',
         cancelToken: _searchCancelToken,
         limit: 30,
       );
@@ -1311,15 +1316,18 @@ class _HomePageState extends State<HomePage> {
           });
         }
       } else {
+        // todo: use status model
         if (t.masterId != null && t.scheduledFor != null) {
-          await api.updateOccurrence(
+          final next = (t.status == 'completed') ? 'pending' : 'completed';
+          await api.setTodoOccurrenceStatus(
             t.masterId!,
             t.scheduledFor!,
-            !t.completed,
+            next,
           );
         } else {
+          final next = (t.status == 'completed') ? 'pending' : 'completed';
           await api.updateTodo(t.id, {
-            'completed': !t.completed,
+            'status': next,
             'recurrence': t.recurrence ?? {'type': 'none'},
           });
         }
@@ -1327,6 +1335,29 @@ class _HomePageState extends State<HomePage> {
       await _refreshAll();
     } catch (e) {
       setState(() => message = 'Toggle failed: $e');
+    }
+  }
+
+  Future<void> _toggleSkip(Todo t) async {
+    try {
+      if (t.kind != 'todo') return;
+      if (t.masterId != null && t.scheduledFor != null) {
+        final next = (t.status == 'skipped') ? 'pending' : 'skipped';
+        await api.setTodoOccurrenceStatus(
+          t.masterId!,
+          t.scheduledFor!,
+          next,
+        );
+      } else {
+        final next = (t.status == 'skipped') ? 'pending' : 'skipped';
+        await api.updateTodo(t.id, {
+          'status': next,
+          'recurrence': t.recurrence ?? {'type': 'none'},
+        });
+      }
+      await _refreshAll();
+    } catch (e) {
+      setState(() => message = 'Skip failed: $e');
     }
   }
 
@@ -3939,7 +3970,10 @@ class _HomePageState extends State<HomePage> {
     // Determine overdue: only in Today context, timed tasks, not completed, and time < now
     bool isOverdue = false;
     try {
-      if (!t.completed && t.scheduledFor != null && t.timeOfDay != null) {
+      final bool isResolved = (t.kind == 'todo')
+          ? ((t.status == 'completed') || (t.status == 'skipped'))
+          : t.completed;
+      if (!isResolved && t.scheduledFor != null && t.timeOfDay != null) {
         final today = ymd(DateTime.now());
         if (selected == SmartList.today && t.scheduledFor == today) {
           final parts = (t.timeOfDay ?? '').split(':');
@@ -3959,7 +3993,10 @@ class _HomePageState extends State<HomePage> {
       notes: t.notes,
       kind: t.kind,
       timeOfDay: t.timeOfDay,
-      completed: t.completed,
+      status: t.status,
+      completed: (t.kind == 'todo')
+          ? (t.status == 'completed')
+          : t.completed,
       overdue: isOverdue,
     );
     // Build a small extra badge for habits with streaks if stats available
@@ -4032,6 +4069,9 @@ class _HomePageState extends State<HomePage> {
       child: row.TodoRow(
         todo: like,
         onToggleCompleted: () => _toggleCompleted(t),
+        onToggleSkipped: (t.kind == 'todo')
+            ? () => _toggleSkip(t)
+            : null,
         onEdit: () => (t.kind == 'event')
             ? _editEvent(t)
             : (t.kind == 'habit')

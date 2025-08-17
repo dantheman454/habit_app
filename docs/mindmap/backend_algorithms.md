@@ -10,11 +10,11 @@ This document enumerates server-side algorithms and strict policies. References 
   - `isValidRecurrence(rec)`: allowed types (`none|daily|weekdays|weekly|every_n_days`), `intervalDays>=1` for every_n_days, `until` shape nullable or YYYY-MM-DD
 
 - Normalization helpers
-  - Todos/Habits: default `timeOfDay` to null; ensure `recurrence.type` and default `until` to end-of-year; ensure `completedDates` exists for repeating; `completed` is boolean
+  - Todos/Habits: default `timeOfDay` to null; ensure `recurrence.type` and default `until` to end-of-year; for todos ensure master `status` defaults to `pending` and for repeating ensure `completedDates`/`skippedDates` exist
   - `applyRecurrenceMutation(target, incoming)`: merges recurrence, ensures defaults, and clears `completedDates` when switching repeating→none
 
 - Endpoint-level strictness
-  - Todos Create/Update require a `recurrence` object; use `{type:'none'}` for non-repeating
+  - Todos Create/Update require a `recurrence` object; use `{type:'none'}` for non-repeating. Todos accept `status` (`pending|completed|skipped`) on update.
   - Repeating create/update must include an anchor `scheduledFor`
   - Habits: must be repeating when `recurrence` provided (and on create); anchor required
   - Events: time validation for `startTime/endTime` and anchor when repeating
@@ -23,13 +23,13 @@ This document enumerates server-side algorithms and strict policies. References 
 - Operation-level validation (apply/dryrun)
   - `validateProposal` requires `operations` array; maps V3 `{kind,action,...}` via `inferOperationShape`
   - Guards op kind, field shapes, recurrence/time/date constraints; rejects bulk operations; enforces recurrence + anchor rules
-  - `complete_occurrence` requires `occurrenceDate` and optional boolean `completed`
-  - For repeating targets, forbids master `complete` in favor of `complete_occurrence`
+  - Todos: use `set_status` for master or occurrence updates (`{id, status, occurrenceDate?}`); `complete`/`complete_occurrence` on todos yields `use_set_status`
+  - Events/Habits: `complete` (master for non-repeating) or `complete_occurrence` (repeating) remains valid; `complete_occurrence` requires `occurrenceDate`
 
 ### Recurrence and occurrences
 
 - Rule evaluation: `matchesRule(date, anchor, recurrence)` implements: daily; weekdays (Mon–Fri); weekly (weekday equality); every_n_days (diff%step==0, diff>=0)
-- Expansion: `expandOccurrences(master, fromDate, toDate)` builds per-day instances with `completed` from `completedDates.includes(date)`
+ - Expansion: `expandOccurrences(master, fromDate, toDate)` builds per-day instances. For todos, per-occurrence `status` is derived from `completedDates` and `skippedDates`.
 - List handlers expand when both `from` and `to` are provided; otherwise filter masters; completed filter runs post-expansion
 
 Edge behaviors:
@@ -61,7 +61,7 @@ Edge behaviors:
 ### Error messages catalog (quick reference)
 
 - Endpoints: `invalid_title`, `missing_recurrence`, `invalid_notes`, `invalid_scheduledFor`, `invalid_timeOfDay`, `invalid_recurrence`, `missing_anchor_for_recurrence`, `invalid_completed`, `invalid_id`, `not_found`, `not_repeating`, `invalid_occurrenceDate`, plus event-specific `invalid_start_time`, `invalid_end_time`, `invalid_time_range`
-- Apply/Dry-run: `invalid_operations`, `invalid_op`, `missing_or_invalid_id`, `id_not_found`, `use_complete_occurrence_for_repeating`, `bulk_operations_removed`, `too_many_operations`
+ - Apply/Dry-run: `invalid_operations`, `invalid_op`, `missing_or_invalid_id`, `id_not_found`, `use_complete_occurrence_for_repeating`, `use_set_status`, `bulk_operations_removed`, `too_many_operations`
 
 
 

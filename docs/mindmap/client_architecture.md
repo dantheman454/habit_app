@@ -15,10 +15,10 @@ Entry files: `apps/web/flutter_app/lib/main.dart`, `apps/web/flutter_app/lib/api
 ### Data loading
 
 - `_refreshAll()`
-  - For day/week/month views: calls unified `fetchSchedule({ from, to, kinds, completed? })` to populate `scheduled`
-  - Also calls `fetchScheduledAllTime({ completed? })` and `fetchBacklog()` for counts and backlog view
+  - For day/week/month views: calls unified `fetchSchedule({ from, to, kinds, completed?, status_todo? })` to populate `scheduled` (events/habits use `completed`; todos use `status_todo`)
+  - Also calls `fetchScheduledAllTime({ status? })` and `fetchBacklog({ status? })` for counts and backlog view (todos only)
   - When showing Habits tab, also calls `listHabits({ from, to })` to collect per-habit stats (`currentStreak`, `longestStreak`, `weekHeatmap`)
-  - When `showCompleted=false`, exclude completed in queries and UI
+  - When `showCompleted=false`, exclude resolved todos by using `status('pending')` and hide `completed/skipped` in UI
 
 ### Search overlay
 
@@ -29,7 +29,9 @@ Entry files: `apps/web/flutter_app/lib/main.dart`, `apps/web/flutter_app/lib/api
 ### CRUD interactions
 
 - Toggle completion:
-  - Todo: occurrence → `PATCH /api/todos/:id/occurrence`, master → `PATCH /api/todos/:id`
+  - Todo: use status
+    - occurrence → `PATCH /api/todos/:id/occurrence { occurrenceDate, status }`
+    - master → `PATCH /api/todos/:id { status }`
   - Event: occurrence → `PATCH /api/events/:id/occurrence`, master → `PATCH /api/events/:id`
   - Habit: occurrence → `PATCH /api/habits/:id/occurrence`, master → `PATCH /api/habits/:id`
 - Create inline quick-add rows for todo/event/habit; todos and events send `{recurrence:{type:'none'}}`, habits `{recurrence:{type:'daily'}}`

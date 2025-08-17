@@ -53,20 +53,20 @@ export class DbService {
       .run({ ts, action, entity, entity_id: entityId, payload: typeof payload === 'string' ? payload : (payload ? JSON.stringify(payload) : null) });
   }
 
-  // Minimal Todos subset to validate wiring later
-  createTodo({ title, notes = '', scheduledFor = null, timeOfDay = null, recurrence = { type: 'none' }, completed = false }) {
+  // Minimal Todos subset to validate wiring later (Todos now use status + skipped_dates)
+  createTodo({ title, notes = '', scheduledFor = null, timeOfDay = null, recurrence = { type: 'none' }, status = 'pending' }) {
     this.openIfNeeded();
     const now = new Date().toISOString();
     const stmt = this.db.prepare(`
-      INSERT INTO todos(title, notes, scheduled_for, time_of_day, completed, recurrence, completed_dates, created_at, updated_at)
-      VALUES (@title, @notes, @scheduled_for, @time_of_day, @completed, @recurrence, NULL, @created_at, @updated_at)
+      INSERT INTO todos(title, notes, scheduled_for, time_of_day, status, recurrence, completed_dates, skipped_dates, created_at, updated_at)
+      VALUES (@title, @notes, @scheduled_for, @time_of_day, @status, @recurrence, NULL, NULL, @created_at, @updated_at)
     `);
     const info = stmt.run({
       title,
       notes,
       scheduled_for: scheduledFor,
       time_of_day: timeOfDay,
-      completed: completed ? 1 : 0,
+      status: String(status || 'pending'),
       recurrence: JSON.stringify(recurrence || { type: 'none' }),
       created_at: now,
       updated_at: now,
@@ -86,14 +86,18 @@ export class DbService {
     const t = this.getTodoById(id);
     if (!t) throw new Error('not_found');
     const merged = { ...t, ...patch };
+    // Back-compat: if callers pass completed boolean, map to status
+    if (Object.prototype.hasOwnProperty.call(patch || {}, 'completed') && patch.completed !== undefined) {
+      try { merged.status = patch.completed ? 'completed' : 'pending'; } catch {}
+    }
     const now = new Date().toISOString();
-  this.db.prepare(`UPDATE todos SET title=@title, notes=@notes, scheduled_for=@scheduled_for, time_of_day=@time_of_day, completed=@completed, recurrence=@recurrence, updated_at=@updated_at WHERE id=@id`).run({
+    this.db.prepare(`UPDATE todos SET title=@title, notes=@notes, scheduled_for=@scheduled_for, time_of_day=@time_of_day, status=@status, recurrence=@recurrence, updated_at=@updated_at WHERE id=@id`).run({
       id,
       title: merged.title,
       notes: merged.notes,
       scheduled_for: merged.scheduledFor ?? null,
       time_of_day: merged.timeOfDay ?? null,
-      completed: merged.completed ? 1 : 0,
+      status: String(merged.status || 'pending'),
       recurrence: JSON.stringify(merged.recurrence || { type: 'none' }),
       updated_at: now,
     });
@@ -365,53 +369,63 @@ export class DbService {
     this.db.prepare('DELETE FROM todos WHERE id = ?').run(id);
   }
 
-  listTodos({ from = null, to = null, completed = null } = {}) {
+  listTodos({ from = null, to = null, status = null } = {}) {
     this.openIfNeeded();
     const cond = ['scheduled_for IS NOT NULL'];
     const params = {};
     if (from) { cond.push('scheduled_for >= @from'); params.from = from; }
     if (to) { cond.push("scheduled_for < date(@to, '+1 day')"); params.to = to; }
-    if (completed !== null && completed !== undefined) { cond.push('completed = @completed'); params.completed = completed ? 1 : 0; }
+    if (status) { cond.push('status = @status'); params.status = String(status); }
     const sql = `SELECT * FROM todos WHERE ${cond.join(' AND ')} ORDER BY scheduled_for ASC, time_of_day ASC, id ASC`;
     const rows = this.db.prepare(sql).all(params);
     return rows.map(r => this._mapTodo(r));
   }
 
-  searchTodos({ q, completed = null }) {
+  searchTodos({ q, status = null }) {
     this.openIfNeeded();
     if (!q || String(q).length < 2) {
       const sql = 'SELECT * FROM todos ORDER BY id ASC';
       const rows = this.db.prepare(sql).all();
-      return rows.map(r => this._mapTodo(r));
+      let items = rows.map(r => this._mapTodo(r));
+      if (status) items = items.filter(t => String(t.status) === String(status));
+      return items;
     }
     const base = `SELECT t.* FROM todos t JOIN todos_fts f ON f.rowid = t.id WHERE todos_fts MATCH @q`;
     const rows = this.db.prepare(base).all({ q: String(q) });
     let items = rows.map(r => this._mapTodo(r));
-    if (completed !== null && completed !== undefined) items = items.filter(t => !!t.completed === !!completed);
+    if (status) items = items.filter(t => String(t.status) === String(status));
     return items;
   }
 
-  toggleTodoOccurrence({ id, occurrenceDate, completed }) {
+  // New: set per-occurrence status for repeating todos
+  setTodoOccurrenceStatus({ id, occurrenceDate, status }) {
     this.openIfNeeded();
     const t = this.getTodoById(id);
     if (!t) throw new Error('not_found');
     const type = t.recurrence && t.recurrence.type;
     if (!type || type === 'none') throw new Error('not_repeating');
-    const arr = Array.isArray(t.completedDates) ? t.completedDates.slice() : [];
-    const idx = arr.indexOf(occurrenceDate);
-    const shouldComplete = (completed === undefined) ? true : !!completed;
-    if (shouldComplete) {
-      if (idx === -1) arr.push(occurrenceDate);
-    } else if (idx !== -1) {
-      arr.splice(idx, 1);
+    const comp = Array.isArray(t.completedDates) ? t.completedDates.slice() : [];
+    const skip = Array.isArray(t.skippedDates) ? t.skippedDates.slice() : [];
+    const rm = (list) => { const i = list.indexOf(occurrenceDate); if (i !== -1) list.splice(i, 1); };
+    if (status === 'completed') {
+      if (!comp.includes(occurrenceDate)) comp.push(occurrenceDate);
+      rm(skip);
+    } else if (status === 'skipped') {
+      if (!skip.includes(occurrenceDate)) skip.push(occurrenceDate);
+      rm(comp);
+    } else {
+      // pending: remove from both
+      rm(comp); rm(skip);
     }
     const now = new Date().toISOString();
-    this.db.prepare('UPDATE todos SET completed_dates=@completed_dates, updated_at=@updated_at WHERE id=@id').run({
-      id,
-      completed_dates: JSON.stringify(arr),
-      updated_at: now,
-    });
+    this.db.prepare('UPDATE todos SET completed_dates=@completed_dates, skipped_dates=@skipped_dates, updated_at=@updated_at WHERE id=@id').run({ id, completed_dates: JSON.stringify(comp), skipped_dates: JSON.stringify(skip), updated_at: now });
     return this.getTodoById(id);
+  }
+
+  // Back-compat wrapper: behave like old toggle with boolean completed
+  toggleTodoOccurrence({ id, occurrenceDate, completed }) {
+    const status = (completed === undefined) ? 'completed' : (completed ? 'completed' : 'pending');
+    return this.setTodoOccurrenceStatus({ id, occurrenceDate, status });
   }
 
   // Helpers
@@ -422,10 +436,12 @@ export class DbService {
       notes: r.notes,
       scheduledFor: r.scheduled_for,
       timeOfDay: r.time_of_day,
-      
-      completed: !!r.completed,
+  status: String(r.status || 'pending'),
       recurrence: (() => { try { return JSON.parse(r.recurrence || '{"type":"none"}'); } catch { return { type: 'none' }; } })(),
-      completedDates: (() => { try { return r.completed_dates ? JSON.parse(r.completed_dates) : null; } catch { return null; } })(),
+  completedDates: (() => { try { return r.completed_dates ? JSON.parse(r.completed_dates) : null; } catch { return null; } })(),
+  skippedDates: (() => { try { return r.skipped_dates ? JSON.parse(r.skipped_dates) : null; } catch { return null; } })(),
+      // Back-compat boolean derived from status
+      completed: String(r.status || 'pending') === 'completed',
       createdAt: r.created_at,
       updatedAt: r.updated_at,
     };

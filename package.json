@@ -16,6 +16,7 @@
     "test": "node tests/all.js",
     "test:with-server": "node scripts/test_with_server.js",
     "db:migrate": "node apps/server/database/migration_script.js",
+    
   "db:dump": "node scripts/db_dump.js",
   "db:seed:tasks-events": "node scripts/seed_tasks_and_events.js"
   },

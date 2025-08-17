@@ -80,8 +80,16 @@ async function main() {
   assert.equal(repCreate.status, 200);
   const repId = (() => { try { return repCreate.body.results.find(x => x.todo).todo.id; } catch { return null; } })();
   assert.ok(Number.isFinite(repId));
+  // old boolean path still maps correctly
   const occ = await request('PATCH', `/api/todos/${repId}/occurrence`, { occurrenceDate: ymd(), completed: true });
   assert.equal(occ.status, 200);
+
+  // new status path: switch the same occurrence to skipped
+  const occSkip = await request('PATCH', `/api/todos/${repId}/occurrence`, { occurrenceDate: ymd(), status: 'skipped' });
+  assert.equal(occSkip.status, 200);
+  // master set_status via V3 op
+  const masterPending = await request('POST', '/api/llm/apply', { operations: [ { kind: 'todo', action: 'set_status', id: repId, status: 'pending' } ] });
+  assert.equal(masterPending.status, 200);
 
   // Goals: create A and B, add B as child of A, attach todo if present
   const goalA = await request('POST', '/api/goals', { title: 'Goal A' });

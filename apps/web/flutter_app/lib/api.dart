@@ -19,53 +19,52 @@ final Dio api = Dio(BaseOptions(baseUrl: _computeApiBase()));
 Future<List<dynamic>> fetchScheduled({
   required String from,
   required String to,
-  bool? completed,
+  String? status, // 'pending' | 'completed' | 'skipped' (todos only)
 }) async {
   final res = await api.get(
     '/api/todos',
     queryParameters: {
       'from': from,
       'to': to,
-      if (completed != null) 'completed': completed.toString(),
+      if (status != null) 'status': status,
     },
   );
   return (res.data['todos'] as List<dynamic>);
 }
 
 Future<List<dynamic>> fetchScheduledAllTime({
-  bool? completed,
+  String? status, // todos only
 }) async {
   final res = await api.get(
     '/api/todos',
     queryParameters: {
-      if (completed != null) 'completed': completed.toString(),
+      if (status != null) 'status': status,
     },
   );
   return (res.data['todos'] as List<dynamic>);
 }
 
-Future<List<dynamic>> fetchBacklog({bool? completed}) async {
+Future<List<dynamic>> fetchBacklog({String? status}) async {
   final res = await api.get(
     '/api/todos/backlog',
-  queryParameters: const {},
+    queryParameters: {
+      if (status != null) 'status': status,
+    },
   );
   final items = (res.data['todos'] as List<dynamic>);
-  if (completed == null) return items;
-  return items
-      .where((e) => (e as Map<String, dynamic>)['completed'] == completed)
-      .toList();
+  return items;
 }
 
 Future<List<dynamic>> searchTodos(
   String q, {
-  bool? completed,
+  String? status, // todos only
   CancelToken? cancelToken,
 }) async {
   final res = await api.get(
     '/api/todos/search',
     queryParameters: {
       'query': q,
-      if (completed != null) 'completed': completed.toString(),
+      if (status != null) 'status': status,
     },
     cancelToken: cancelToken,
   );
@@ -76,7 +75,8 @@ Future<List<dynamic>> searchTodos(
 Future<List<dynamic>> searchUnified(
   String q, {
   String scope = 'all', // 'todo' | 'event' | 'habit' | 'all'
-  bool? completed,
+  bool? completed, // applies to events/habits only
+  String? statusTodo, // applies to todos only
   CancelToken? cancelToken,
   int? limit,
 }) async {
@@ -86,6 +86,7 @@ Future<List<dynamic>> searchUnified(
       'q': q,
       if (scope.isNotEmpty) 'scope': scope,
       if (completed != null) 'completed': completed.toString(),
+      if (statusTodo != null) 'status_todo': statusTodo,
       if (limit != null) 'limit': limit,
     },
     cancelToken: cancelToken,
@@ -106,14 +107,14 @@ Future<Map<String, dynamic>> updateTodo(
   return Map<String, dynamic>.from(res.data['todo'] as Map);
 }
 
-Future<Map<String, dynamic>> updateOccurrence(
+Future<Map<String, dynamic>> setTodoOccurrenceStatus(
   int id,
   String occurrenceDate,
-  bool completed,
+  String status, // 'pending' | 'completed' | 'skipped'
 ) async {
   final res = await api.patch(
     '/api/todos/$id/occurrence',
-    data: {'occurrenceDate': occurrenceDate, 'completed': completed},
+    data: {'occurrenceDate': occurrenceDate, 'status': status},
   );
   return Map<String, dynamic>.from(res.data['todo'] as Map);
 }
@@ -538,7 +539,8 @@ Future<List<dynamic>> fetchSchedule({
   required String from,
   required String to,
   List<String>? kinds,
-  bool? completed,
+  bool? completed, // events/habits only
+  String? statusTodo, // todos only
 }) async {
   final res = await api.get(
     '/api/schedule',
@@ -547,6 +549,7 @@ Future<List<dynamic>> fetchSchedule({
       'to': to,
       if (kinds != null && kinds.isNotEmpty) 'kinds': kinds.join(','),
       if (completed != null) 'completed': completed.toString(),
+      if (statusTodo != null) 'status_todo': statusTodo,
     },
   );
   return (res.data['items'] as List<dynamic>);

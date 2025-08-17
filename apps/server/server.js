@@ -107,7 +107,7 @@ function filterTodosByWhere(where = {}) {
   // overdue
   if (typeof where.overdue === 'boolean') {
     const todayY = ymd(new Date());
-    const isOverdue = (t) => { if (t.completed) return false; if (!t.scheduledFor) return false; return String(t.scheduledFor) < String(todayY); };
+    const isOverdue = (t) => { if (t.status === 'completed' || t.status === 'skipped') return false; if (!t.scheduledFor) return false; return String(t.scheduledFor) < String(todayY); };
     filtered = filtered.filter((t) => isOverdue(t) === where.overdue);
   }
   // scheduled_range
@@ -126,9 +126,14 @@ function filterTodosByWhere(where = {}) {
       return true;
     });
   }
-  // completed
+  // status (todos only)
+  if (typeof where.status === 'string') {
+    filtered = filtered.filter((t) => String(t.status) === String(where.status));
+  }
+  // back-compat: completed boolean filter maps to status
   if (typeof where.completed === 'boolean') {
-    filtered = filtered.filter((t) => !!t.completed === where.completed);
+    if (where.completed) filtered = filtered.filter((t) => String(t.status) === 'completed');
+    else filtered = filtered.filter((t) => String(t.status) !== 'completed');
   }
   // repeating
   if (typeof where.repeating === 'boolean') {
@@ -184,8 +189,8 @@ function getAggregatesFromDb() {
   const todayY = ymd(today);
   let overdueCount = 0; let next7DaysCount = 0; let backlogCount = 0; let scheduledCount = 0;
   for (const t of items) {
-    if (t.scheduledFor === null) backlogCount++; else scheduledCount++;
-    const isOverdue = (!t.completed && t.scheduledFor && String(t.scheduledFor) < String(todayY));
+  if (t.scheduledFor === null) backlogCount++; else scheduledCount++;
+  const isOverdue = ((t.status !== 'completed' && t.status !== 'skipped') && t.scheduledFor && String(t.scheduledFor) < String(todayY));
     if (isOverdue) overdueCount++;
     if (t.scheduledFor) {
       const d = parseYMD(t.scheduledFor); if (d) {
@@ -200,11 +205,11 @@ function getAggregatesFromDb() {
 
 function buildRouterSnapshots() {
   const { fromYmd, toYmd } = weekRangeFromToday(TIMEZONE);
-  const todosWeek = filterTodosByWhere({ scheduled_range: { from: fromYmd, to: toYmd }, completed: false });
+  const todosWeek = filterTodosByWhere({ scheduled_range: { from: fromYmd, to: toYmd }, status: 'pending' });
   const eventsWeek = filterItemsByWhere(listAllEventsRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false });
   const habitsWeek = filterItemsByWhere(listAllHabitsRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false });
   const weekItems = [...todosWeek, ...eventsWeek, ...habitsWeek];
-  const backlogTodos = filterTodosByWhere({ completed: false });
+  const backlogTodos = filterTodosByWhere({ status: 'pending' });
   const backlogSample = backlogTodos.filter(t => t.scheduledFor === null).slice(0, 40);
   const compact = (t) => ({ id: t.id, title: t.title, scheduledFor: t.scheduledFor });
   return { week: { from: fromYmd, to: toYmd, items: weekItems.map(compact) }, backlog: backlogSample.map(compact) };
@@ -378,6 +383,7 @@ function expandOccurrences(todo, fromDate, toDate) {
     if (matchesRule(d, anchor, todo.recurrence)) {
       const dateStr = ymd(d);
       const occCompleted = Array.isArray(todo.completedDates) && todo.completedDates.includes(dateStr);
+      const occSkipped = Array.isArray(todo.skippedDates) && todo.skippedDates.includes(dateStr);
       occurrences.push({
         id: todo.id,
         masterId: todo.id,
@@ -385,7 +391,9 @@ function expandOccurrences(todo, fromDate, toDate) {
         notes: todo.notes,
         scheduledFor: dateStr,
         timeOfDay: todo.timeOfDay,
+        // Back-compat boolean completed; status is authoritative going forward
         completed: !!occCompleted,
+        status: occCompleted ? 'completed' : (occSkipped ? 'skipped' : 'pending'),
         recurrence: todo.recurrence,
         createdAt: todo.createdAt,
         updatedAt: todo.updatedAt,
@@ -492,7 +500,7 @@ app.post('/api/todos', (req, res) => {
 
 // List (scheduled only within range)
 app.get('/api/todos', (req, res) => {
-  const { from, to, completed } = req.query;
+  const { from, to, completed, status } = req.query;
   if (from !== undefined && !isYmdString(from)) return res.status(400).json({ error: 'invalid_from' });
   if (to !== undefined && !isYmdString(to)) return res.status(400).json({ error: 'invalid_to' });
   let completedBool;
@@ -501,11 +509,12 @@ app.get('/api/todos', (req, res) => {
     else if (completed === 'false' || completed === false) completedBool = false;
     else return res.status(400).json({ error: 'invalid_completed' });
   }
+  if (status !== undefined && !['pending','completed','skipped'].includes(String(status))) return res.status(400).json({ error: 'invalid_status' });
 
   const fromDate = from ? parseYMD(from) : null;
   const toDate = to ? parseYMD(to) : null;
 
-  let items = db.listTodos({ from: null, to: null }).filter(t => t.scheduledFor !== null);
+  let items = db.listTodos({ from: null, to: null, status: status || null }).filter(t => t.scheduledFor !== null);
   if (completedBool !== undefined) items = items.filter(t => t.completed === completedBool);
 
   const doExpand = !!(fromDate && toDate);
@@ -540,9 +549,12 @@ app.get('/api/todos', (req, res) => {
       expanded.push(...expandOccurrences(t, fromDate, toDate));
     }
   }
-  // Apply completed filter post-expansion when provided
-  if (completedBool !== undefined) {
-    const filtered = expanded.filter(x => x && typeof x.completed === 'boolean' && (x.completed === completedBool));
+  // Apply filters post-expansion when provided
+  if (completedBool !== undefined || status !== undefined) {
+    const filtered = expanded.filter(x => (
+      (completedBool === undefined || (typeof x.completed === 'boolean' && x.completed === completedBool)) &&
+      (status === undefined || (typeof x.status === 'string' && x.status === status))
+    ));
     return res.json({ todos: filtered });
   }
   res.json({ todos: expanded });
@@ -559,15 +571,11 @@ app.get('/api/todos/search', (req, res) => {
   const qRaw = String(req.query.query || '');
   const q = qRaw.trim();
   if (q.length === 0) return res.status(400).json({ error: 'invalid_query' });
-  let completedBool;
-  if (req.query.completed !== undefined) {
-    if (req.query.completed === 'true' || req.query.completed === true) completedBool = true;
-    else if (req.query.completed === 'false' || req.query.completed === false) completedBool = false;
-    else return res.status(400).json({ error: 'invalid_completed' });
-  }
+  const status = (req.query.status === undefined) ? undefined : String(req.query.status);
+  if (status !== undefined && !['pending','completed','skipped'].includes(status)) return res.status(400).json({ error: 'invalid_status' });
   try {
     // FTS5 search when possible; DbService handles fallback behavior
-    let items = db.searchTodos({ q, completed: completedBool });
+    let items = db.searchTodos({ q, status });
     // For very short queries, DbService returns a broad set; apply substring filter to mimic previous UX
     if (q.length < 2) {
       const ql = q.toLowerCase();
@@ -577,7 +585,7 @@ app.get('/api/todos/search', (req, res) => {
     const todayY = ymdInTimeZone(new Date(), TIMEZONE);
     const score = (t) => {
       let s = 0;
-      const overdue = (!t.completed && t.scheduledFor && String(t.scheduledFor) < String(todayY));
+      const overdue = ((t.status !== 'completed' && t.status !== 'skipped') && t.scheduledFor && String(t.scheduledFor) < String(todayY));
       if (overdue) s += 0.5;
       return s;
     };
@@ -962,6 +970,8 @@ app.get('/api/search', (req, res) => {
     else if (req.query.completed === 'false' || req.query.completed === false) completedBool = false;
     else return res.status(400).json({ error: 'invalid_completed' });
   }
+  const status_todo = (req.query.status_todo === undefined) ? undefined : String(req.query.status_todo);
+  if (status_todo !== undefined && !['pending','completed','skipped'].includes(status_todo)) return res.status(400).json({ error: 'invalid_status_todo' });
   const limit = (() => {
     const n = parseInt(String(req.query.limit ?? '30'), 10);
     if (!Number.isFinite(n)) return 30;
@@ -977,7 +987,7 @@ app.get('/api/search', (req, res) => {
     const todayY = ymdInTimeZone(new Date(), TIMEZONE);
     const boosterScore = (rec) => {
       let s = 0;
-      const overdue = (!rec.completed && rec.scheduledFor && String(rec.scheduledFor) < String(todayY));
+      const overdue = ((rec.status ? (rec.status !== 'completed' && rec.status !== 'skipped') : !rec.completed) && rec.scheduledFor && String(rec.scheduledFor) < String(todayY));
       if (overdue) s += 0.5;
   // priority removed
       const hasTime = !!(rec.timeOfDay || rec.startTime);
@@ -986,7 +996,7 @@ app.get('/api/search', (req, res) => {
     };
 
     if (wantTodos) {
-      let items = db.searchTodos({ q, completed: completedBool });
+      let items = db.searchTodos({ q, status: status_todo });
       if (q.length < 2) {
         const ql = q.toLowerCase();
         items = items.filter(t => String(t.title || '').toLowerCase().includes(ql) || String(t.notes || '').toLowerCase().includes(ql));
@@ -997,7 +1007,7 @@ app.get('/api/search', (req, res) => {
         title: t.title,
         notes: t.notes,
         scheduledFor: t.scheduledFor,
-        completed: t.completed,
+        status: t.status,
         timeOfDay: t.timeOfDay ?? null,
         createdAt: t.createdAt,
         updatedAt: t.updatedAt,
@@ -1043,7 +1053,7 @@ app.get('/api/search', (req, res) => {
 
 // Unified schedule (todos + events; habits added once implemented)
 app.get('/api/schedule', (req, res) => {
-  const { from, to, kinds, completed } = req.query || {};
+  const { from, to, kinds, completed, status_todo } = req.query || {};
   if (!isYmdString(from)) return res.status(400).json({ error: 'invalid_from' });
   if (!isYmdString(to)) return res.status(400).json({ error: 'invalid_to' });
   let completedBool;
@@ -1052,6 +1062,7 @@ app.get('/api/schedule', (req, res) => {
     else if (completed === 'false' || completed === false) completedBool = false;
     else return res.status(400).json({ error: 'invalid_completed' });
   }
+  if (status_todo !== undefined && !['pending','completed','skipped'].includes(String(status_todo))) return res.status(400).json({ error: 'invalid_status_todo' });
   // priority removed
 
   const requestedKinds = (() => {
@@ -1073,14 +1084,14 @@ app.get('/api/schedule', (req, res) => {
 
     const items = [];
 
-    if (requestedKinds.includes('todo')) {
-  let todos = db.listTodos({ from: null, to: null }).filter(t => t.scheduledFor !== null);
+  if (requestedKinds.includes('todo')) {
+    let todos = db.listTodos({ from: null, to: null, status: status_todo || null }).filter(t => t.scheduledFor !== null);
       // Expand where needed
       for (const t of todos) {
         const isRepeating = (t.recurrence && t.recurrence.type && t.recurrence.type !== 'none');
         if (isRepeating) {
           for (const occ of expandOccurrences(t, fromDate, toDate)) {
-            if (completedBool === undefined || occ.completed === completedBool) {
+      if ((status_todo === undefined || occ.status === status_todo) && (completedBool === undefined)) {
               items.push({
                 kind: 'todo',
                 id: occ.id,
@@ -1089,7 +1100,7 @@ app.get('/api/schedule', (req, res) => {
                 notes: occ.notes,
                 scheduledFor: occ.scheduledFor,
                 // priority removed
-                completed: occ.completed,
+        status: occ.status,
                 timeOfDay: occ.timeOfDay ?? null,
                 recurrence: occ.recurrence,
                 createdAt: occ.createdAt,
@@ -1099,7 +1110,7 @@ app.get('/api/schedule', (req, res) => {
           }
         } else {
           const td = t.scheduledFor ? parseYMD(t.scheduledFor) : null;
-          if (inRange(td) && (completedBool === undefined || t.completed === completedBool)) {
+      if (inRange(td) && ((status_todo === undefined || t.status === status_todo) && (completedBool === undefined))) {
             items.push({
               kind: 'todo',
               id: t.id,
@@ -1107,7 +1118,7 @@ app.get('/api/schedule', (req, res) => {
               notes: t.notes,
               scheduledFor: t.scheduledFor,
               // priority removed
-              completed: t.completed,
+        status: t.status,
               timeOfDay: t.timeOfDay ?? null,
               recurrence: t.recurrence,
               createdAt: t.createdAt,
@@ -1305,14 +1316,14 @@ app.delete('/api/goals/:parentId/children/:childId', (req, res) => {
 app.patch('/api/todos/:id', (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
-  const { title, notes, scheduledFor, completed, timeOfDay, recurrence } = req.body || {};
+  const { title, notes, scheduledFor, status, timeOfDay, recurrence } = req.body || {};
   if (title !== undefined && typeof title !== 'string') return res.status(400).json({ error: 'invalid_title' });
   if (notes !== undefined && typeof notes !== 'string') return res.status(400).json({ error: 'invalid_notes' });
   if (!(scheduledFor === undefined || scheduledFor === null || isYmdString(scheduledFor))) {
     return res.status(400).json({ error: 'invalid_scheduledFor' });
   }
-  if (completed !== undefined && typeof completed !== 'boolean') {
-    return res.status(400).json({ error: 'invalid_completed' });
+  if (status !== undefined && !['pending','completed','skipped'].includes(String(status))) {
+    return res.status(400).json({ error: 'invalid_status' });
   }
   if (timeOfDay !== undefined && !isValidTimeOfDay(timeOfDay === '' ? null : timeOfDay)) {
     return res.status(400).json({ error: 'invalid_timeOfDay' });
@@ -1338,7 +1349,7 @@ app.patch('/api/todos/:id', (req, res) => {
   if (notes !== undefined) t.notes = notes;
   if (scheduledFor !== undefined) t.scheduledFor = scheduledFor;
   // priority removed
-  if (completed !== undefined) t.completed = completed;
+  if (status !== undefined) t.status = status;
   if (timeOfDay !== undefined) t.timeOfDay = (timeOfDay === '' ? null : timeOfDay);
   if (recurrence !== undefined) { applyRecurrenceMutation(t, recurrence); }
   t.updatedAt = now;
@@ -1349,11 +1360,11 @@ app.patch('/api/todos/:id', (req, res) => {
 app.patch('/api/todos/:id/occurrence', (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
-  const { occurrenceDate, completed } = req.body || {};
+  const { occurrenceDate, status } = req.body || {};
   if (!isYmdString(occurrenceDate)) return res.status(400).json({ error: 'invalid_occurrenceDate' });
-  if (completed !== undefined && typeof completed !== 'boolean') return res.status(400).json({ error: 'invalid_completed' });
+  if (status !== undefined && !['pending','completed','skipped'].includes(String(status))) return res.status(400).json({ error: 'invalid_status' });
   try {
-    const updated = db.toggleTodoOccurrence({ id, occurrenceDate, completed: !!completed });
+    const updated = db.setTodoOccurrenceStatus({ id, occurrenceDate, status: status || 'completed' });
     return res.json({ todo: updated });
   } catch (e) {
     const msg = String(e && e.message ? e.message : e);
@@ -1409,7 +1420,7 @@ function validateOperation(op) {
   const actionV3 = op.action && String(op.action).toLowerCase();
   const inferred = inferOperationShape(op);
   const kind = inferred?.op;
-  const allowedKinds = ['create', 'update', 'delete', 'complete', 'complete_occurrence', 'goal_create', 'goal_update', 'goal_delete', 'goal_add_items', 'goal_remove_item', 'goal_add_child', 'goal_remove_child'];
+  const allowedKinds = ['create', 'update', 'delete', 'set_status', 'complete', 'complete_occurrence', 'goal_create', 'goal_update', 'goal_delete', 'goal_add_items', 'goal_remove_item', 'goal_add_child', 'goal_remove_child'];
   if (!allowedKinds.includes(kind)) errors.push('invalid_op');
   // priority removed from validation
   if (op.scheduledFor !== undefined && !(op.scheduledFor === null || isYmdString(op.scheduledFor))) errors.push('invalid_scheduledFor');
@@ -1425,13 +1436,24 @@ function validateOperation(op) {
       errors.push('invalid_recurrence');
     }
   }
-  if ((kind === 'update' || kind === 'delete' || kind === 'complete' || kind === 'complete_occurrence')) {
+  if ((kind === 'update' || kind === 'delete' || kind === 'complete' || kind === 'complete_occurrence' || kind === 'set_status')) {
     if (!(Number.isFinite(op.id))) {
       errors.push('missing_or_invalid_id');
     } else {
       const v3Kind = (op.kind && String(op.kind).toLowerCase()) || null;
       // For validation we do not hard-require current existence; apply stage will 404 appropriately.
       // This avoids false negatives for entities created earlier in the same batch.
+    }
+  }
+  // For todos: prefer set_status
+  if (op.kind && String(op.kind).toLowerCase() === 'todo') {
+    if (kind === 'complete' || kind === 'complete_occurrence') {
+      errors.push('use_set_status');
+    }
+    if (kind === 'set_status') {
+      const s = (op.status === undefined || op.status === null) ? null : String(op.status);
+      if (!s || !['pending','completed','skipped'].includes(s)) errors.push('invalid_status');
+      if (op.occurrenceDate !== undefined && !(op.occurrenceDate === null || isYmdString(op.occurrenceDate))) errors.push('invalid_occurrenceDate');
     }
   }
   if (kind === 'complete_occurrence') {
@@ -1484,8 +1506,7 @@ function inferOperationShape(o) {
       if (action === 'create') op.op = 'create';
       else if (action === 'update') op.op = 'update';
       else if (action === 'delete') op.op = 'delete';
-      else if (action === 'complete') op.op = 'complete';
-      else if (action === 'complete_occurrence') op.op = 'complete_occurrence';
+  else if (action === 'set_status') op.op = 'set_status';
     } else if (kind === 'event') {
       // For now, map event ops to todo pipeline placeholders (server uses todo paths); extend later
       if (action === 'create') op.op = 'create';
@@ -1512,19 +1533,23 @@ function inferOperationShape(o) {
   // If only action provided in V3, try to infer op
   if (!op.op && !op.kind && op.action) {
     const action = String(op.action).toLowerCase();
-    if (['create','update','delete','complete','complete_occurrence'].includes(action)) {
+  if (['create','update','delete','complete','complete_occurrence','set_status'].includes(action)) {
       op.op = action === 'complete_occurrence' ? 'complete_occurrence' : action;
     }
   }
   if (!op.op) {
     const hasId = Number.isFinite(op.id);
     const hasCompleted = typeof op.completed === 'boolean';
+    const hasStatus = typeof op.status === 'string';
     const hasTitleOrNotesOrSched = !!(op.title || op.notes || (op.scheduledFor !== undefined));
     if (!hasId && (op.title || op.scheduledFor !== undefined)) {
       op.op = 'create';
       delete op.id;
+    } else if (hasId && hasStatus && !hasTitleOrNotesOrSched) {
+      op.op = 'set_status';
     } else if (hasId && hasCompleted && !hasTitleOrNotesOrSched) {
-      op.op = 'complete';
+      // Back-compat: completed implies set_status
+      op.op = 'set_status';
     } else if (hasId && hasTitleOrNotesOrSched) {
       op.op = 'update';
     }
@@ -1642,14 +1667,15 @@ function buildSchemaV2Excerpt() {
   // Repurposed for V3 reminder text (no bulk operations)
   return [
     'Schema v3:',
-    '- Wrapper: { kind: "todo"|"event"|"goal", action: string, ...payload }',
-    '- todo actions: create|update|delete|complete|complete_occurrence',
+  '- Wrapper: { kind: "todo"|"event"|"goal", action: string, ...payload }',
+  '- todo actions: create|update|delete|set_status',
     '- event actions: create|update|delete|complete|complete_occurrence',
     '- goal actions: create|update|delete|add_items|remove_item|add_child|remove_child',
     'Rules:',
-    '- For todo/event create/update, include a recurrence object (use {"type":"none"} for non-repeating).',
+  '- For todo/event create/update, include a recurrence object (use {"type":"none"} for non-repeating).',
     '- For repeating tasks/events (recurrence.type != none), an anchor scheduledFor is REQUIRED.',
-    '- For repeating items, do not use master complete; use complete_occurrence with occurrenceDate.',
+  '- For todos: use set_status with {id, status:"pending|completed|skipped"} (and optional occurrenceDate for repeating). Do NOT use complete/complete_occurrence for todos.',
+  '- For repeating events/habits: do not use master complete; use complete_occurrence with occurrenceDate.',
     '- No bulk operations; emit independent ops, ≤20 per apply.'
   ].join('\n');
 }
@@ -1678,18 +1704,19 @@ function buildProposalPrompt({ instruction, todosSnapshot, transcript }) {
   const todayYmd = ymdInTimeZone(today, TIMEZONE);
   const system = `You are an assistant for a todo app. Output ONLY a single JSON object with key "operations" as an array. No prose.\n` +
     `Each operation MUST include fields: kind (todo|event|goal) and action.\n` +
-    `todo actions: create|update|delete|complete|complete_occurrence.\n` +
+    `todo actions: create|update|delete|set_status.\n` +
     `event actions: create|update|delete|complete|complete_occurrence.\n` +
     `goal actions: create|update|delete|add_items|remove_item|add_child|remove_child.\n` +
     `For todo/event create/update include recurrence (use {"type":"none"} for non-repeating). If recurrence.type != none, scheduledFor is REQUIRED.\n` +
-    `For complete_occurrence include id (masterId) and occurrenceDate (YYYY-MM-DD).\n` +
+    `For todos: use set_status with {id, status:"pending|completed|skipped"} and optional occurrenceDate for repeating.\n` +
+    `For events: use complete or complete_occurrence (with occurrenceDate).\n` +
     `No bulk operations. Emit independent operations; limit to ≤20 per apply.\n` +
     `Today's date is ${todayYmd}. Do NOT invent invalid IDs. Prefer fewer changes over hallucination.\n` +
     `You may reason internally, but the final output MUST be a single JSON object exactly as specified. Do not include your reasoning or any prose.`;
   const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
   const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
   const context = JSON.stringify({ todos: todosSnapshot }, null, 2);
-  const user = `Conversation (last 3 turns):\n${convo}\n\nTimezone: ${TIMEZONE}\nInstruction:\n${instruction}\n\nContext:\n${context}\n\nRespond with JSON ONLY that matches this exact example format:\n{\n  "operations": [\n    {"kind":"todo","action":"create","title":"<contextually relevant title>","scheduledFor":"${todayYmd}","recurrence":{"type":"none"}}\n  ]\n}`;
+  const user = `Conversation (last 3 turns):\n${convo}\n\nTimezone: ${TIMEZONE}\nInstruction:\n${instruction}\n\nContext:\n${context}\n\nRespond with JSON ONLY that matches this exact example format:\n{\n  "operations": [\n    {"kind":"todo","action":"create","title":"<contextually relevant title>","scheduledFor":"${todayYmd}","recurrence":{"type":"none"}},\n    {"kind":"todo","action":"set_status","id":123,"status":"completed"}\n  ]\n}`;
   return `${system}\n\n${user}`;
 }
 
@@ -1828,7 +1855,7 @@ app.post('/api/llm/apply', async (req, res) => {
           if (op.title !== undefined) t.title = op.title;
           if (op.notes !== undefined) t.notes = op.notes;
           if (op.scheduledFor !== undefined) t.scheduledFor = op.scheduledFor;
-          if (op.completed !== undefined) t.completed = !!op.completed;
+          if (op.completed !== undefined) t.status = (!!op.completed) ? 'completed' : 'pending';
           if (op.timeOfDay !== undefined) t.timeOfDay = (op.timeOfDay === '' ? null : op.timeOfDay);
           if (op.recurrence !== undefined) { applyRecurrenceMutation(t, op.recurrence); }
           t.updatedAt = now; mutatedSinceRefresh = true; results.push({ ok: true, op, todo: t }); updated++;
@@ -1837,20 +1864,35 @@ app.post('/api/llm/apply', async (req, res) => {
           const existing = findTodoById(op.id); if (!existing) throw new Error('not_found');
           db.deleteTodo(op.id); mutatedSinceRefresh = true; results.push({ ok: true, op }); deleted++;
           appendAudit({ action: 'delete', op, result: 'ok', id: existing?.id, meta: { correlationId } });
-        } else if (op.op === 'complete') {
+  } else if (op.op === 'complete') {
           const t = findTodoById(op.id); if (!t) throw new Error('not_found');
-          t.completed = op.completed === undefined ? true : !!op.completed; t.updatedAt = new Date().toISOString(); mutatedSinceRefresh = true; results.push({ ok: true, op, todo: t }); completed++;
+          t.status = (op.completed === undefined || op.completed === true) ? 'completed' : 'pending';
+          t.updatedAt = new Date().toISOString(); mutatedSinceRefresh = true; results.push({ ok: true, op, todo: t }); completed++;
           appendAudit({ action: 'complete', op, result: 'ok', id: t.id, meta: { correlationId } });
         } else if (op.op === 'complete_occurrence') {
           const t = findTodoById(op.id); if (!t) throw new Error('not_found');
           if (!(t.recurrence && t.recurrence.type && t.recurrence.type !== 'none')) throw new Error('not_repeating');
-          if (!Array.isArray(t.completedDates)) t.completedDates = [];
-          const idx = t.completedDates.indexOf(op.occurrenceDate);
-          const shouldComplete = (op.completed === undefined) ? true : !!op.completed;
-          if (shouldComplete) { if (idx === -1) t.completedDates.push(op.occurrenceDate); }
-          else { if (idx !== -1) t.completedDates.splice(idx, 1); }
-          t.updatedAt = new Date().toISOString(); mutatedSinceRefresh = true; results.push({ ok: true, op, todo: t }); completed++;
+          const status = (op.completed === undefined) ? 'completed' : (op.completed ? 'completed' : 'pending');
+          const after = db.setTodoOccurrenceStatus({ id: t.id, occurrenceDate: op.occurrenceDate, status });
+          mutatedSinceRefresh = true; results.push({ ok: true, op, todo: after }); completed++;
           appendAudit({ action: 'complete_occurrence', op, result: 'ok', id: t.id, meta: { correlationId } });
+        } else if (op.op === 'set_status') {
+          const id = parseInt(op.id, 10);
+          if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
+          const s = String(op.status || 'pending');
+          if (!['pending','completed','skipped'].includes(s)) throw new Error('invalid_status');
+          const occ = op.occurrenceDate;
+          let out;
+          if (occ !== undefined && occ !== null) {
+            out = db.setTodoOccurrenceStatus({ id, occurrenceDate: String(occ), status: s });
+          } else {
+            // master status update
+            const current = findTodoById(id);
+            if (!current) throw new Error('not_found');
+            out = db.updateTodo(id, { status: s });
+          }
+          mutatedSinceRefresh = true; results.push({ ok: true, op, todo: out }); updated++;
+          appendAudit({ action: 'set_status', op, result: 'ok', id, meta: { correlationId } });
         } else if (
           op.op === 'goal_create' || op.op === 'goal_update' || op.op === 'goal_delete' ||
           op.op === 'goal_add_items' || op.op === 'goal_remove_item' ||
@@ -1952,7 +1994,7 @@ function buildDeterministicSummaryText(operations) {
     if (op.op === 'create') { created++; if (op.title) createdTitles.push(op.title); if (op.scheduledFor) dates.add(op.scheduledFor); }
     else if (op.op === 'update') { updated++; if (op.scheduledFor) dates.add(op.scheduledFor); }
     else if (op.op === 'delete') { deleted++; }
-    else if (op.op === 'complete') { completed++; }
+  else if (op.op === 'complete' || op.op === 'set_status') { completed++; }
   }
   const parts = [];
   if (created) parts.push(`creating ${created} task${created === 1 ? '' : 's'}`);
@@ -2112,7 +2154,7 @@ app.post('/api/assistant/message', async (req, res) => {
   const todayYmd = ymdInTimeZone(today, TIMEZONE);
   const proposalPrompt = [
     'You are a planning assistant for a todo app. Output ONLY a single JSON object with key "operations" as an array. No prose.',
-    'Rules: each operation MUST include kind and action; for todo/event create/update include recurrence (use {"type":"none"} for non-repeating). If recurrence.type != "none", scheduledFor is REQUIRED. No bulk ops. ≤20 ops. Do NOT invent IDs.',
+  'Rules: each operation MUST include kind and action; for todo/event create/update include recurrence (use {"type":"none"} for non-repeating). If recurrence.type != "none", scheduledFor is REQUIRED. For todos use set_status with {id,status:"pending|completed|skipped"} (and optional occurrenceDate). No bulk ops. ≤20 ops. Do NOT invent IDs.',
     `Today: ${todayYmd}. Timezone: ${TIMEZONE}.`,
     'Conversation (last 3):',
     (Array.isArray(transcript) ? transcript.slice(-3) : []).map((t) => `- ${t.role}: ${t.text}`).join('\n'),
