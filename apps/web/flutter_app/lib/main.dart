@@ -896,12 +896,12 @@ class _HomePageState extends State<HomePage> {
         } catch (_) {}
       }
   final backlogRaw = await api.fetchBacklog();
-      final sAllList = scheduledAllRaw
-          .map((e) => Todo.fromJson(e as Map<String, dynamic>))
-          .toList();
-      var bList = backlogRaw
-          .map((e) => Todo.fromJson(e as Map<String, dynamic>))
-          .toList();
+    final sAllList = scheduledAllRaw
+      .map((e) => Todo.fromJson(e as Map<String, dynamic>))
+      .toList();
+    var bList = backlogRaw
+      .map((e) => Todo.fromJson(e as Map<String, dynamic>))
+      .toList();
       if (!showCompleted) {
         bList = bList.where((t) => !t.completed).toList();
       }
@@ -945,7 +945,7 @@ class _HomePageState extends State<HomePage> {
         flaggedCount = 0;
         allCount = 0;
       }
-      final counts = <String, int>{
+        final counts = <String, int>{
         'today': todayCount,
         'scheduled': scheduledCount,
         'all': allCount,
@@ -953,8 +953,10 @@ class _HomePageState extends State<HomePage> {
       };
       setState(() {
         scheduled = sList;
-        scheduledAllTime = sAllList;
-        backlog = bList;
+        // If we're in events mode, surface eventsAllList for the "All" collection
+        scheduledAllTime = (_kindFilter.contains('event') && mainView == MainView.tasks) ? eventsAllList : sAllList;
+        // Don't show todo backlog when viewing events
+        backlog = (_kindFilter.contains('event') && mainView == MainView.tasks) ? <Todo>[] : bList;
         sidebarCounts = counts;
         message = null;
       });
@@ -2329,7 +2331,8 @@ class _HomePageState extends State<HomePage> {
       case SmartList.backlog:
         return backlog;
       case SmartList.all:
-        return [...scheduledAllTime, ...backlog];
+  if (mainView == MainView.tasks && _kindFilter.contains('event')) return scheduledAllTime;
+  return [...scheduledAllTime, ...backlog];
     }
   }
 

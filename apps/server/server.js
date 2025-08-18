@@ -1091,7 +1091,7 @@ app.get('/api/schedule', (req, res) => {
         const isRepeating = (t.recurrence && t.recurrence.type && t.recurrence.type !== 'none');
         if (isRepeating) {
           for (const occ of expandOccurrences(t, fromDate, toDate)) {
-      if ((status_todo === undefined || occ.status === status_todo) && (completedBool === undefined)) {
+            if (status_todo === undefined || occ.status === status_todo) {
               items.push({
                 kind: 'todo',
                 id: occ.id,
@@ -1100,7 +1100,7 @@ app.get('/api/schedule', (req, res) => {
                 notes: occ.notes,
                 scheduledFor: occ.scheduledFor,
                 // priority removed
-        status: occ.status,
+                status: occ.status,
                 timeOfDay: occ.timeOfDay ?? null,
                 recurrence: occ.recurrence,
                 createdAt: occ.createdAt,
@@ -1110,7 +1110,7 @@ app.get('/api/schedule', (req, res) => {
           }
         } else {
           const td = t.scheduledFor ? parseYMD(t.scheduledFor) : null;
-      if (inRange(td) && ((status_todo === undefined || t.status === status_todo) && (completedBool === undefined))) {
+          if (inRange(td) && (status_todo === undefined || t.status === status_todo)) {
             items.push({
               kind: 'todo',
               id: t.id,
