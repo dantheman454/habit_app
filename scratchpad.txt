@@ -1,8 +1,8 @@
 Keep in mind:
 -Have full functionality (BEFORE SCHOOL STARTS)so I can get my actual todos and events in
+    *if not, MUST have better way to do google calendar and reminders app using notebookLM or something else (not ideal but fallback)
 
-
-TODO TODAY 8/17:
+Get done Week of 8/17:
     -Have two types of completions for task (completed and skipped)
     -Get fundamental functions of tasks and events working
     -Clean up UI

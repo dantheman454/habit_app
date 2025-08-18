@@ -1,0 +1,308 @@
+export class OperationValidators {
+  static todoCreate(op) {
+    const errors = [];
+    
+    if (!op.title || typeof op.title !== 'string' || op.title.trim().length === 0) {
+      errors.push('Title is required and must be a non-empty string');
+    }
+    
+    if (op.title && op.title.length > 255) {
+      errors.push('Title must be 255 characters or less');
+    }
+    
+    if (op.notes && typeof op.notes !== 'string') {
+      errors.push('Notes must be a string');
+    }
+    
+    if (op.scheduledFor && !OperationValidators.isValidDate(op.scheduledFor)) {
+      errors.push('scheduledFor must be a valid date in YYYY-MM-DD format');
+    }
+    
+    if (op.timeOfDay && !OperationValidators.isValidTime(op.timeOfDay)) {
+      errors.push('timeOfDay must be a valid time in HH:MM format');
+    }
+    
+    if (op.recurrence && !OperationValidators.isValidRecurrence(op.recurrence)) {
+      errors.push('recurrence must be a valid recurrence object');
+    }
+    
+    return {
+      valid: errors.length === 0,
+      errors
+    };
+  }
+  
+  static todoUpdate(op) {
+    const errors = [];
+    
+    if (!op.id || typeof op.id !== 'number' || op.id <= 0) {
+      errors.push('Valid ID is required');
+    }
+    
+    if (op.title !== undefined && (typeof op.title !== 'string' || op.title.trim().length === 0)) {
+      errors.push('Title must be a non-empty string');
+    }
+    
+    if (op.title && op.title.length > 255) {
+      errors.push('Title must be 255 characters or less');
+    }
+    
+    if (op.notes !== undefined && typeof op.notes !== 'string') {
+      errors.push('Notes must be a string');
+    }
+    
+    if (op.scheduledFor !== undefined && !OperationValidators.isValidDate(op.scheduledFor)) {
+      errors.push('scheduledFor must be a valid date in YYYY-MM-DD format');
+    }
+    
+    if (op.timeOfDay !== undefined && !OperationValidators.isValidTime(op.timeOfDay)) {
+      errors.push('timeOfDay must be a valid time in HH:MM format');
+    }
+    
+    if (op.recurrence !== undefined && !OperationValidators.isValidRecurrence(op.recurrence)) {
+      errors.push('recurrence must be a valid recurrence object');
+    }
+    
+    return {
+      valid: errors.length === 0,
+      errors
+    };
+  }
+  
+  static todoDelete(op) {
+    const errors = [];
+    
+    if (!op.id || typeof op.id !== 'number' || op.id <= 0) {
+      errors.push('Valid ID is required');
+    }
+    
+    return {
+      valid: errors.length === 0,
+      errors
+    };
+  }
+  
+  static todoComplete(op) {
+    const errors = [];
+    
+    if (!op.id || typeof op.id !== 'number' || op.id <= 0) {
+      errors.push('Valid ID is required');
+    }
+    
+    return {
+      valid: errors.length === 0,
+      errors
+    };
+  }
+  
+  static eventCreate(op) {
+    const errors = [];
+    
+    if (!op.title || typeof op.title !== 'string' || op.title.trim().length === 0) {
+      errors.push('Title is required and must be a non-empty string');
+    }
+    
+    if (op.title && op.title.length > 255) {
+      errors.push('Title must be 255 characters or less');
+    }
+    
+    if (op.notes && typeof op.notes !== 'string') {
+      errors.push('Notes must be a string');
+    }
+    
+    if (!op.scheduledFor || !OperationValidators.isValidDate(op.scheduledFor)) {
+      errors.push('scheduledFor is required and must be a valid date in YYYY-MM-DD format');
+    }
+    
+    if (op.timeOfDay && !OperationValidators.isValidTime(op.timeOfDay)) {
+      errors.push('timeOfDay must be a valid time in HH:MM format');
+    }
+    
+    if (op.duration && !OperationValidators.isValidDuration(op.duration)) {
+      errors.push('duration must be a positive number in minutes');
+    }
+    
+    return {
+      valid: errors.length === 0,
+      errors
+    };
+  }
+  
+  static eventUpdate(op) {
+    const errors = [];
+    
+    if (!op.id || typeof op.id !== 'number' || op.id <= 0) {
+      errors.push('Valid ID is required');
+    }
+    
+    if (op.title !== undefined && (typeof op.title !== 'string' || op.title.trim().length === 0)) {
+      errors.push('Title must be a non-empty string');
+    }
+    
+    if (op.title && op.title.length > 255) {
+      errors.push('Title must be 255 characters or less');
+    }
+    
+    if (op.notes !== undefined && typeof op.notes !== 'string') {
+      errors.push('Notes must be a string');
+    }
+    
+    if (op.scheduledFor !== undefined && !OperationValidators.isValidDate(op.scheduledFor)) {
+      errors.push('scheduledFor must be a valid date in YYYY-MM-DD format');
+    }
+    
+    if (op.timeOfDay !== undefined && !OperationValidators.isValidTime(op.timeOfDay)) {
+      errors.push('timeOfDay must be a valid time in HH:MM format');
+    }
+    
+    if (op.duration !== undefined && !OperationValidators.isValidDuration(op.duration)) {
+      errors.push('duration must be a positive number in minutes');
+    }
+    
+    return {
+      valid: errors.length === 0,
+      errors
+    };
+  }
+  
+  static eventDelete(op) {
+    const errors = [];
+    
+    if (!op.id || typeof op.id !== 'number' || op.id <= 0) {
+      errors.push('Valid ID is required');
+    }
+    
+    return {
+      valid: errors.length === 0,
+      errors
+    };
+  }
+  
+  static habitCreate(op) {
+    const errors = [];
+    
+    if (!op.title || typeof op.title !== 'string' || op.title.trim().length === 0) {
+      errors.push('Title is required and must be a non-empty string');
+    }
+    
+    if (op.title && op.title.length > 255) {
+      errors.push('Title must be 255 characters or less');
+    }
+    
+    if (op.notes && typeof op.notes !== 'string') {
+      errors.push('Notes must be a string');
+    }
+    
+    if (op.frequency && !OperationValidators.isValidFrequency(op.frequency)) {
+      errors.push('frequency must be a valid frequency object');
+    }
+    
+    return {
+      valid: errors.length === 0,
+      errors
+    };
+  }
+  
+  static habitUpdate(op) {
+    const errors = [];
+    
+    if (!op.id || typeof op.id !== 'number' || op.id <= 0) {
+      errors.push('Valid ID is required');
+    }
+    
+    if (op.title !== undefined && (typeof op.title !== 'string' || op.title.trim().length === 0)) {
+      errors.push('Title must be a non-empty string');
+    }
+    
+    if (op.title && op.title.length > 255) {
+      errors.push('Title must be 255 characters or less');
+    }
+    
+    if (op.notes !== undefined && typeof op.notes !== 'string') {
+      errors.push('Notes must be a string');
+    }
+    
+    if (op.frequency !== undefined && !OperationValidators.isValidFrequency(op.frequency)) {
+      errors.push('frequency must be a valid frequency object');
+    }
+    
+    return {
+      valid: errors.length === 0,
+      errors
+    };
+  }
+  
+  static habitDelete(op) {
+    const errors = [];
+    
+    if (!op.id || typeof op.id !== 'number' || op.id <= 0) {
+      errors.push('Valid ID is required');
+    }
+    
+    return {
+      valid: errors.length === 0,
+      errors
+    };
+  }
+  
+  static habitToggle(op) {
+    const errors = [];
+    
+    if (!op.id || typeof op.id !== 'number' || op.id <= 0) {
+      errors.push('Valid ID is required');
+    }
+    
+    if (!op.date || !OperationValidators.isValidDate(op.date)) {
+      errors.push('Valid date is required in YYYY-MM-DD format');
+    }
+    
+    return {
+      valid: errors.length === 0,
+      errors
+    };
+  }
+  
+  // Helper methods
+  static isValidDate(dateStr) {
+    if (typeof dateStr !== 'string') return false;
+    const date = new Date(dateStr);
+    return date instanceof Date && !isNaN(date) && dateStr.match(/^\d{4}-\d{2}-\d{2}$/) !== null;
+  }
+  
+  static isValidTime(timeStr) {
+    if (typeof timeStr !== 'string') return false;
+    return timeStr.match(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/) !== null;
+  }
+  
+  static isValidDuration(duration) {
+    return typeof duration === 'number' && duration > 0 && Number.isInteger(duration);
+  }
+  
+  static isValidRecurrence(recurrence) {
+    if (!recurrence || typeof recurrence !== 'object') return false;
+    
+    const validTypes = ['none', 'daily', 'weekly', 'monthly', 'yearly', 'every_n_days'];
+    if (!validTypes.includes(recurrence.type)) return false;
+    
+    if (recurrence.until && !OperationValidators.isValidDate(recurrence.until)) return false;
+    
+    if (recurrence.type === 'every_n_days' && (!recurrence.intervalDays || typeof recurrence.intervalDays !== 'number' || recurrence.intervalDays <= 0)) {
+      return false;
+    }
+    
+    return true;
+  }
+  
+  static isValidFrequency(frequency) {
+    if (!frequency || typeof frequency !== 'object') return false;
+    
+    const validTypes = ['daily', 'weekly', 'monthly'];
+    if (!validTypes.includes(frequency.type)) return false;
+    
+    if (frequency.daysOfWeek && (!Array.isArray(frequency.daysOfWeek) || frequency.daysOfWeek.length === 0)) {
+      return false;
+    }
+    
+    return true;
+  }
+}

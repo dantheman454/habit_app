@@ -15,6 +15,9 @@ import { mkCorrelationId, logIO } from './llm/logging.js';
 import { extractFirstJson } from './llm/json_extract.js';
 import { buildRouterSnapshots as buildRouterSnapshotsLLM, topClarifyCandidates as topClarifyCandidatesLLM, buildFocusedContext as buildFocusedContextLLM } from './llm/context.js';
 import { runRouter as runRouterLLM } from './llm/router.js';
+import { HabitusMCPServer } from './mcp/mcp_server.js';
+import { OperationProcessor } from './operations/operation_processor.js';
+import { OperationRegistry } from './operations/operation_registry.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -442,10 +445,64 @@ app.disable('x-powered-by');
 app.use(cors());
 app.use(express.json({ limit: '256kb' }));
 
+// Initialize MCP server and operation processor
+const operationProcessor = new OperationProcessor();
+const operationRegistry = new OperationRegistry(db);
+operationRegistry.registerAllOperations(operationProcessor);
+
+const mcpServer = new HabitusMCPServer(app);
+mcpServer.setOperationProcessor(operationProcessor);
+
 // Static assets (Flutter Web build) are mounted AFTER API routes below
 
 // Health
 app.get('/health', (_req, res) => { res.json({ ok: true }); });
+
+// MCP Server endpoints
+app.get('/api/mcp/tools', async (req, res) => {
+  try {
+    const tools = await mcpServer.listAvailableTools();
+    res.json({ tools });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/mcp/resources', async (req, res) => {
+  try {
+    const resources = await mcpServer.listAvailableResources();
+    res.json({ resources });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/mcp/resources/:type/:name', async (req, res) => {
+  try {
+    const { type, name } = req.params;
+    const fullUri = `habitus://${type}/${name}`;
+    const content = await mcpServer.readResource(fullUri);
+    if (content === null) {
+      return res.status(404).json({ error: 'Resource not found' });
+    }
+    res.json({ uri: fullUri, content });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/mcp/tools/call', async (req, res) => {
+  try {
+    const { name, arguments: args } = req.body || {};
+    if (!name) {
+      return res.status(400).json({ error: 'Tool name is required' });
+    }
+    const result = await mcpServer.handleToolCall(name, args || {});
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // Debug: list routes (optional)
 if (process.env.ENABLE_DEBUG_ROUTES === 'true') {
@@ -2094,135 +2151,46 @@ async function runProposalAndRepair({ instruction, transcript, focusedWhere, mod
   return { ops, annotatedAll, validation };
 }
 
+import { runConversationAgent } from './llm/conversation_agent.js';
+import { runOpsAgent } from './llm/ops_agent.js';
+import { runSummary } from './llm/summary.js';
+
 app.post('/api/assistant/message', async (req, res) => {
   try {
-  const { message, transcript = [], options = {} } = req.body || {};
-  const correlationId = mkCorrelationId();
-  const t0 = Date.now();
-  let pTRoute = t0, pTProp = 0, pTRepair = 0, pTVal = 0, pTSum = 0;
-  const client = options && options.client ? options.client : null;
-  if (typeof message !== 'string' || message.trim() === '') {
-    return res.status(400).json({ error: 'invalid_message' });
-  }
-
-  // Router (two‑LLM)
-  const route = await runRouterLLM({ instruction: message.trim(), transcript, clarify: options && options.clarify });
-  try { appendAudit({ action: 'router_decision', mode: 'post', decision: route.decision, confidence: route.confidence, question: route.question || null, meta: { correlationId } }); } catch {}
-  pTRoute = Date.now();
-
-  // Clarify branch
-  if (route.decision === 'clarify' && route.question) {
-  try { logIO('router', { model: MODELS.convo, prompt: '(clarify)', output: JSON.stringify(route), meta: { correlationId, mode: 'post', stageDurations: { routingMs: (pTRoute - t0), proposingMs: 0, validatingMs: 0, summarizingMs: 0 } } }); } catch {}
-    return res.json({ clarify: { question: route.question, options: Array.isArray(route.options) ? route.options : [] }, correlationId });
-  }
-
-  // Chat branch
-  if (route.decision === 'chat') {
-    const today = new Date();
-    const todayYmd = ymdInTimeZone(today, TIMEZONE);
-    const system = `You are a helpful assistant for a todo app. Keep answers concise and clear. Prefer 1–3 short sentences; no lists or JSON.`;
-    const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
-    const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
-    const prompt = `${system}\n\nToday: ${todayYmd} (${TIMEZONE})\nConversation (last 3 turns):\n${convo}\nUser: ${message.trim()}`;
-    let text = 'Okay.';
-    try {
-      const raw = await convoLLM(prompt, { stream: false });
-      pTSum = Date.now();
-  logIO('summary', { model: MODELS.convo, prompt, output: raw, meta: { correlationId, mode: 'post', stageDurations: { routingMs: (pTRoute - t0), proposingMs: 0, validatingMs: 0, summarizingMs: (pTSum - pTRoute) } } });
-      text = String(raw || '').replace(/```[\s\S]*?```/g, '').replace(/[\r\n]+/g, ' ').trim() || 'Okay.';
-    } catch {}
-    if (String(process.env.ENABLE_ASSISTANT_DEBUG || '') === '1') {
-      console.info(`[assistant][post] ${correlationId} routing=${pTRoute - t0}ms proposing=0ms validating=0ms summarizing=${pTSum - pTRoute}ms valid=0 invalid=0`);
+    const { message, transcript = [], options = {} } = req.body || {};
+    const correlationId = mkCorrelationId();
+    if (typeof message !== 'string' || message.trim() === '') {
+      return res.status(400).json({ error: 'invalid_message' });
     }
-    return res.json({ text, operations: [], correlationId });
-  }
-
-  // Plan branch: focused context
-  let focusedWhere = null;
-  try { if (route && route.where && !Array.isArray(route.where) && typeof route.where === 'object') focusedWhere = route.where; } catch {}
-  // Apply client filters
-  try {
-  if (client && client.range && client.range.from && client.range.to) focusedWhere = { ...(focusedWhere || {}), scheduled_range: { from: String(client.range.from), to: String(client.range.to) } };
-  if (client && Array.isArray(client.kinds) && client.kinds.length === 1) focusedWhere = { ...(focusedWhere || {}), kind: String(client.kinds[0]) };
-    if (client && typeof client.completed === 'boolean') focusedWhere = { ...(focusedWhere || {}), completed: !!client.completed };
-    if (client && typeof client.search === 'string' && client.search.trim()) focusedWhere = { ...(focusedWhere || {}), title_contains: String(client.search).trim() };
-  } catch {}
-  const focusedContext = buildFocusedContextLLM(focusedWhere || {});
-
-  // Proposal (Code LLM)
-  const today = new Date();
-  const todayYmd = ymdInTimeZone(today, TIMEZONE);
-  const proposalPrompt = [
-    'You are a planning assistant for a todo app. Output ONLY a single JSON object with key "operations" as an array. No prose.',
-  'Rules: each operation MUST include kind and action; for todo/event create/update include recurrence (use {"type":"none"} for non-repeating). If recurrence.type != "none", scheduledFor is REQUIRED. For todos use set_status with {id,status:"pending|completed|skipped"} (and optional occurrenceDate). No bulk ops. ≤20 ops. Do NOT invent IDs.',
-    `Today: ${todayYmd}. Timezone: ${TIMEZONE}.`,
-    'Conversation (last 3):',
-    (Array.isArray(transcript) ? transcript.slice(-3) : []).map((t) => `- ${t.role}: ${t.text}`).join('\n'),
-    'Instruction:',
-    message.trim(),
-    'Context:',
-    JSON.stringify(focusedContext)
-  ].join('\n');
-  let rawProposal;
-  try { rawProposal = await codeLLM(proposalPrompt, { model: MODELS.code }); } catch (e) { return res.json({ text: 'Assistant planning failed. Please try again.', operations: [], correlationId }); }
-  pTProp = Date.now();
-  logIO('proposal', { model: MODELS.code, prompt: proposalPrompt, output: rawProposal, meta: { correlationId, mode: 'post', stageDurations: { routingMs: (pTRoute - t0), proposingMs: (pTProp - pTRoute), validatingMs: 0, summarizingMs: 0 } } });
-  const parsedProposal = extractFirstJson(String(rawProposal || '')) || { operations: [] };
-  const ops0 = Array.isArray(parsedProposal.operations) ? parsedProposal.operations : [];
-
-  // Validate and maybe repair
-  let validation = validateProposal({ operations: ops0.map(o => inferOperationShape(o)) });
-  let finalOps = ops0;
-  let invalidCount0 = (validation.results || []).filter(r => r.errors.length).length;
-  let validCount0 = (validation.results || []).length - invalidCount0;
-  try { appendAudit({ action: 'validation_metrics', mode: 'post', meta: { correlationId, validCount: validCount0, invalidCount: invalidCount0, errorCodes: Array.from(new Set((validation.results||[]).flatMap(r=>r.errors||[]))), durations: { routingMs: (pTRoute - t0), validateMs: 0 } } }); } catch {}
-  if (invalidCount0 > 0) {
-    const errorCodes = (validation.results || []).flatMap(r => r.errors || []);
-    const repairPrompt = [
-      'You must repair the prior JSON operations to satisfy the schema and constraints. Output JSON only with key "operations".',
-      'Errors to fix:', JSON.stringify(errorCodes),
-      'Original operations:', JSON.stringify(ops0),
-      'Context:', JSON.stringify(focusedContext)
-    ].join('\n');
-    let rawRepair;
-  try { rawRepair = await codeLLM(repairPrompt, { model: MODELS.code }); } catch (e) {
-      const validOnly = (validation.results || []).filter(r => r.errors.length === 0).map(r => r.op);
-      validation = validateProposal({ operations: validOnly.map(o => inferOperationShape(o)) });
-      finalOps = validOnly;
+    // ConversationAgent
+    const ca = await runConversationAgent({ instruction: message.trim(), transcript, clarify: options && options.clarify });
+    console.log('DEBUG: Conversation agent decision:', ca.decision);
+    console.log('DEBUG: Conversation agent result:', JSON.stringify(ca, null, 2));
+    if (ca.decision === 'clarify') {
+      return res.json({ clarify: { question: ca.question, options: Array.isArray(ca.options) ? ca.options : [] }, correlationId });
     }
-    pTRepair = Date.now();
-  logIO('repair', { model: MODELS.code, prompt: repairPrompt, output: rawRepair, meta: { correlationId, mode: 'post', stageDurations: { routingMs: (pTRoute - t0), proposingMs: (pTProp - pTRoute), validatingMs: 0, repairingMs: (pTRepair - pTProp), summarizingMs: 0 } } });
-    const parsedRepair = extractFirstJson(String(rawRepair || '')) || { operations: [] };
-    finalOps = Array.isArray(parsedRepair.operations) ? parsedRepair.operations : finalOps;
-    validation = validateProposal({ operations: finalOps.map(o => inferOperationShape(o)) });
-    const invalidCount1 = (validation.results || []).filter(r => r.errors.length).length;
-    const validCount1 = (validation.results || []).length - invalidCount1;
-    try { appendAudit({ action: 'validation_metrics', mode: 'post', meta: { correlationId, validCount: validCount1, invalidCount: invalidCount1, errorCodes: Array.from(new Set((validation.results||[]).flatMap(r=>r.errors||[]))), durations: { routingMs: (pTRoute - t0), validateMs: (Date.now() - pTProp) } } }); } catch {}
-  }
-
-  // Summary (Conversation LLM)
-  let summaryText;
-  try {
-    const prompt2 = buildConversationalSummaryPrompt({ instruction: message.trim(), operations: finalOps, todosSnapshot: listAllTodosRaw(), transcript });
-    const raw2 = await convoLLM(prompt2, { stream: false });
-    pTSum = Date.now();
-  logIO('summary', { model: MODELS.convo, prompt: prompt2, output: raw2, meta: { correlationId, mode: 'post', stageDurations: { routingMs: (pTRoute - t0), proposingMs: (pTProp - pTRoute), validatingMs: (pTRepair ? (pTRepair - pTProp) : 0), repairingMs: (pTRepair ? (pTRepair - pTProp) : 0), summarizingMs: (pTSum - (pTRepair || pTProp)) } } });
-    summaryText = String(raw2 || '').replace(/```[\s\S]*?```/g, '').replace(/[\r\n]+/g, ' ').trim() || buildDeterministicSummaryText(finalOps);
-  } catch {
-    summaryText = buildDeterministicSummaryText(finalOps);
-  }
-
-  // Console breadcrumb
-  try {
-    if (String(process.env.ENABLE_ASSISTANT_DEBUG || '') === '1') {
-      const validCount = (validation.results || []).filter(r => r.errors.length === 0).length;
-      const invalidCount = (validation.results || []).length - validCount;
-      console.info(`[assistant][post] ${correlationId} routing=${pTRoute - t0}ms proposing=${pTProp - pTRoute}ms validating=${(pTRepair ? (pTRepair - pTProp) : 0)}ms summarizing=${pTSum - (pTRepair || pTProp)}ms valid=${validCount} invalid=${invalidCount}`);
+    if (ca.decision === 'chat') {
+      // Generate summary for chat
+      const summaryText = await runSummary({ operations: [], issues: [], timezone: TIMEZONE });
+      return res.json({ text: summaryText, operations: [], correlationId });
     }
-  } catch {}
-
-  const annotatedAll = (validation.results || []).map((r) => ({ ...r.op, errors: r.errors }));
-  return res.json({ text: summaryText, operations: annotatedAll, correlationId });
+    // Plan: call OpsAgent
+    const oa = await runOpsAgent({ taskBrief: ca.delegate?.taskBrief || message.trim(), where: ca.where, transcript, timezone: TIMEZONE });
+    // Generate summary
+    const summaryText = await runSummary({ 
+      operations: oa.operations, 
+      issues: oa.notes?.errors || [],
+      timezone: TIMEZONE 
+    });
+    // Compose result
+    return res.json({
+      text: summaryText,
+      steps: oa.steps,
+      operations: oa.operations,
+      tools: oa.tools,
+      notes: oa.notes,
+      correlationId
+    });
   } catch (err) {
     res.status(502).json({ error: 'assistant_failure', detail: String(err && err.message ? err.message : err) });
   }
@@ -2230,11 +2198,7 @@ app.post('/api/assistant/message', async (req, res) => {
 
 // SSE-friendly GET endpoint for browsers (streams summary and final result)
 app.get('/api/assistant/message/stream', async (req, res) => {
-  // Ensure we can gracefully end SSE on any error without hanging the client
-  let __sseStarted = false;
-  let __send;
   let __heartbeat;
-  let __corr = null;
   try {
     const message = String(req.query.message || '');
     const transcriptParam = req.query.transcript;
@@ -2243,179 +2207,76 @@ app.get('/api/assistant/message/stream', async (req, res) => {
     })();
     if (message.trim() === '') return res.status(400).json({ error: 'invalid_message' });
     const clarify = (() => { try { return JSON.parse(String(req.query.clarify || 'null')); } catch { return null; } })();
-  const client = (() => { try { return JSON.parse(String(req.query.context || 'null')); } catch { return null; } })();
-  const correlationId = mkCorrelationId();
-  __corr = correlationId;
-  const t0 = Date.now();
-  let sseTRoute = t0, sseTProp = t0, sseTVal = t0, sseTSum = t0, sseTRepair = 0;
-
-  // Two‑LLM pipeline (Conversation LLM + Code/Tool LLM) — always on
-  // SSE setup
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  if (typeof res.flushHeaders === 'function') res.flushHeaders();
-  const send = (event, data) => { res.write(`event: ${event}\n`); res.write(`data: ${data}\n\n`); };
-  __sseStarted = true; __send = send;
-  send('stage', JSON.stringify({ stage: 'routing', correlationId }));
-  const route = await runRouterLLM({ instruction: message.trim(), transcript, clarify });
-  sseTRoute = Date.now();
-
-  if (route.decision === 'clarify' && route.question) {
-  send('clarify', JSON.stringify({ question: route.question, options: Array.isArray(route.options) ? route.options : [], correlationId }));
-  try { logIO('router', { model: MODELS.convo, prompt: '(clarify)', output: JSON.stringify(route), meta: { correlationId, mode: 'sse', stageDurations: { routingMs: (sseTRoute - t0), proposingMs: 0, validatingMs: 0, summarizingMs: 0 } } }); } catch {}
-        send('done', 'true');
-        return res.end();
-      }
-      if (route.decision === 'chat') {
-  const today = new Date();
-  const todayYmd = ymdInTimeZone(today, TIMEZONE);
-  const system = `You are a helpful assistant for a todo app. Keep answers concise and clear. Prefer 1–3 short sentences; no lists or JSON.`;
-  const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
-  const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
-  const prompt = `${system}\n\nToday: ${todayYmd} (${TIMEZONE})\nConversation (last 3 turns):\n${convo}\nUser: ${String(req.query.message || '').trim()}`;
-        try {
-          const raw = await convoLLM(prompt, { stream: false });
-          sseTSum = Date.now();
-          logIO('summary', { model: MODELS.convo, prompt, output: raw, meta: { correlationId, mode: 'sse', stageDurations: { routingMs: (sseTRoute - t0), proposingMs: 0, validatingMs: 0, summarizingMs: (sseTSum - sseTRoute) } } });
-          let text = String(raw || '').replace(/```[\s\S]*?```/g, '').replace(/[\r\n]+/g, ' ').trim();
-          if (!text) text = 'Okay.';
-          send('summary', JSON.stringify({ text, correlationId }));
-        } catch {
-          send('summary', JSON.stringify({ text: 'Okay.', correlationId }));
-        }
-        send('result', JSON.stringify({ text: '', operations: [], correlationId }));
-        send('done', 'true');
-        return res.end();
-      }
-
-      // Plan path
-  send('stage', JSON.stringify({ stage: 'proposing', correlationId }));
-  const heartbeat = setInterval(() => { try { send('heartbeat', JSON.stringify({ ts: new Date().toISOString() })); } catch {} }, 10000);
-      __heartbeat = heartbeat;
-      res.on('close', () => { try { clearInterval(heartbeat); } catch {} });
-
-      // Focused context for proposals
-      let focusedWhere = null;
-      try {
-        if (route && route.where && !Array.isArray(route.where) && typeof route.where === 'object') focusedWhere = route.where;
-      } catch {}
-
-  // Build focused context using shared helper
-  const focusedContext = buildFocusedContextLLM(focusedWhere || {});
-
-      // Proposal via Code LLM
-  // Compute today string for prompts (bugfix: was missing in plan path)
-  const today = new Date();
-  const todayYmd = ymdInTimeZone(today, TIMEZONE);
-      const proposalPrompt = [
-        'You are a planning assistant for a todo app. Output ONLY a single JSON object with key "operations" as an array. No prose.',
-        'Rules: each operation MUST include kind and action; for todo/event create/update include recurrence (use {"type":"none"} for non-repeating). If recurrence.type != "none", scheduledFor is REQUIRED. No bulk ops. ≤20 ops. Do NOT invent IDs.',
-        `Today: ${todayYmd}. Timezone: ${TIMEZONE}.`,
-        'Conversation (last 3):',
-        (Array.isArray(transcript) ? transcript.slice(-3) : []).map((t) => `- ${t.role}: ${t.text}`).join('\n'),
-        'Instruction:',
-        message.trim(),
-        'Context:',
-        JSON.stringify(focusedContext)
-      ].join('\n');
-  let rawProposal;
-  try { rawProposal = await codeLLM(proposalPrompt, { model: MODELS.code }); }
-  catch (e) {
-    // Graceful SSE error: send fallback and close
-    try { send('summary', JSON.stringify({ text: 'Assistant planning failed. Please try again.', correlationId })); } catch {}
-    try { send('result', JSON.stringify({ text: '', operations: [], correlationId })); } catch {}
-    try { send('done', 'true'); } catch {}
-    try { clearInterval(heartbeat); } catch {}
-    return res.end();
-  }
-  sseTProp = Date.now();
-  logIO('proposal', { model: MODELS.code, prompt: proposalPrompt, output: rawProposal, meta: { correlationId, mode: 'sse', stageDurations: { routingMs: (sseTRoute - t0), proposingMs: (sseTProp - sseTRoute), validatingMs: 0, summarizingMs: 0 } } });
-      const parsedProposal = extractFirstJson(String(rawProposal || '')) || { operations: [] };
-      const ops0 = Array.isArray(parsedProposal.operations) ? parsedProposal.operations : [];
-
-      // Validate and optionally repair
-      let validation = validateProposal({ operations: ops0.map(o => inferOperationShape(o)) });
-  const invalidCount0 = (validation.results || []).filter(r => r.errors.length).length;
-  const validCount0 = (validation.results || []).length - invalidCount0;
-  try { appendAudit({ action: 'validation_metrics', mode: 'sse', meta: { correlationId, validCount: validCount0, invalidCount: invalidCount0, errorCodes: Array.from(new Set((validation.results||[]).flatMap(r=>r.errors||[]))), durations: { routingMs: (sseTRoute - t0), validateMs: 0 } } }); } catch {}
-      if (typeof send === 'function') {
-  send('ops', JSON.stringify({ version: 1, operations: ops0, validCount: validCount0, invalidCount: invalidCount0, correlationId }));
-      }
-      let finalOps = ops0;
-      if (invalidCount0 > 0) {
-  send('stage', JSON.stringify({ stage: 'repairing', correlationId }));
-        const errorCodes = (validation.results || []).flatMap(r => r.errors || []);
-        const repairPrompt = [
-          'You must repair the prior JSON operations to satisfy the schema and constraints. Output JSON only with key "operations".',
-          'Errors to fix:', JSON.stringify(errorCodes),
-          'Original operations:', JSON.stringify(ops0),
-          'Context:', JSON.stringify(focusedContext)
-        ].join('\n');
-  let rawRepair;
-  try { rawRepair = await codeLLM(repairPrompt, { model: MODELS.code }); }
-  catch (e) {
-    // Fall back to original valid subset
-    const validOnly = (validation.results || []).filter(r => r.errors.length === 0).map(r => r.op);
-    validation = validateProposal({ operations: validOnly.map(o => inferOperationShape(o)) });
-    const invalidCount1 = (validation.results || []).filter(r => r.errors.length).length;
-    const validCount1 = (validation.results || []).length - invalidCount1;
-    try { send('ops', JSON.stringify({ version: 2, operations: validOnly, validCount: validCount1, invalidCount: invalidCount1, correlationId })); } catch {}
-    // Continue to summary with validOnly
-    finalOps = validOnly;
-    // Skip further repair steps
-  }
-  sseTRepair = Date.now();
-  logIO('repair', { model: MODELS.code, prompt: repairPrompt, output: rawRepair, meta: { correlationId, mode: 'sse', stageDurations: { routingMs: (sseTRoute - t0), proposingMs: (sseTProp - sseTRoute), validatingMs: 0, repairingMs: (sseTRepair - sseTProp), summarizingMs: 0 } } });
-        const parsedRepair = extractFirstJson(String(rawRepair || '')) || { operations: [] };
-        finalOps = Array.isArray(parsedRepair.operations) ? parsedRepair.operations : [];
-        validation = validateProposal({ operations: finalOps.map(o => inferOperationShape(o)) });
-        const invalidCount1 = (validation.results || []).filter(r => r.errors.length).length;
-        const validCount1 = (validation.results || []).length - invalidCount1;
-  send('ops', JSON.stringify({ version: 2, operations: finalOps, validCount: validCount1, invalidCount: invalidCount1, correlationId }));
-  try { appendAudit({ action: 'validation_metrics', mode: 'sse', meta: { correlationId, validCount: validCount1, invalidCount: invalidCount1, errorCodes: Array.from(new Set((validation.results||[]).flatMap(r=>r.errors||[]))), durations: { routingMs: (sseTRoute - t0), validateMs: (Date.now() - sseTProp) } } }); } catch {}
-      }
-
-      // Summary via Conversation LLM
-  send('stage', JSON.stringify({ stage: 'summarizing', correlationId }));
-    let summaryText;
-      try {
-        const prompt2 = buildConversationalSummaryPrompt({ instruction: message.trim(), operations: finalOps, todosSnapshot: listAllTodosRaw(), transcript });
-  const raw2 = await convoLLM(prompt2, { stream: false });
-  sseTSum = Date.now();
-  logIO('summary', { model: MODELS.convo, prompt: prompt2, output: raw2, meta: { correlationId, mode: 'sse', stageDurations: { routingMs: (sseTRoute - t0), proposingMs: (sseTProp - sseTRoute), validatingMs: (sseTRepair ? (sseTRepair - sseTProp) : 0), repairingMs: (sseTRepair ? (sseTRepair - sseTProp) : 0), summarizingMs: (sseTSum - (sseTRepair || sseTProp)) } } });
-        summaryText = String(raw2 || '').replace(/```[\s\S]*?```/g, '').replace(/[\r\n]+/g, ' ').trim() || buildDeterministicSummaryText(finalOps);
-      } catch {
-        summaryText = buildDeterministicSummaryText(finalOps);
-      }
-
-  send('summary', JSON.stringify({ text: summaryText, correlationId }));
-      const annotatedAll = (validation.results || []).map((r) => ({ ...r.op, errors: r.errors }));
-  send('result', JSON.stringify({ text: summaryText, operations: annotatedAll, correlationId }));
-      try {
-        if (String(process.env.ENABLE_ASSISTANT_DEBUG || '') === '1') {
-          const validCount = (validation.results || []).filter(r => r.errors.length === 0).length;
-          const invalidCount = (validation.results || []).length - validCount;
-          console.info(`[assistant][sse] ${correlationId} routing=${sseTRoute - t0}ms proposing=${sseTProp - sseTRoute}ms validating=${(sseTRepair ? (sseTRepair - sseTProp) : 0)}ms summarizing=${sseTSum - (sseTRepair || sseTProp)}ms valid=${validCount} invalid=${invalidCount}`);
-        }
-      } catch {}
+    const correlationId = mkCorrelationId();
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    if (typeof res.flushHeaders === 'function') res.flushHeaders();
+    const send = (event, data) => { res.write(`event: ${event}\n`); res.write(`data: ${data}\n\n`); };
+    send('stage', JSON.stringify({ stage: 'routing', correlationId }));
+    // ConversationAgent
+    const ca = await runConversationAgent({ instruction: message.trim(), transcript, clarify, timezone: TIMEZONE });
+    if (ca.decision === 'clarify') {
+      send('clarify', JSON.stringify({ question: ca.question, options: Array.isArray(ca.options) ? ca.options : [], correlationId }));
       send('done', 'true');
-  try { clearInterval(heartbeat); } catch {}
+      return res.end();
+    }
+    if (ca.decision === 'chat') {
+      const summaryText = await runSummary({ operations: [], issues: [], timezone: TIMEZONE });
+      send('summary', JSON.stringify({ text: summaryText, correlationId }));
+      send('result', JSON.stringify({ text: summaryText, operations: [], correlationId }));
+      send('done', 'true');
+      return res.end();
+    }
+    // Plan: call OpsAgent
+    send('stage', JSON.stringify({ stage: 'proposing', correlationId }));
+    const heartbeat = setInterval(() => { try { send('heartbeat', JSON.stringify({ ts: new Date().toISOString() })); } catch {} }, 10000);
+    __heartbeat = heartbeat;
+    res.on('close', () => { try { clearInterval(heartbeat); } catch {} });
+    const oa = await runOpsAgent({ taskBrief: ca.delegate?.taskBrief || message.trim(), where: ca.where, transcript, timezone: TIMEZONE });
+    const validCount = oa.operations.length - (oa.notes?.invalidCount || 0);
+    const invalidCount = oa.notes?.invalidCount || 0;
+    const errors = oa.notes?.errors ? oa.notes.errors.map((error, index) => ({ index, codes: [error] })) : [];
+    send('ops', JSON.stringify({ 
+      version: oa.version, 
+      steps: oa.steps, 
+      operations: oa.operations, 
+      tools: oa.tools, 
+      validCount, 
+      invalidCount, 
+      errors: errors.length > 0 ? errors : undefined,
+      correlationId 
+    }));
+    send('stage', JSON.stringify({ stage: 'summarizing', correlationId }));
+    // Generate proper summary
+    const summaryText = await runSummary({ 
+      operations: oa.operations, 
+      issues: oa.notes?.errors || [],
+      timezone: TIMEZONE 
+    });
+    send('summary', JSON.stringify({ text: summaryText, correlationId }));
+    const partial = (oa.notes?.invalidCount || 0) > 0;
+    const issues = oa.notes?.errors || [];
+    send('result', JSON.stringify({ 
+      decision: ca.decision, 
+      steps: oa.steps, 
+      operations: oa.operations, 
+      tools: oa.tools, 
+      partial, 
+      issues: issues.length > 0 ? issues : undefined,
+      correlationId 
+    }));
+    send('done', 'true');
+    try { clearInterval(heartbeat); } catch {}
     return res.end();
   } catch (err) {
     try {
-      const isSse = res.headersSent && String(res.getHeader('Content-Type') || '').includes('text/event-stream');
-      if (isSse) {
-        const send = __send || ((event, data) => { res.write(`event: ${event}\n`); res.write(`data: ${data}\n\n`); });
-        const cid = __corr;
-        try { send('summary', JSON.stringify({ text: 'Sorry, the assistant encountered an error.', correlationId: cid })); } catch {}
-        try { send('result', JSON.stringify({ text: '', operations: [], correlationId: cid })); } catch {}
-        try { send('done', 'true'); } catch {}
-        try { if (__heartbeat) clearInterval(__heartbeat); } catch {}
-        try { res.end(); } catch {}
-      } else {
-        res.status(502).json({ error: 'assistant_failure', detail: String(err && err.message ? err.message : err) });
-      }
+      const send = (event, data) => { res.write(`event: ${event}\n`); res.write(`data: ${data}\n\n`); };
+      send('summary', JSON.stringify({ text: 'Sorry, the assistant encountered an error.' }));
+      send('result', JSON.stringify({ text: '', operations: [], correlationId: mkCorrelationId() }));
+      send('done', 'true');
+      try { if (__heartbeat) clearInterval(__heartbeat); } catch {}
+      res.end();
     } catch {}
   }
 });

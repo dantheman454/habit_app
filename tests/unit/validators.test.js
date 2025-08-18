@@ -1,0 +1,228 @@
+import { describe, it, test } from 'node:test';
+import assert from 'node:assert';
+import { OperationValidators } from '../../apps/server/operations/validators.js';
+
+describe('OperationValidators', () => {
+  describe('todoCreate', () => {
+    test('should validate valid todo creation', () => {
+      const op = {
+        title: 'Test Todo',
+        notes: 'Test notes',
+        scheduledFor: '2025-08-18',
+        timeOfDay: '14:30',
+        recurrence: { type: 'none' }
+      };
+      
+      const result = OperationValidators.todoCreate(op);
+      assert.strictEqual(result.valid, true);
+      assert.strictEqual(result.errors.length, 0);
+    });
+    
+    test('should reject missing title', () => {
+      const op = {
+        notes: 'Test notes'
+      };
+      
+      const result = OperationValidators.todoCreate(op);
+      assert.strictEqual(result.valid, false);
+      assert(result.errors.some(e => e.includes('Title is required')));
+    });
+    
+    test('should reject empty title', () => {
+      const op = {
+        title: '   '
+      };
+      
+      const result = OperationValidators.todoCreate(op);
+      assert.strictEqual(result.valid, false);
+      assert(result.errors.some(e => e.includes('Title is required')));
+    });
+    
+    test('should reject title too long', () => {
+      const op = {
+        title: 'a'.repeat(256)
+      };
+      
+      const result = OperationValidators.todoCreate(op);
+      assert.strictEqual(result.valid, false);
+      assert(result.errors.some(e => e.includes('255 characters')));
+    });
+    
+    test('should reject invalid date format', () => {
+      const op = {
+        title: 'Test Todo',
+        scheduledFor: 'invalid-date'
+      };
+      
+      const result = OperationValidators.todoCreate(op);
+      assert.strictEqual(result.valid, false);
+      assert(result.errors.some(e => e.includes('valid date')));
+    });
+    
+    test('should reject invalid time format', () => {
+      const op = {
+        title: 'Test Todo',
+        timeOfDay: '25:00'
+      };
+      
+      const result = OperationValidators.todoCreate(op);
+      assert.strictEqual(result.valid, false);
+      assert(result.errors.some(e => e.includes('valid time')));
+    });
+  });
+  
+  describe('todoUpdate', () => {
+    test('should validate valid todo update', () => {
+      const op = {
+        id: 1,
+        title: 'Updated Todo'
+      };
+      
+      const result = OperationValidators.todoUpdate(op);
+      assert.strictEqual(result.valid, true);
+      assert.strictEqual(result.errors.length, 0);
+    });
+    
+    test('should reject missing ID', () => {
+      const op = {
+        title: 'Updated Todo'
+      };
+      
+      const result = OperationValidators.todoUpdate(op);
+      assert.strictEqual(result.valid, false);
+      assert(result.errors.some(e => e.includes('Valid ID is required')));
+    });
+    
+    test('should reject invalid ID', () => {
+      const op = {
+        id: 0,
+        title: 'Updated Todo'
+      };
+      
+      const result = OperationValidators.todoUpdate(op);
+      assert.strictEqual(result.valid, false);
+      assert(result.errors.some(e => e.includes('Valid ID is required')));
+    });
+  });
+  
+  describe('todoDelete', () => {
+    test('should validate valid todo delete', () => {
+      const op = { id: 1 };
+      
+      const result = OperationValidators.todoDelete(op);
+      assert.strictEqual(result.valid, true);
+      assert.strictEqual(result.errors.length, 0);
+    });
+    
+    test('should reject missing ID', () => {
+      const op = {};
+      
+      const result = OperationValidators.todoDelete(op);
+      assert.strictEqual(result.valid, false);
+      assert(result.errors.some(e => e.includes('Valid ID is required')));
+    });
+  });
+  
+  describe('eventCreate', () => {
+    test('should validate valid event creation', () => {
+      const op = {
+        title: 'Test Event',
+        scheduledFor: '2025-08-18',
+        timeOfDay: '14:30',
+        duration: 60
+      };
+      
+      const result = OperationValidators.eventCreate(op);
+      assert.strictEqual(result.valid, true);
+      assert.strictEqual(result.errors.length, 0);
+    });
+    
+    test('should reject missing scheduledFor', () => {
+      const op = {
+        title: 'Test Event'
+      };
+      
+      const result = OperationValidators.eventCreate(op);
+      assert.strictEqual(result.valid, false);
+      assert(result.errors.some(e => e.includes('scheduledFor is required')));
+    });
+    
+    test('should reject invalid duration', () => {
+      const op = {
+        title: 'Test Event',
+        scheduledFor: '2025-08-18',
+        duration: -1
+      };
+      
+      const result = OperationValidators.eventCreate(op);
+      assert.strictEqual(result.valid, false);
+      assert(result.errors.some(e => e.includes('positive number')));
+    });
+  });
+  
+  describe('habitToggle', () => {
+    test('should validate valid habit toggle', () => {
+      const op = {
+        id: 1,
+        date: '2025-08-18'
+      };
+      
+      const result = OperationValidators.habitToggle(op);
+      assert.strictEqual(result.valid, true);
+      assert.strictEqual(result.errors.length, 0);
+    });
+    
+    test('should reject missing date', () => {
+      const op = {
+        id: 1
+      };
+      
+      const result = OperationValidators.habitToggle(op);
+      assert.strictEqual(result.valid, false);
+      assert(result.errors.some(e => e.includes('Valid date is required')));
+    });
+  });
+  
+  describe('Helper methods', () => {
+    test('isValidDate should validate correct dates', () => {
+      assert.strictEqual(OperationValidators.isValidDate('2025-08-18'), true);
+      assert.strictEqual(OperationValidators.isValidDate('2025-12-31'), true);
+      assert.strictEqual(OperationValidators.isValidDate('invalid'), false);
+      assert.strictEqual(OperationValidators.isValidDate('2025/08/18'), false);
+      assert.strictEqual(OperationValidators.isValidDate(123), false);
+    });
+    
+    test('isValidTime should validate correct times', () => {
+      assert.strictEqual(OperationValidators.isValidTime('14:30'), true);
+      assert.strictEqual(OperationValidators.isValidTime('09:05'), true);
+      assert.strictEqual(OperationValidators.isValidTime('23:59'), true);
+      assert.strictEqual(OperationValidators.isValidTime('25:00'), false);
+      assert.strictEqual(OperationValidators.isValidTime('14:60'), false);
+      assert.strictEqual(OperationValidators.isValidTime('invalid'), false);
+    });
+    
+    test('isValidDuration should validate correct durations', () => {
+      assert.strictEqual(OperationValidators.isValidDuration(60), true);
+      assert.strictEqual(OperationValidators.isValidDuration(1), true);
+      assert.strictEqual(OperationValidators.isValidDuration(0), false);
+      assert.strictEqual(OperationValidators.isValidDuration(-1), false);
+      assert.strictEqual(OperationValidators.isValidDuration(1.5), false);
+      assert.strictEqual(OperationValidators.isValidDuration('60'), false);
+    });
+    
+    test('isValidRecurrence should validate correct recurrences', () => {
+      assert.strictEqual(OperationValidators.isValidRecurrence({ type: 'none' }), true);
+      assert.strictEqual(OperationValidators.isValidRecurrence({ type: 'daily' }), true);
+      assert.strictEqual(OperationValidators.isValidRecurrence({ 
+        type: 'every_n_days', 
+        intervalDays: 3 
+      }), true);
+      assert.strictEqual(OperationValidators.isValidRecurrence({ 
+        type: 'every_n_days', 
+        intervalDays: 0 
+      }), false);
+      assert.strictEqual(OperationValidators.isValidRecurrence({ type: 'invalid' }), false);
+      assert.strictEqual(OperationValidators.isValidRecurrence(null), false);
+    });
+  });
+});
