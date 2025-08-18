@@ -605,12 +605,13 @@ class _HomePageState extends State<HomePage> {
     });
     try {
       // No extra timers; proceed to API
-      final created = await createTodoFn({
+  final created = await createTodoFn({
         'title': title,
         'scheduledFor': anchor,
         'timeOfDay': time.isEmpty ? null : time,
         'recurrence': {'type': 'none'},
       });
+  if (!mounted) return;
       setState(() {
         _qaTodoTitle.clear();
         _qaTodoTime.clear();
@@ -622,9 +623,11 @@ class _HomePageState extends State<HomePage> {
       }
       if (!TestHooks.skipRefresh) await _refreshAll();
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Create failed: $e')));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Create failed: $e')));
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -660,7 +663,7 @@ class _HomePageState extends State<HomePage> {
     await Future<void>.delayed(Duration.zero);
     try {
       await Future<void>.delayed(const Duration(milliseconds: 1));
-      await createEventFn({
+  await createEventFn({
         'title': title,
         'scheduledFor': anchor,
         'startTime': start.isEmpty ? null : start,
@@ -668,7 +671,8 @@ class _HomePageState extends State<HomePage> {
   'location': location.isEmpty ? null : location,
         'recurrence': {'type': 'none'},
       });
-      setState(() {
+  if (!mounted) return;
+  setState(() {
         _qaEventTitle.clear();
         _qaEventStart.clear();
         _qaEventEnd.clear();
@@ -676,9 +680,11 @@ class _HomePageState extends State<HomePage> {
       });
       if (!TestHooks.skipRefresh) await _refreshAll();
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Create failed: $e')));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Create failed: $e')));
+      }
     } finally {
       await Future<void>.delayed(const Duration(milliseconds: 16));
       if (mounted) {
@@ -708,21 +714,24 @@ class _HomePageState extends State<HomePage> {
     await Future<void>.delayed(Duration.zero);
     try {
       await Future<void>.delayed(const Duration(milliseconds: 1));
-      await createHabitFn({
+  await createHabitFn({
         'title': title,
         'scheduledFor': anchor,
   'timeOfDay': time.isEmpty ? null : time,
         'recurrence': {'type': 'daily'},
       });
-      setState(() {
+  if (!mounted) return;
+  setState(() {
         _qaHabitTitle.clear();
         _qaHabitTime.clear();
       });
       if (!TestHooks.skipRefresh) await _refreshAll();
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Create failed: $e')));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Create failed: $e')));
+      }
     } finally {
       await Future<void>.delayed(const Duration(milliseconds: 16));
       if (mounted) {
@@ -749,7 +758,7 @@ class _HomePageState extends State<HomePage> {
     await Future<void>.delayed(Duration.zero);
     try {
       await Future<void>.delayed(const Duration(milliseconds: 1));
-      await createGoalFn({
+  await createGoalFn({
         'title': title,
         if (notes.isNotEmpty) 'notes': notes,
         'status': _qaGoalStatus,
@@ -757,7 +766,8 @@ class _HomePageState extends State<HomePage> {
         if (tpv != null) 'targetProgressValue': tpv,
         if (unit.isNotEmpty) 'progressUnit': unit,
       });
-      setState(() {
+  if (!mounted) return;
+  setState(() {
         _qaGoalTitle.clear();
         _qaGoalNotes.clear();
         _qaGoalCurrent.clear();
@@ -767,9 +777,11 @@ class _HomePageState extends State<HomePage> {
       });
       setState(() {});
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Create failed: $e')));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Create failed: $e')));
+      }
     } finally {
       await Future<void>.delayed(const Duration(milliseconds: 16));
       if (mounted) {
@@ -1641,9 +1653,11 @@ class _HomePageState extends State<HomePage> {
     }();
     final nextAnchor = (patch.containsKey('scheduledFor')) ? (patch['scheduledFor'] as String?) : (t.scheduledFor);
     if (willRepeat && (nextAnchor == null || nextAnchor.trim().isEmpty)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Set an anchor date (YYYY-MM-DD) for repeating habits.')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Set an anchor date (YYYY-MM-DD) for repeating habits.')),
+        );
+      }
       return;
     }
     try {
@@ -1818,9 +1832,11 @@ class _HomePageState extends State<HomePage> {
     }();
     final nextAnchor = (patch.containsKey('scheduledFor')) ? (patch['scheduledFor'] as String?) : (t.scheduledFor);
     if (willRepeat && (nextAnchor == null || nextAnchor.trim().isEmpty)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Set an anchor date (YYYY-MM-DD) for repeating todos.')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Set an anchor date (YYYY-MM-DD) for repeating todos.')),
+        );
+      }
       return;
     }
     try {
@@ -1989,9 +2005,11 @@ class _HomePageState extends State<HomePage> {
     }();
     final nextAnchor = (patch.containsKey('scheduledFor')) ? (patch['scheduledFor'] as String?) : (t.scheduledFor);
     if (willRepeat && (nextAnchor == null || nextAnchor.trim().isEmpty)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Set an anchor date (YYYY-MM-DD) for repeating events.')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Set an anchor date (YYYY-MM-DD) for repeating events.')),
+        );
+      }
       return;
     }
     try {
@@ -2249,6 +2267,7 @@ class _HomePageState extends State<HomePage> {
                 .toList() ??
             const <String>[];
         if (warnings.isNotEmpty) {
+          if (!mounted) return;
           final ok = await showDialog<bool>(
             context: context,
             builder: (c) => AlertDialog(
@@ -2289,13 +2308,15 @@ class _HomePageState extends State<HomePage> {
       }
   final res = await api.applyOperations(selectedOps, correlationId: _lastCorrelationId);
       final summary = res['summary'];
-      setState(() {
-        message =
-            'Applied: c=${summary['created']}, u=${summary['updated']}, d=${summary['deleted']}, done=${summary['completed']}';
-        assistantOps = [];
-        assistantOpsChecked = [];
-        assistantShowDiff = false;
-      });
+      if (mounted) {
+        setState(() {
+          message =
+              'Applied: c=${summary['created']}, u=${summary['updated']}, d=${summary['deleted']}, done=${summary['completed']}';
+          assistantOps = [];
+          assistantOpsChecked = [];
+          assistantShowDiff = false;
+        });
+      }
       await _refreshAll();
     } catch (e) {
       setState(() => message = 'Apply failed: $e');
@@ -3648,8 +3669,9 @@ class _HomePageState extends State<HomePage> {
                                         id,
                                         t['id'] as int,
                                       );
-                                      Navigator.pop(c);
-                                      _openGoalDetail(id);
+                                      if (!mounted) return;
+                                      Navigator.of(context).pop();
+                                      await _openGoalDetail(id);
                                     },
                                   ),
                                 ],
@@ -3677,8 +3699,9 @@ class _HomePageState extends State<HomePage> {
                                         id,
                                         ev['id'] as int,
                                       );
-                                      Navigator.pop(c);
-                                      _openGoalDetail(id);
+                                      if (!mounted) return;
+                                      Navigator.of(context).pop();
+                                      await _openGoalDetail(id);
                                     },
                                   ),
                                 ],
@@ -3702,8 +3725,9 @@ class _HomePageState extends State<HomePage> {
                                     icon: const Icon(Icons.link_off, size: 16),
                                     onPressed: () async {
                                       await api.removeGoalChild(id, cid);
-                                      Navigator.pop(c);
-                                      _openGoalDetail(id);
+                                      if (!mounted) return;
+                                      Navigator.of(context).pop();
+                                      await _openGoalDetail(id);
                                     },
                                   ),
                                 ],
@@ -3754,10 +3778,11 @@ class _HomePageState extends State<HomePage> {
                               todos: todos.isEmpty ? null : todos,
                               events: events.isEmpty ? null : events,
                             );
-                            Navigator.pop(c);
-                            _openGoalDetail(id);
+                            if (!mounted) return;
+                            Navigator.of(context).pop();
+                            await _openGoalDetail(id);
                           } catch (e) {
-                            if (context.mounted) {
+                            if (mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(content: Text('Link failed: $e')),
                               );
@@ -3790,10 +3815,11 @@ class _HomePageState extends State<HomePage> {
                           }
                           try {
                             await api.addGoalChild(id, cid);
-                            Navigator.pop(c);
-                            _openGoalDetail(id);
+                            if (!mounted) return;
+                            Navigator.of(context).pop();
+                            await _openGoalDetail(id);
                           } catch (e) {
-                            if (context.mounted) {
+                            if (mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(content: Text('Add child failed: $e')),
                               );
@@ -3811,7 +3837,8 @@ class _HomePageState extends State<HomePage> {
           actions: [
             TextButton(
               onPressed: () async {
-                Navigator.pop(c);
+                if (!mounted) return;
+                Navigator.of(context).pop();
                 await _openEditGoalDialog(goal);
               },
               child: const Text('Edit'),
@@ -3820,10 +3847,11 @@ class _HomePageState extends State<HomePage> {
               onPressed: () async {
                 try {
                   await api.deleteGoal(id);
-                  Navigator.pop(c);
-                  setState(() {});
+                  if (!mounted) return;
+                  Navigator.of(context).pop();
+                  if (mounted) setState(() {});
                 } catch (e) {
-                  if (context.mounted) {
+                  if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text('Delete failed: $e')),
                     );
@@ -3833,7 +3861,7 @@ class _HomePageState extends State<HomePage> {
               child: const Text('Delete'),
             ),
             TextButton(
-              onPressed: () => Navigator.pop(c),
+              onPressed: () => Navigator.of(context).pop(),
               child: const Text('Close'),
             ),
           ],
