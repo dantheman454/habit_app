@@ -99,23 +99,26 @@ For detailed documentation and usage instructions, see: [tests/llm/README.md](ll
 ### Quick Reference
 
 ```bash
-# Model comparison testing
-node tests/llm/model_comparison.js --task router --models llama3.2:3b,granite-code:8b
+# Enhanced model comparison testing
+node tests/llm/improved/improved_model_comparison.js --run-tests --task router --models llama3.2:3b,granite-code:8b
 
-# Prompt optimization
-node tests/llm/prompt_optimizer.js --task router --model llama3.2:3b
+# Model comparison across tasks
+node tests/llm/improved/improved_model_comparison.js --compare-models --tasks router,proposal,repair --models llama3.2:3b,granite-code:8b
 
-# Comprehensive testing
-node tests/llm/model_comparison.js --task all --models llama3.2:3b,granite-code:8b,llama3.2:8b --iterations 5
+# Validation review interface
+node tests/llm/improved/improved_model_comparison.js --validate-scenarios
+
+# Generate detailed reports
+node tests/llm/improved/improved_model_comparison.js --generate-report --input results.json --output detailed
 ```
 
-**Note**: These tools are standalone and are not integrated with the main test suite.
+**Note**: The enhanced LLM testing suite provides semantic validation, real LLM integration, and comprehensive performance metrics.
 
-For detailed information about what these tools test and how they work, see the [LLM Testing Suite documentation](llm/README.md).
+For detailed information about the enhanced testing suite, see the [LLM Testing Suite documentation](llm/IMPROVEMENT_GUIDE.md).
 
 ## Configuration
 
-For LLM-specific configuration and model recommendations, see the [LLM Testing Suite documentation](llm/README.md).
+For LLM-specific configuration and model recommendations, see the [LLM Testing Suite documentation](llm/IMPROVEMENT_GUIDE.md).
 
 ## Running Tests
 
@@ -134,29 +137,29 @@ node tests/run.js
 
 ### LLM Testing Suite
 
-For LLM-specific testing, see the [LLM Testing Suite documentation](llm/README.md).
+For LLM-specific testing, see the [LLM Testing Suite documentation](llm/IMPROVEMENT_GUIDE.md).
 
-**Note**: The LLM testing tools are standalone and are not included in the main test suite.
+**Note**: The enhanced LLM testing suite provides semantic validation, real LLM integration, and comprehensive performance metrics.
 
 ## Interpreting Results
 
-For information about interpreting LLM test results, see the [LLM Testing Suite documentation](llm/README.md).
+For information about interpreting LLM test results, see the [LLM Testing Suite documentation](llm/IMPROVEMENT_GUIDE.md).
 
 ## Best Practices
 
-For LLM-specific best practices, see the [LLM Testing Suite documentation](llm/README.md).
+For LLM-specific best practices, see the [LLM Testing Suite documentation](llm/IMPROVEMENT_GUIDE.md).
 
 ## Troubleshooting
 
-For LLM-specific troubleshooting, see the [LLM Testing Suite documentation](llm/README.md).
+For LLM-specific troubleshooting, see the [LLM Testing Suite documentation](llm/IMPROVEMENT_GUIDE.md).
 
 ## Integration with Development
 
-For information about integrating LLM testing into your development workflow, see the [LLM Testing Suite documentation](llm/README.md).
+For information about integrating LLM testing into your development workflow, see the [LLM Testing Suite documentation](llm/IMPROVEMENT_GUIDE.md).
 
 ## Future Enhancements
 
-For information about future LLM testing enhancements, see the [LLM Testing Suite documentation](llm/README.md).
+For information about future LLM testing enhancements, see the [LLM Testing Suite documentation](llm/IMPROVEMENT_GUIDE.md).
 
 ## Contributing
 
@@ -174,4 +177,4 @@ For issues or questions:
 1. Check the troubleshooting section
 2. Review the test output for specific errors
 3. Ensure all prerequisites are met
-4. For LLM-specific issues, see the [LLM Testing Suite documentation](llm/README.md)
+4. For LLM-specific issues, see the [LLM Testing Suite documentation](llm/IMPROVEMENT_GUIDE.md)

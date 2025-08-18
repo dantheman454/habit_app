@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Test Suite - Validation Review</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .scenario { border: 1px solid #ddd; margin: 10px 0; padding: 15px; border-radius: 5px; }
+        .router { border-left: 4px solid #007bff; }
+        .proposal { border-left: 4px solid #28a745; }
+        .repair { border-left: 4px solid #ffc107; }
+        .annotation { background: #f8f9fa; padding: 10px; margin: 10px 0; border-radius: 3px; }
+        .expected { background: #e7f3ff; padding: 10px; margin: 10px 0; border-radius: 3px; }
+        .approval-buttons { margin: 10px 0; }
+        .btn { padding: 8px 16px; margin: 0 5px; border: none; border-radius: 3px; cursor: pointer; }
+        .btn-approve { background: #28a745; color: white; }
+        .btn-revision { background: #ffc107; color: black; }
+        .btn-reject { background: #dc3545; color: white; }
+        .summary { background: #f8f9fa; padding: 20px; margin: 20px 0; border-radius: 5px; }
+        .progress { background: #e9ecef; height: 20px; border-radius: 10px; overflow: hidden; }
+        .progress-bar { background: #007bff; height: 100%; transition: width 0.3s; }
+        pre { background: #f8f9fa; padding: 10px; border-radius: 3px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>LLM Test Suite - Validation Review</h1>
+    
+    <div class="summary">
+        <h2>Review Summary</h2>
+        <p><strong>Total Scenarios:</strong> <span id="totalCount">0</span></p>
+        <p><strong>Reviewed:</strong> <span id="reviewedCount">0</span></p>
+        <p><strong>Approved:</strong> <span id="approvedCount">0</span></p>
+        <p><strong>Needs Revision:</strong> <span id="revisionCount">0</span></p>
+        <p><strong>Rejected:</strong> <span id="rejectedCount">0</span></p>
+        
+        <div class="progress">
+            <div class="progress-bar" id="progressBar" style="width: 0%"></div>
+        </div>
+    </div>
+
+    <div id="scenarios"></div>
+
+    <div class="summary">
+        <h2>Review Instructions</h2>
+        <p>For each scenario, please review:</p>
+        <ul>
+            <li><strong>Human Annotation:</strong> Is the annotation accurate and helpful?</li>
+            <li><strong>Expected Outcome:</strong> Is the expected result realistic and correct?</li>
+            <li><strong>Validation Criteria:</strong> Are the validation rules appropriate?</li>
+            <li><strong>Test Coverage:</strong> Does the scenario cover the intended test case?</li>
+        </ul>
+        
+        <p><strong>Approval Scale:</strong></p>
+        <ul>
+            <li><span style="color: #28a745;">✅ APPROVED</span> - Scenario is accurate and ready for implementation</li>
+            <li><span style="color: #ffc107;">⚠️ NEEDS REVISION</span> - Minor changes needed</li>
+            <li><span style="color: #dc3545;">❌ REJECTED</span> - Major issues, needs complete revision</li>
+        </ul>
+    </div>
+
+    <script>
+        // Enhanced scenarios data
+        const ENHANCED_SCENARIOS = {
+            router: [
+                // Clear intent scenarios (5) - Human annotated expected outcomes
+                {
+                    name: "Complete specific task",
+                    instruction: "Complete my project proposal review",
+                    context: { todos: [{ id: 1, title: "Review project proposal", status: "pending" }] },
+                    expected: {
+                        decision: "plan",
+                        confidence: 0.9,
+                        where: { ids: [1] },
+                        requiresClarification: false,
+                        humanAnnotation: "Clear intent to complete a specific task"
+                    }
+                },
+                {
+                    name: "Create new task",
+                    instruction: "Create a task to buy groceries tomorrow",
+                    context: { todos: [] },
+                    expected: {
+                        decision: "plan",
+                        confidence: 0.8,
+                        where: "tomorrow",
+                        requiresClarification: false,
+                        humanAnnotation: "Clear intent to create a new task with specific timing"
+                    }
+                },
+                {
+                    name: "Update task time",
+                    instruction: "Change my meeting to 3pm",
+                    context: { events: [{ id: 1, title: "Team meeting", startTime: "10:00" }] },
+                    expected: {
+                        decision: "plan",
+                        confidence: 0.8,
+                        where: { ids: [1] },
+                        requiresClarification: false,
+                        humanAnnotation: "Clear intent to reschedule existing meeting"
+                    }
+                },
+                {
+                    name: "Show today's tasks",
+                    instruction: "What do I have to do today?",
+                    context: { todos: [{ id: 1, title: "Review project proposal", scheduledFor: "2025-08-18" }] },
+                    expected: {
+                        decision: "plan",
+                        confidence: 0.9,
+                        where: "today",
+                        requiresClarification: false,
+                        humanAnnotation: "Clear intent to view tasks for today"
+                    }
+                },
+                {
+                    name: "Mark task complete",
+                    instruction: "Mark my project review as done",
+                    context: { todos: [{ id: 1, title: "Review project proposal", status: "pending" }] },
+                    expected: {
+                        decision: "plan",
+                        confidence: 0.9,
+                        where: { ids: [1] },
+                        requiresClarification: false,
+                        humanAnnotation: "Clear intent to mark specific task as completed"
+                    }
+                },
+
+                // Ambiguous intent scenarios (5) - Human annotated expected outcomes
+                {
+                    name: "Ambiguous task reference",
+                    instruction: "Update my task",
+                    context: { todos: [{ id: 1, title: "Review project" }, { id: 2, title: "Call client" }] },
+                    expected: {
+                        decision: "clarify",
+                        confidence: 0.3,
+                        question: "Which task do you want to update?",
+                        options: [
+                            { id: 1, title: "Review project" },
+                            { id: 2, title: "Call client" }
+                        ],
+                        requiresClarification: true,
+                        humanAnnotation: "Ambiguous reference - multiple tasks available, needs clarification"
+                    }
+                },
+                {
+                    name: "Ambiguous time reference",
+                    instruction: "Show me my tasks for next week",
+                    context: { todos: [] },
+                    expected: {
+                        decision: "clarify",
+                        confidence: 0.4,
+                        question: "Which week do you mean? This week or next week?",
+                        requiresClarification: true,
+                        humanAnnotation: "Time reference could be interpreted multiple ways"
+                    }
+                },
+                {
+                    name: "Vague completion request",
+                    instruction: "Complete something",
+                    context: { todos: [{ id: 1, title: "Review project" }, { id: 2, title: "Call client" }] },
+                    expected: {
+                        decision: "clarify",
+                        confidence: 0.2,
+                        question: "Which task would you like to complete?",
+                        options: [
+                            { id: 1, title: "Review project" },
+                            { id: 2, title: "Call client" }
+                        ],
+                        requiresClarification: true,
+                        humanAnnotation: "Vague request - no specific task identified"
+                    }
+                },
+                {
+                    name: "Unclear action",
+                    instruction: "Do something with my meeting",
+                    context: { events: [{ id: 1, title: "Team meeting" }] },
+                    expected: {
+                        decision: "clarify",
+                        confidence: 0.3,
+                        question: "What would you like to do with your meeting? (reschedule, cancel, add details)",
+                        requiresClarification: true,
+                        humanAnnotation: "Unclear what action to take on the meeting"
+                    }
+                },
+                {
+                    name: "Multiple possible interpretations",
+                    instruction: "Handle my project",
+                    context: { todos: [{ id: 1, title: "Review project" }], events: [{ id: 1, title: "Project meeting" }] },
+                    expected: {
+                        decision: "clarify",
+                        confidence: 0.3,
+                        question: "Do you want to work on the project task or the project meeting?",
+                        options: [
+                            { id: 1, title: "Review project", type: "todo" },
+                            { id: 1, title: "Project meeting", type: "event" }
+                        ],
+                        requiresClarification: true,
+                        humanAnnotation: "Multiple project-related items, needs clarification on which one"
+                    }
+                }
+            ],
+
+            proposal: [
+                // Simple operations (5) - Human annotated expected outcomes
+                {
+                    name: "Create single todo",
+                    instruction: "Create a task called 'Buy groceries' for tomorrow",
+                    focusedWhere: { scheduled_range: { from: "2025-08-19", to: "2025-08-19" } },
+                    expected: {
+                        operations: [
+                            {
+                                kind: "todo",
+                                action: "create",
+                                title: "Buy groceries",
+                                scheduledFor: "2025-08-19",
+                                recurrence: { type: "none" }
+                            }
+                        ],
+                        shouldExecute: true,
+                        expectedResult: { todos: [{ title: "Buy groceries", scheduledFor: "2025-08-19" }] },
+                        humanAnnotation: "Simple task creation with specific title and date"
+                    }
+                },
+                {
+                    name: "Update task time",
+                    instruction: "Change my meeting to 3pm",
+                    focusedWhere: { ids: [1] },
+                    expected: {
+                        operations: [
+                            {
+                                kind: "event",
+                                action: "update",
+                                id: 1,
+                                startTime: "15:00",
+                                endTime: "16:00"
+                            }
+                        ],
+                        shouldExecute: true,
+                        expectedResult: { events: [{ id: 1, startTime: "15:00", endTime: "16:00" }] },
+                        humanAnnotation: "Update existing event with new time"
+                    }
+                },
+                {
+                    name: "Mark task complete",
+                    instruction: "Mark my project review as done",
+                    focusedWhere: { ids: [1] },
+                    expected: {
+                        operations: [
+                            {
+                                kind: "todo",
+                                action: "set_status",
+                                id: 1,
+                                status: "completed"
+                            }
+                        ],
+                        shouldExecute: true,
+                        expectedResult: { todos: [{ id: 1, status: "completed" }] },
+                        humanAnnotation: "Mark specific task as completed"
+                    }
+                },
+                {
+                    name: "Delete task",
+                    instruction: "Remove my old meeting",
+                    focusedWhere: { ids: [1] },
+                    expected: {
+                        operations: [
+                            {
+                                kind: "event",
+                                action: "delete",
+                                id: 1
+                            }
+                        ],
+                        shouldExecute: true,
+                        expectedResult: { events: [] },
+                        humanAnnotation: "Delete existing event"
+                    }
+                },
+                {
+                    name: "Create daily habit",
+                    instruction: "Create a daily exercise habit",
+                    focusedWhere: {},
+                    expected: {
+                        operations: [
+                            {
+                                kind: "todo",
+                                action: "create",
+                                title: "Exercise",
+                                scheduledFor: "2025-08-18",
+                                recurrence: { type: "daily" }
+                            }
+                        ],
+                        shouldExecute: true,
+                        expectedResult: { todos: [{ title: "Exercise", recurrence: { type: "daily" } }] },
+                        humanAnnotation: "Create recurring daily task"
+                    }
+                }
+            ],
+
+            repair: [
+                // Single error fixes (5) - Human annotated expected outcomes
+                {
+                    name: "Missing recurrence",
+                    original: [
+                        { kind: "todo", action: "create", title: "Test task", scheduledFor: "2025-08-18" }
+                    ],
+                    errors: [
+                        { op: { kind: "todo", action: "create", title: "Test task" }, errors: ["missing_recurrence"] }
+                    ],
+                    expected: {
+                        operations: [
+                            { kind: "todo", action: "create", title: "Test task", scheduledFor: "2025-08-18", recurrence: { type: "none" } }
+                        ],
+                        shouldExecute: true,
+                        expectedResult: { todos: [{ title: "Test task", recurrence: { type: "none" } }] },
+                        humanAnnotation: "Add missing recurrence field for non-repeating task"
+                    }
+                },
+                {
+                    name: "Missing timeOfDay",
+                    original: [
+                        { kind: "todo", action: "update", id: 1, scheduledFor: "2025-08-18" }
+                    ],
+                    errors: [
+                        { op: { kind: "todo", action: "update", id: 1 }, errors: ["missing_timeOfDay"] }
+                    ],
+                    expected: {
+                        operations: [
+                            { kind: "todo", action: "update", id: 1, scheduledFor: "2025-08-18", timeOfDay: "09:00", recurrence: { type: "none" } }
+                        ],
+                        shouldExecute: true,
+                        expectedResult: { todos: [{ id: 1, timeOfDay: "09:00" }] },
+                        humanAnnotation: "Add missing timeOfDay field when updating time-related fields"
+                    }
+                },
+                {
+                    name: "Invalid ID",
+                    original: [
+                        { kind: "todo", action: "update", id: 999, title: "Test" }
+                    ],
+                    errors: [
+                        { op: { kind: "todo", action: "update", id: 999 }, errors: ["id_not_found"] }
+                    ],
+                    expected: {
+                        operations: [
+                            { kind: "todo", action: "update", id: 1, title: "Test", recurrence: { type: "none" } }
+                        ],
+                        shouldExecute: true,
+                        expectedResult: { todos: [{ id: 1, title: "Test" }] },
+                        humanAnnotation: "Replace invalid ID with valid ID from context"
+                    }
+                },
+                {
+                    name: "Missing scheduledFor for recurrence",
+                    original: [
+                        { kind: "todo", action: "create", title: "Daily task", recurrence: { type: "daily" } }
+                    ],
+                    errors: [
+                        { op: { kind: "todo", action: "create", title: "Daily task" }, errors: ["missing_anchor_for_recurrence"] }
+                    ],
+                    expected: {
+                        operations: [
+                            { kind: "todo", action: "create", title: "Daily task", scheduledFor: "2025-08-18", recurrence: { type: "daily" } }
+                        ],
+                        shouldExecute: true,
+                        expectedResult: { todos: [{ title: "Daily task", scheduledFor: "2025-08-18", recurrence: { type: "daily" } }] },
+                        humanAnnotation: "Add missing scheduledFor anchor for recurring task"
+                    }
+                },
+                {
+                    name: "Invalid date format",
+                    original: [
+                        { kind: "todo", action: "create", title: "Test", scheduledFor: "invalid-date" }
+                    ],
+                    errors: [
+                        { op: { kind: "todo", action: "create", title: "Test" }, errors: ["invalid_date_format"] }
+                    ],
+                    expected: {
+                        operations: [
+                            { kind: "todo", action: "create", title: "Test", scheduledFor: "2025-08-18", recurrence: { type: "none" } }
+                        ],
+                        shouldExecute: true,
+                        expectedResult: { todos: [{ title: "Test", scheduledFor: "2025-08-18" }] },
+                        humanAnnotation: "Fix invalid date format to valid ISO date"
+                    }
+                }
+            ]
+        };
+
+        let reviewResults = {};
+
+        function renderScenarios() {
+            const container = document.getElementById('scenarios');
+            let scenarioIndex = 0;
+
+            for (const [taskType, taskScenarios] of Object.entries(ENHANCED_SCENARIOS)) {
+                for (const scenario of taskScenarios) {
+                    const div = document.createElement('div');
+                    div.className = `scenario ${taskType}`;
+                    div.innerHTML = `
+                        <h3>${taskType.toUpperCase()}: ${scenario.name}</h3>
+                        <p><strong>Instruction:</strong> "${scenario.instruction}"</p>
+                        
+                        <div class="annotation">
+                            <strong>Human Annotation:</strong> ${scenario.expected.humanAnnotation}
+                        </div>
+                        
+                        <div class="expected">
+                            <strong>Expected Outcome:</strong>
+                            <pre>${JSON.stringify(scenario.expected, null, 2)}</pre>
+                        </div>
+                        
+                        <div class="approval-buttons">
+                            <button class="btn btn-approve" onclick="approveScenario(${scenarioIndex})">✅ APPROVED</button>
+                            <button class="btn btn-revision" onclick="needsRevision(${scenarioIndex})">⚠️ NEEDS REVISION</button>
+                            <button class="btn btn-reject" onclick="rejectScenario(${scenarioIndex})">❌ REJECTED</button>
+                        </div>
+                    `;
+                    container.appendChild(div);
+                    scenarioIndex++;
+                }
+            }
+            
+            updateSummary();
+        }
+
+        function approveScenario(index) {
+            reviewResults[index] = 'approved';
+            updateSummary();
+        }
+
+        function needsRevision(index) {
+            reviewResults[index] = 'revision';
+            updateSummary();
+        }
+
+        function rejectScenario(index) {
+            reviewResults[index] = 'rejected';
+            updateSummary();
+        }
+
+        function updateSummary() {
+            const total = Object.keys(ENHANCED_SCENARIOS).reduce((sum, task) => sum + ENHANCED_SCENARIOS[task].length, 0);
+            const reviewed = Object.keys(reviewResults).length;
+            const approved = Object.values(reviewResults).filter(r => r === 'approved').length;
+            const revision = Object.values(reviewResults).filter(r => r === 'revision').length;
+            const rejected = Object.values(reviewResults).filter(r => r === 'rejected').length;
+
+            document.getElementById('totalCount').textContent = total;
+            document.getElementById('reviewedCount').textContent = reviewed;
+            document.getElementById('approvedCount').textContent = approved;
+            document.getElementById('revisionCount').textContent = revision;
+            document.getElementById('rejectedCount').textContent = rejected;
+
+            const progress = (reviewed / total) * 100;
+            document.getElementById('progressBar').style.width = progress + '%';
+        }
+
+        // Load scenarios and render
+        renderScenarios();
+    </script>
+</body>
+</html>
