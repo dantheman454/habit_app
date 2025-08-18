@@ -29,13 +29,41 @@ export function logIO(kind, { model, prompt, output, meta = {} }) {
   };
   const line = JSON.stringify(entry);
   try { fs.appendFileSync(path.join(LOG_DIR, `${kind}.log`), line + '\n'); } catch {}
-  // Full console output (always on)
+  
+  // Clean console output - extract and pretty-print JSON response
   const bytesIn = entry.prompt.length;
   const bytesOut = (entry.output || '').length;
   console.log(`[LLM:${kind}] model=${model} bytesIn=${bytesIn} bytesOut=${bytesOut}`);
-  // Print the full output unmodified to stdout
+  
+  // Extract and pretty-print the JSON response from Ollama output
   try {
-    // Separate line to keep headers readable
-    console.log(String(entry.output ?? ''));
-  } catch {}
+    const ollamaResponse = JSON.parse(entry.output || '{}');
+    if (ollamaResponse.response) {
+      // Try to parse the inner JSON response
+      try {
+        const innerResponse = JSON.parse(ollamaResponse.response);
+        console.log('📄 Response:', JSON.stringify(innerResponse, null, 2));
+      } catch {
+        // If inner parsing fails, try to extract JSON from the response
+        const responseText = ollamaResponse.response;
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          try {
+            const extractedJson = JSON.parse(jsonMatch[0]);
+            console.log('📄 Response:', JSON.stringify(extractedJson, null, 2));
+          } catch {
+            console.log('📄 Response:', responseText);
+          }
+        } else {
+          console.log('📄 Response:', responseText);
+        }
+      }
+    } else {
+      // Fallback: show the full output if no response field
+      console.log('📄 Response:', entry.output);
+    }
+  } catch {
+    // If JSON parsing fails, show the raw output
+    console.log('📄 Response:', entry.output);
+  }
 }
