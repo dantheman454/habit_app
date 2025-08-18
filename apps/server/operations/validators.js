@@ -81,18 +81,20 @@ export class OperationValidators {
       errors
     };
   }
-  
-  static todoComplete(op) {
+
+  static todoSetStatus(op) {
     const errors = [];
-    
     if (!op.id || typeof op.id !== 'number' || op.id <= 0) {
       errors.push('Valid ID is required');
     }
-    
-    return {
-      valid: errors.length === 0,
-      errors
-    };
+    const s = (op.status === undefined || op.status === null) ? null : String(op.status);
+    if (!s || !['pending','completed','skipped'].includes(s)) {
+      errors.push('invalid_status');
+    }
+    if (op.occurrenceDate !== undefined && !(op.occurrenceDate === null || OperationValidators.isValidDate(op.occurrenceDate))) {
+      errors.push('invalid_occurrenceDate');
+    }
+    return { valid: errors.length === 0, errors };
   }
   
   static eventCreate(op) {
@@ -110,16 +112,24 @@ export class OperationValidators {
       errors.push('Notes must be a string');
     }
     
-    if (!op.scheduledFor || !OperationValidators.isValidDate(op.scheduledFor)) {
-      errors.push('scheduledFor is required and must be a valid date in YYYY-MM-DD format');
+    if (op.scheduledFor && !OperationValidators.isValidDate(op.scheduledFor)) {
+      errors.push('scheduledFor must be a valid date in YYYY-MM-DD format');
     }
     
-    if (op.timeOfDay && !OperationValidators.isValidTime(op.timeOfDay)) {
-      errors.push('timeOfDay must be a valid time in HH:MM format');
+    if (op.startTime && !OperationValidators.isValidTime(op.startTime)) {
+      errors.push('startTime must be a valid time in HH:MM format');
     }
     
-    if (op.duration && !OperationValidators.isValidDuration(op.duration)) {
-      errors.push('duration must be a positive number in minutes');
+    if (op.endTime && !OperationValidators.isValidTime(op.endTime)) {
+      errors.push('endTime must be a valid time in HH:MM format');
+    }
+    
+    if (op.startTime && op.endTime && op.startTime >= op.endTime) {
+      errors.push('endTime must be after startTime');
+    }
+    
+    if (op.recurrence && !OperationValidators.isValidRecurrence(op.recurrence)) {
+      errors.push('recurrence must be a valid recurrence object');
     }
     
     return {
@@ -151,12 +161,20 @@ export class OperationValidators {
       errors.push('scheduledFor must be a valid date in YYYY-MM-DD format');
     }
     
-    if (op.timeOfDay !== undefined && !OperationValidators.isValidTime(op.timeOfDay)) {
-      errors.push('timeOfDay must be a valid time in HH:MM format');
+    if (op.startTime !== undefined && !OperationValidators.isValidTime(op.startTime)) {
+      errors.push('startTime must be a valid time in HH:MM format');
     }
     
-    if (op.duration !== undefined && !OperationValidators.isValidDuration(op.duration)) {
-      errors.push('duration must be a positive number in minutes');
+    if (op.endTime !== undefined && !OperationValidators.isValidTime(op.endTime)) {
+      errors.push('endTime must be a valid time in HH:MM format');
+    }
+    
+    if (op.startTime && op.endTime && op.startTime >= op.endTime) {
+      errors.push('endTime must be after startTime');
+    }
+    
+    if (op.recurrence !== undefined && !OperationValidators.isValidRecurrence(op.recurrence)) {
+      errors.push('recurrence must be a valid recurrence object');
     }
     
     return {
@@ -170,6 +188,28 @@ export class OperationValidators {
     
     if (!op.id || typeof op.id !== 'number' || op.id <= 0) {
       errors.push('Valid ID is required');
+    }
+    
+    return {
+      valid: errors.length === 0,
+      errors
+    };
+  }
+
+  static eventSetOccurrenceStatus(op) {
+    const errors = [];
+    
+    if (!op.id || typeof op.id !== 'number' || op.id <= 0) {
+      errors.push('Valid ID is required');
+    }
+    
+    if (!op.occurrenceDate || !OperationValidators.isValidDate(op.occurrenceDate)) {
+      errors.push('Valid occurrenceDate is required in YYYY-MM-DD format');
+    }
+    
+    const s = (op.status === undefined || op.status === null) ? null : String(op.status);
+    if (!s || !['pending','completed','skipped'].includes(s)) {
+      errors.push('invalid_status');
     }
     
     return {
@@ -193,8 +233,16 @@ export class OperationValidators {
       errors.push('Notes must be a string');
     }
     
-    if (op.frequency && !OperationValidators.isValidFrequency(op.frequency)) {
-      errors.push('frequency must be a valid frequency object');
+    if (op.scheduledFor && !OperationValidators.isValidDate(op.scheduledFor)) {
+      errors.push('scheduledFor must be a valid date in YYYY-MM-DD format');
+    }
+    
+    if (op.timeOfDay && !OperationValidators.isValidTime(op.timeOfDay)) {
+      errors.push('timeOfDay must be a valid time in HH:MM format');
+    }
+    
+    if (op.recurrence && !OperationValidators.isValidRecurrence(op.recurrence)) {
+      errors.push('recurrence must be a valid recurrence object');
     }
     
     return {
@@ -222,8 +270,16 @@ export class OperationValidators {
       errors.push('Notes must be a string');
     }
     
-    if (op.frequency !== undefined && !OperationValidators.isValidFrequency(op.frequency)) {
-      errors.push('frequency must be a valid frequency object');
+    if (op.scheduledFor !== undefined && !OperationValidators.isValidDate(op.scheduledFor)) {
+      errors.push('scheduledFor must be a valid date in YYYY-MM-DD format');
+    }
+    
+    if (op.timeOfDay !== undefined && !OperationValidators.isValidTime(op.timeOfDay)) {
+      errors.push('timeOfDay must be a valid time in HH:MM format');
+    }
+    
+    if (op.recurrence !== undefined && !OperationValidators.isValidRecurrence(op.recurrence)) {
+      errors.push('recurrence must be a valid recurrence object');
     }
     
     return {
@@ -244,16 +300,21 @@ export class OperationValidators {
       errors
     };
   }
-  
-  static habitToggle(op) {
+
+  static habitSetOccurrenceStatus(op) {
     const errors = [];
     
     if (!op.id || typeof op.id !== 'number' || op.id <= 0) {
       errors.push('Valid ID is required');
     }
     
-    if (!op.date || !OperationValidators.isValidDate(op.date)) {
-      errors.push('Valid date is required in YYYY-MM-DD format');
+    if (!op.occurrenceDate || !OperationValidators.isValidDate(op.occurrenceDate)) {
+      errors.push('Valid occurrenceDate is required in YYYY-MM-DD format');
+    }
+    
+    const s = (op.status === undefined || op.status === null) ? null : String(op.status);
+    if (!s || !['pending','completed','skipped'].includes(s)) {
+      errors.push('invalid_status');
     }
     
     return {

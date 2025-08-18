@@ -64,32 +64,34 @@ export class OperationExecutors {
       throw new Error(`Failed to delete todo: ${error.message}`);
     }
   }
-  
-  async todoComplete(op) {
+
+  async todoSetStatus(op) {
     try {
-      const todo = await this.db.updateTodo(op.id, { completed: true });
-      
-      if (!todo) {
-        throw new Error(`Todo with ID ${op.id} not found`);
+      const occurrenceDate = op.occurrenceDate;
+      const status = String(op.status);
+      if (occurrenceDate) {
+        const updated = await this.db.setTodoOccurrenceStatus({ id: op.id, occurrenceDate, status });
+        return { todo: updated, updated: true };
       }
-      
-      return {
-        todo,
-        completed: true
-      };
+      const todo = await this.db.updateTodo(op.id, { status });
+      if (!todo) throw new Error(`Todo with ID ${op.id} not found`);
+      return { todo, updated: true };
     } catch (error) {
-      throw new Error(`Failed to complete todo: ${error.message}`);
+      throw new Error(`Failed to set todo status: ${error.message}`);
     }
   }
   
   async eventCreate(op) {
     try {
-      const event = await this.db.events.create({
-        title: op.title,
-        notes: op.notes || null,
-        scheduledFor: op.scheduledFor,
-        timeOfDay: op.timeOfDay || null,
-        duration: op.duration || null
+      const event = await this.db.createEvent({
+        title: String(op.title || '').trim(),
+        notes: op.notes || '',
+        scheduledFor: op.scheduledFor ?? null,
+        startTime: (op.startTime === '' ? null : op.startTime) ?? null,
+        endTime: (op.endTime === '' ? null : op.endTime) ?? null,
+        location: op.location ?? null,
+        recurrence: op.recurrence,
+        completed: false,
       });
       
       return {
@@ -108,10 +110,12 @@ export class OperationExecutors {
       if (op.title !== undefined) updateData.title = op.title;
       if (op.notes !== undefined) updateData.notes = op.notes;
       if (op.scheduledFor !== undefined) updateData.scheduledFor = op.scheduledFor;
-      if (op.timeOfDay !== undefined) updateData.timeOfDay = op.timeOfDay;
-      if (op.duration !== undefined) updateData.duration = op.duration;
+      if (op.startTime !== undefined) updateData.startTime = op.startTime;
+      if (op.endTime !== undefined) updateData.endTime = op.endTime;
+      if (op.location !== undefined) updateData.location = op.location;
+      if (op.recurrence !== undefined) updateData.recurrence = op.recurrence;
       
-      const event = await this.db.events.update(op.id, updateData);
+      const event = await this.db.updateEvent(op.id, updateData);
       
       if (!event) {
         throw new Error(`Event with ID ${op.id} not found`);
@@ -128,12 +132,12 @@ export class OperationExecutors {
   
   async eventDelete(op) {
     try {
-      const deleted = await this.db.events.delete(op.id);
-      
-      if (!deleted) {
+      // Check if event exists before deleting for consistent error semantics
+      const event = await this.db.getEventById(op.id);
+      if (!event) {
         throw new Error(`Event with ID ${op.id} not found`);
       }
-      
+      await this.db.deleteEvent(op.id);
       return {
         deleted: true
       };
@@ -141,13 +145,32 @@ export class OperationExecutors {
       throw new Error(`Failed to delete event: ${error.message}`);
     }
   }
+
+  async eventSetOccurrenceStatus(op) {
+    try {
+      const status = String(op.status);
+      const completed = status === 'completed';
+      const updated = await this.db.toggleEventOccurrence({ 
+        id: op.id, 
+        occurrenceDate: op.occurrenceDate, 
+        completed 
+      });
+      return { event: updated, updated: true };
+    } catch (error) {
+      throw new Error(`Failed to set event occurrence status: ${error.message}`);
+    }
+  }
   
   async habitCreate(op) {
     try {
-      const habit = await this.db.habits.create({
+      const habit = await this.db.createHabit({
         title: op.title,
         notes: op.notes || null,
-        frequency: op.frequency ? JSON.stringify(op.frequency) : null
+        scheduledFor: op.scheduledFor ?? null,
+        timeOfDay: op.timeOfDay ?? null,
+        // Align validators' frequency with DB's recurrence
+        recurrence: (op.frequency !== undefined ? op.frequency : (op.recurrence ?? { type: 'daily' })),
+        completed: false,
       });
       
       return {
@@ -165,9 +188,13 @@ export class OperationExecutors {
       
       if (op.title !== undefined) updateData.title = op.title;
       if (op.notes !== undefined) updateData.notes = op.notes;
-      if (op.frequency !== undefined) updateData.frequency = JSON.stringify(op.frequency);
+      // Map frequency -> recurrence for DB
+      if (op.frequency !== undefined) updateData.recurrence = op.frequency;
+      if (op.recurrence !== undefined) updateData.recurrence = op.recurrence;
+      if (op.scheduledFor !== undefined) updateData.scheduledFor = op.scheduledFor;
+      if (op.timeOfDay !== undefined) updateData.timeOfDay = op.timeOfDay;
       
-      const habit = await this.db.habits.update(op.id, updateData);
+      const habit = await this.db.updateHabit(op.id, updateData);
       
       if (!habit) {
         throw new Error(`Habit with ID ${op.id} not found`);
@@ -184,11 +211,12 @@ export class OperationExecutors {
   
   async habitDelete(op) {
     try {
-      const deleted = await this.db.habits.delete(op.id);
-      
-      if (!deleted) {
+      // Check if habit exists before deleting for consistent error semantics
+      const habit = await this.db.getHabitById(op.id);
+      if (!habit) {
         throw new Error(`Habit with ID ${op.id} not found`);
       }
+      await this.db.deleteHabit(op.id);
       
       return {
         deleted: true
@@ -197,18 +225,19 @@ export class OperationExecutors {
       throw new Error(`Failed to delete habit: ${error.message}`);
     }
   }
-  
-  async habitToggle(op) {
+
+  async habitSetOccurrenceStatus(op) {
     try {
-      const result = await this.db.habits.toggleOccurrence(op.id, op.date);
-      
-      return {
-        habit: result.habit,
-        occurrence: result.occurrence,
-        toggled: true
-      };
+      const status = String(op.status);
+      const completed = status === 'completed';
+      const updated = await this.db.toggleHabitOccurrence({ 
+        id: op.id, 
+        occurrenceDate: op.occurrenceDate, 
+        completed 
+      });
+      return { habit: updated, updated: true };
     } catch (error) {
-      throw new Error(`Failed to toggle habit occurrence: ${error.message}`);
+      throw new Error(`Failed to set habit occurrence status: ${error.message}`);
     }
   }
 }

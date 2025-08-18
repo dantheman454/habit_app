@@ -6,6 +6,11 @@ export class OperationProcessor {
     this.executors = new Map();
     this.formatters = new Map();
     this.operationTypes = new Map();
+    this.dbService = null; // Will be set by setDbService
+  }
+  
+  setDbService(dbService) {
+    this.dbService = dbService;
   }
   
   registerOperationType(type, config) {
@@ -25,6 +30,30 @@ export class OperationProcessor {
   }
   
   async processOperations(operations, correlationId = mkCorrelationId()) {
+    const results = [];
+    const summary = { created: 0, updated: 0, deleted: 0, completed: 0 };
+    
+    // If we have multiple operations and a database service, wrap in transaction
+    if (operations.length > 1 && this.dbService) {
+      try {
+        return await this.dbService.runInTransaction(async () => {
+          return await this._processOperationsInternal(operations, correlationId);
+        });
+      } catch (error) {
+        // Transaction was rolled back due to error
+        return {
+          results: [{ ok: false, error: `Transaction failed: ${String(error)}` }],
+          summary: { created: 0, updated: 0, deleted: 0, completed: 0 },
+          correlationId
+        };
+      }
+    } else {
+      // Single operation or no database service - process normally
+      return await this._processOperationsInternal(operations, correlationId);
+    }
+  }
+  
+  async _processOperationsInternal(operations, correlationId) {
     const results = [];
     const summary = { created: 0, updated: 0, deleted: 0, completed: 0 };
     

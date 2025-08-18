@@ -73,19 +73,6 @@ export class HabitusMCPServer {
       }
     });
 
-    this.tools.set('complete_todo', {
-      name: 'complete_todo',
-      description: 'Mark a todo item as completed',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          id: { type: 'integer' },
-          completed: { type: 'boolean' }
-        },
-        required: ['id']
-      }
-    });
-
     this.tools.set('complete_todo_occurrence', {
       name: 'complete_todo_occurrence',
       description: 'Mark a specific occurrence of a recurring todo as completed',
@@ -97,6 +84,126 @@ export class HabitusMCPServer {
           completed: { type: 'boolean' }
         },
         required: ['id', 'occurrenceDate']
+      }
+    });
+
+    // Event tools (minimal alignment)
+    this.tools.set('create_event', {
+      name: 'create_event',
+      description: 'Create a new event',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          title: { type: 'string' },
+          notes: { type: 'string' },
+          scheduledFor: { type: 'string', format: 'date' },
+          startTime: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' },
+          endTime: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' },
+          location: { type: 'string' },
+          recurrence: { type: 'object' },
+        },
+        required: ['title']
+      }
+    });
+
+    this.tools.set('update_event', {
+      name: 'update_event',
+      description: 'Update an existing event',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'integer' },
+          title: { type: 'string' },
+          notes: { type: 'string' },
+          scheduledFor: { type: 'string', format: 'date' },
+          startTime: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' },
+          endTime: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' },
+          location: { type: 'string' },
+          recurrence: { type: 'object' },
+        },
+        required: ['id']
+      }
+    });
+
+    this.tools.set('delete_event', {
+      name: 'delete_event',
+      description: 'Delete an event',
+      inputSchema: {
+        type: 'object',
+        properties: { id: { type: 'integer' } },
+        required: ['id']
+      }
+    });
+
+    this.tools.set('set_event_occurrence_status', {
+      name: 'set_event_occurrence_status',
+      description: 'Set the status of a specific occurrence of a recurring event',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'integer' },
+          occurrenceDate: { type: 'string', format: 'date' },
+          status: { type: 'string', enum: ['pending', 'completed', 'skipped'] }
+        },
+        required: ['id', 'occurrenceDate', 'status']
+      }
+    });
+
+    // Habit tools (minimal alignment)
+    this.tools.set('create_habit', {
+      name: 'create_habit',
+      description: 'Create a new habit',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          title: { type: 'string' },
+          notes: { type: 'string' },
+          scheduledFor: { type: 'string', format: 'date' },
+          timeOfDay: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' },
+          recurrence: { type: 'object' }
+        },
+        required: ['title']
+      }
+    });
+
+    this.tools.set('update_habit', {
+      name: 'update_habit',
+      description: 'Update a habit',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'integer' },
+          title: { type: 'string' },
+          notes: { type: 'string' },
+          scheduledFor: { type: 'string', format: 'date' },
+          timeOfDay: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' },
+          recurrence: { type: 'object' }
+        },
+        required: ['id']
+      }
+    });
+
+    this.tools.set('delete_habit', {
+      name: 'delete_habit',
+      description: 'Delete a habit',
+      inputSchema: {
+        type: 'object',
+        properties: { id: { type: 'integer' } },
+        required: ['id']
+      }
+    });
+
+    this.tools.set('set_habit_occurrence_status', {
+      name: 'set_habit_occurrence_status',
+      description: 'Set the status of a specific occurrence of a recurring habit',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'integer' },
+          occurrenceDate: { type: 'string', format: 'date' },
+          status: { type: 'string', enum: ['pending', 'completed', 'skipped'] }
+        },
+        required: ['id', 'occurrenceDate', 'status']
       }
     });
   }
@@ -136,23 +243,34 @@ export class HabitusMCPServer {
     // Process through operation processor
     const result = await this.operationProcessor.processOperations([operation]);
     
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(result, null, 2)
-        }
-      ]
-    };
+    // For HTTP calls, return the result directly
+    // For WebSocket calls, wrap in content structure
+    return result;
   }
 
   convertToolCallToOperation(name, args) {
-    const [action, kind] = name.split('_');
-    return {
-      kind: kind,
-      action: action,
-      ...args
-    };
+    // Suffix-aware mappings for better alignment with operation types
+    const mSetStatus = name.match(/^set_(todo|event|habit)_status$/);
+    if (mSetStatus) {
+      return { kind: mSetStatus[1], action: 'set_status', ...args };
+    }
+    const mSetOccurrenceStatus = name.match(/^set_(todo|event|habit)_occurrence_status$/);
+    if (mSetOccurrenceStatus) {
+      return { kind: mSetOccurrenceStatus[1], action: 'set_occurrence_status', ...args };
+    }
+    const mCompleteOcc = name.match(/^complete_(todo|event|habit)_occurrence$/);
+    if (mCompleteOcc) {
+      return { kind: mCompleteOcc[1], action: 'complete_occurrence', ...args };
+    }
+    const mCrud = name.match(/^(create|update|delete)_(todo|event|habit)$/);
+    if (mCrud) {
+      return { kind: mCrud[2], action: mCrud[1], ...args };
+    }
+    // Fallback to naive first-two-tokens mapping
+    const parts = String(name).split('_');
+    const action = parts[0] || 'create';
+    const kind = parts[1] || 'todo';
+    return { kind, action, ...args };
   }
 
   async readResource(uri) {
@@ -189,13 +307,26 @@ Updates an existing todo item by ID.
 Deletes a todo item by ID.
 
 ### set_todo_status
-Sets the status of a todo item (pending, completed, skipped).
-
-### complete_todo
-Marks a todo item as completed or uncompleted.
+Sets the status of a todo item (pending, completed, skipped). For repeating todos, use occurrenceDate to set status for a specific occurrence.
 
 ### complete_todo_occurrence
 Marks a specific occurrence of a recurring todo as completed.
+
+## Event Operations
+
+### create_event, update_event, delete_event
+Manage calendar events with start/end times, location, and recurrence.
+
+### set_event_occurrence_status
+Sets the status of a specific occurrence of a recurring event (pending, completed, skipped).
+
+## Habit Operations
+
+### create_habit, update_habit, delete_habit
+Manage habits with scheduling, time of day, and recurrence (must be repeating).
+
+### set_habit_occurrence_status
+Sets the status of a specific occurrence of a recurring habit (pending, completed, skipped).
 `
             }
           ]
@@ -227,7 +358,14 @@ Marks a specific occurrence of a recurring todo as completed.
             response = {
               jsonrpc: '2.0',
               id: data.id,
-              result: result
+              result: {
+                content: [
+                  {
+                    type: 'text',
+                    text: JSON.stringify(result, null, 2)
+                  }
+                ]
+              }
             };
             break;
           case 'resources/list':

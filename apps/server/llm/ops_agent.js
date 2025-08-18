@@ -171,3 +171,144 @@ export async function runOpsAgent({ taskBrief, where = {}, transcript = [], time
   } catch {}
   return out;
 }
+
+export async function runOpsAgentWithProcessor({ taskBrief, where = {}, transcript = [], timezone, operationProcessor } = {}) {
+  const focusedContext = buildFocusedContext(where, { timezone });
+  const correlationId = mkCorrelationId();
+  
+  try { 
+    db.logAudit({ 
+      action: 'ops_agent_with_processor.input', 
+      payload: { 
+        taskBrief: String(taskBrief || '').slice(0, 1000), 
+        where, 
+        transcript: transcript.slice(-3),
+        contextSize: Object.keys(focusedContext).length
+      },
+      meta: { correlationId }
+    }); 
+  } catch {}
+
+  // 1) Propose (same as original)
+  const proposalRaw = await runProposal({ instruction: taskBrief, transcript, focusedWhere: where });
+  let proposedOps = Array.isArray(proposalRaw && proposalRaw.operations) ? proposalRaw.operations : [];
+  let proposedSteps = Array.isArray(proposalRaw && proposalRaw.steps) ? proposalRaw.steps : [];
+  let proposedTools = Array.isArray(proposalRaw && proposalRaw.tools) ? proposalRaw.tools : [];
+
+  // If raw might be text (LLM body), try extracting JSON
+  if (!proposedOps.length && typeof proposalRaw === 'string') {
+    const parsed = extractFirstJson(proposalRaw);
+    if (parsed && Array.isArray(parsed.operations)) proposedOps = parsed.operations;
+    if (parsed && Array.isArray(parsed.steps)) proposedSteps = parsed.steps;
+    if (parsed && Array.isArray(parsed.tools)) proposedTools = parsed.tools;
+  }
+
+  // Normalize shapes and limit to 20 ops
+  proposedOps = proposedOps.map(inferOperationShape).filter(Boolean).slice(0, 20);
+
+  // 2) Use operation processor for validation and execution
+  let processorResults = null;
+  let repairedCount = 0;
+  
+  if (proposedOps.length > 0 && operationProcessor) {
+    try {
+      // Process operations through the operation processor
+      processorResults = await operationProcessor.processOperations(proposedOps, correlationId);
+      
+      // Check if any operations failed and need repair
+      const failedOps = processorResults.results.filter(r => !r.ok);
+      if (failedOps.length > 0) {
+        // Run repair for failed operations
+        try {
+          const repairRaw = await runRepair({ 
+            errors: failedOps.map(r => ({ index: r.op ? proposedOps.indexOf(r.op) : 0, errors: [r.error] })), 
+            original: proposedOps, 
+            focusedContext 
+          });
+          let repaired = Array.isArray(repairRaw && repairRaw.operations) ? repairRaw.operations : [];
+          if (!repaired.length && typeof repairRaw === 'string') {
+            const parsed = extractFirstJson(repairRaw);
+            if (parsed && Array.isArray(parsed.operations)) repaired = parsed.operations;
+          }
+          repaired = repaired.map(inferOperationShape).filter(Boolean);
+          
+          // Process repaired operations
+          if (repaired.length > 0) {
+            const repairedResults = await operationProcessor.processOperations(repaired, correlationId);
+            const validRepaired = repairedResults.results.filter(r => r.ok).map(r => r.op);
+            repairedCount = validRepaired.length;
+            
+            // Combine originally valid and repaired valid operations
+            const originallyValid = processorResults.results.filter(r => r.ok).map(r => r.op);
+            const allValidOps = [...originallyValid, ...validRepaired].slice(0, 20);
+            
+            // Final processing of combined operations
+            processorResults = await operationProcessor.processOperations(allValidOps, correlationId);
+          }
+        } catch (e) {
+          console.error('Repair failed:', e);
+        }
+      }
+    } catch (e) {
+      console.error('Operation processor failed:', e);
+      // Fall back to legacy validation
+      const validation = validateProposal(proposedOps);
+      processorResults = {
+        results: validation.results.map(r => ({ 
+          ok: r.errors.length === 0, 
+          op: r.op, 
+          error: r.errors.length > 0 ? r.errors.join(', ') : undefined 
+        })),
+        summary: { created: 0, updated: 0, deleted: 0, completed: 0 },
+        correlationId
+      };
+    }
+  } else {
+    // No operations or no processor - use legacy validation
+    const validation = validateProposal(proposedOps);
+    processorResults = {
+      results: validation.results.map(r => ({ 
+        ok: r.errors.length === 0, 
+        op: r.op, 
+        error: r.errors.length > 0 ? r.errors.join(', ') : undefined 
+      })),
+      summary: { created: 0, updated: 0, deleted: 0, completed: 0 },
+      correlationId
+    };
+  }
+
+  // 3) Build tools[] mirror (use proposed tools if available, otherwise generate from ops)
+  const validOps = processorResults.results.filter(r => r.ok).map(r => r.op);
+  const tools = proposedTools.length > 0 ? proposedTools : validOps.map((op) => {
+    const name = `${String(op.kind || 'unknown')}.${String(op.action || 'unknown')}`;
+    const args = { ...op };
+    return { name, args };
+  });
+
+  const out = {
+    version: '3',
+    steps: proposedSteps.length > 0 ? proposedSteps : [ { name: 'Identify targets' }, { name: 'Plan operations' } ],
+    operations: validOps,
+    tools,
+    notes: { 
+      repairedCount, 
+      invalidCount: processorResults.results.filter(r => !r.ok).length,
+      errors: processorResults.results.filter(r => !r.ok).map(r => r.error).filter(Boolean)
+    }
+  };
+
+  try { 
+    db.logAudit({ 
+      action: 'ops_agent_with_processor.output', 
+      payload: { 
+        stepsCount: out.steps.length, 
+        operationsCount: out.operations.length, 
+        invalidCount: out.notes.invalidCount,
+        repairedCount: out.notes.repairedCount
+      },
+      meta: { correlationId }
+    }); 
+  } catch {}
+  
+  return out;
+}

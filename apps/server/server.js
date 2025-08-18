@@ -447,6 +447,7 @@ app.use(express.json({ limit: '256kb' }));
 
 // Initialize MCP server and operation processor
 const operationProcessor = new OperationProcessor();
+operationProcessor.setDbService(db);
 const operationRegistry = new OperationRegistry(db);
 operationRegistry.registerAllOperations(operationProcessor);
 
@@ -1754,7 +1755,7 @@ function buildRepairPrompt({ instruction, originalOps, errors, transcript }) {
   );
 }
 
-// Legacy local router helpers removed; router now lives in ./llm/router.js
+
 
 function buildProposalPrompt({ instruction, todosSnapshot, transcript }) {
   const today = new Date();
@@ -1783,242 +1784,6 @@ function appendAudit(entry) {
 }
 
 async function withDbTransaction(fn) { return db.runInTransaction(fn); }
-
-app.post('/api/llm/apply', async (req, res) => {
-  const { operations } = req.body || {};
-  const idempoKey = req.headers['idempotency-key'] || req.body?.idempotencyKey;
-  const correlationId = String(req.headers['x-correlation-id'] || req.body?.correlationId || '').trim() || mkCorrelationId();
-  if (Array.isArray(operations) && operations.length > 20) {
-    return res.status(400).json({ error: 'too_many_operations', max: 20 });
-  }
-  const requestHash = (() => { try { return Buffer.from(JSON.stringify(operations || [])).toString('base64'); } catch { return ''; } })();
-  try {
-    const cached = (idempoKey && requestHash) ? db.getIdempotentResponse({ idempotencyKey: idempoKey, requestHash }) : null;
-    if (cached) { try { return res.json(JSON.parse(cached)); } catch { return res.json(cached); } }
-  } catch {}
-  // Map V3 ops before validation
-  const shapedOps = Array.isArray(operations) ? operations.map(o => inferOperationShape(o)).filter(Boolean) : [];
-  const validation = validateProposal({ operations: shapedOps });
-  if (validation.errors.length) {
-    try { appendAudit({ action: 'apply_invalid', detail: validation, meta: { correlationId } }); } catch {}
-    return res.status(400).json({ error: 'invalid_operations', detail: validation, message: 'Some operations were invalid. The assistant may be attempting unsupported or inconsistent changes.' });
-  }
-  const results = [];
-  let created = 0, updated = 0, deleted = 0, completed = 0;
-  await withDbTransaction(async () => {
-    let mutatedSinceRefresh = false;
-    for (const op of shapedOps) {
-      try {
-        // Event-kind V3 handling
-  if (op.kind && String(op.kind).toLowerCase() === 'event' && op.op === 'create') {
-          const ev = db.createEvent({
-            title: String(op.title || '').trim(),
-            notes: op.notes || '',
-            scheduledFor: op.scheduledFor ?? null,
-            startTime: (op.startTime === '' ? null : op.startTime) ?? null,
-            endTime: (op.endTime === '' ? null : op.endTime) ?? null,
-            location: op.location ?? null,
-            recurrence: op.recurrence,
-            completed: false,
-          });
-          results.push({ ok: true, op, event: ev });
-          appendAudit({ action: 'event_create', op, result: 'ok', id: ev.id, meta: { correlationId } });
-        } else if (op.kind && String(op.kind).toLowerCase() === 'event' && op.op === 'update') {
-          const id = parseInt(op.id, 10);
-          if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
-          const ev = db.updateEvent(id, {
-            title: op.title,
-            notes: op.notes,
-            scheduledFor: op.scheduledFor,
-            startTime: (op.startTime === '' ? null : op.startTime),
-            endTime: (op.endTime === '' ? null : op.endTime),
-            location: op.location,
-            completed: op.completed,
-            recurrence: op.recurrence,
-          });
-          results.push({ ok: true, op, event: ev });
-          appendAudit({ action: 'event_update', op, result: 'ok', id, meta: { correlationId } });
-        } else if (op.kind && String(op.kind).toLowerCase() === 'event' && op.op === 'delete') {
-          const id = parseInt(op.id, 10);
-          if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
-          db.deleteEvent(id);
-          results.push({ ok: true, op });
-          appendAudit({ action: 'event_delete', op, result: 'ok', id, meta: { correlationId } });
-        } else if (op.kind && String(op.kind).toLowerCase() === 'event' && op.op === 'complete') {
-          const id = parseInt(op.id, 10);
-          if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
-          const current = db.getEventById(id);
-          if (!current) throw new Error('not_found');
-          const ev = db.updateEvent(id, { completed: (op.completed === undefined) ? true : !!op.completed });
-          results.push({ ok: true, op, event: ev });
-          appendAudit({ action: 'event_complete', op, result: 'ok', id, meta: { correlationId } });
-        } else if (op.kind && String(op.kind).toLowerCase() === 'event' && op.op === 'complete_occurrence') {
-          const id = parseInt(op.id, 10);
-          if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
-          const ev = db.toggleEventOccurrence({ id, occurrenceDate: op.occurrenceDate, completed: (op.completed === undefined) ? true : !!op.completed });
-          results.push({ ok: true, op, event: ev });
-          appendAudit({ action: 'event_complete_occurrence', op, result: 'ok', id, meta: { correlationId } });
-  } else if (op.kind && String(op.kind).toLowerCase() === 'habit' && op.op === 'create') {
-          const h = db.createHabit({
-            title: String(op.title || '').trim(),
-            notes: op.notes || '',
-            scheduledFor: op.scheduledFor ?? null,
-            timeOfDay: (op.timeOfDay === '' ? null : op.timeOfDay) ?? null,
-            recurrence: op.recurrence,
-            completed: false,
-          });
-          results.push({ ok: true, op, habit: h });
-          appendAudit({ action: 'habit_create', op, result: 'ok', id: h.id, meta: { correlationId } });
-        } else if (op.kind && String(op.kind).toLowerCase() === 'habit' && op.op === 'update') {
-          const id = parseInt(op.id, 10);
-          if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
-          const h = db.updateHabit(id, {
-            title: op.title,
-            notes: op.notes,
-            scheduledFor: op.scheduledFor,
-            timeOfDay: (op.timeOfDay === '' ? null : op.timeOfDay),
-            completed: op.completed,
-            recurrence: op.recurrence,
-          });
-          results.push({ ok: true, op, habit: h });
-          appendAudit({ action: 'habit_update', op, result: 'ok', id, meta: { correlationId } });
-        } else if (op.kind && String(op.kind).toLowerCase() === 'habit' && op.op === 'delete') {
-          const id = parseInt(op.id, 10);
-          if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
-          db.deleteHabit(id);
-          results.push({ ok: true, op });
-          appendAudit({ action: 'habit_delete', op, result: 'ok', id, meta: { correlationId } });
-        } else if (op.kind && String(op.kind).toLowerCase() === 'habit' && op.op === 'complete') {
-          const id = parseInt(op.id, 10);
-          if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
-          const current = db.getHabitById(id);
-          if (!current) throw new Error('not_found');
-          const h = db.updateHabit(id, { completed: (op.completed === undefined) ? true : !!op.completed });
-          results.push({ ok: true, op, habit: h });
-          appendAudit({ action: 'habit_complete', op, result: 'ok', id, meta: { correlationId } });
-        } else if (op.kind && String(op.kind).toLowerCase() === 'habit' && op.op === 'complete_occurrence') {
-          const id = parseInt(op.id, 10);
-          if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
-          const h = db.toggleHabitOccurrence({ id, occurrenceDate: op.occurrenceDate, completed: (op.completed === undefined) ? true : !!op.completed });
-          results.push({ ok: true, op, habit: h });
-          appendAudit({ action: 'habit_complete_occurrence', op, result: 'ok', id, meta: { correlationId } });
-        } else if (op.op === 'create') {
-          const t = createTodoDb({ title: String(op.title || '').trim(), notes: op.notes || '', scheduledFor: op.scheduledFor ?? null, timeOfDay: (op.timeOfDay === '' ? null : op.timeOfDay) ?? null, recurrence: op.recurrence });
-          mutatedSinceRefresh = true; results.push({ ok: true, op, todo: t }); created++;
-          appendAudit({ action: 'create', op, result: 'ok', id: t.id, meta: { correlationId } });
-        } else if (op.op === 'update') {
-          const t = findTodoById(op.id); if (!t) throw new Error('not_found');
-          const now = new Date().toISOString();
-          if (op.title !== undefined) t.title = op.title;
-          if (op.notes !== undefined) t.notes = op.notes;
-          if (op.scheduledFor !== undefined) t.scheduledFor = op.scheduledFor;
-          if (op.completed !== undefined) t.status = (!!op.completed) ? 'completed' : 'pending';
-          if (op.timeOfDay !== undefined) t.timeOfDay = (op.timeOfDay === '' ? null : op.timeOfDay);
-          if (op.recurrence !== undefined) { applyRecurrenceMutation(t, op.recurrence); }
-          t.updatedAt = now; mutatedSinceRefresh = true; results.push({ ok: true, op, todo: t }); updated++;
-          appendAudit({ action: 'update', op, result: 'ok', id: t.id, meta: { correlationId } });
-        } else if (op.op === 'delete') {
-          const existing = findTodoById(op.id); if (!existing) throw new Error('not_found');
-          db.deleteTodo(op.id); mutatedSinceRefresh = true; results.push({ ok: true, op }); deleted++;
-          appendAudit({ action: 'delete', op, result: 'ok', id: existing?.id, meta: { correlationId } });
-  } else if (op.op === 'complete') {
-          const t = findTodoById(op.id); if (!t) throw new Error('not_found');
-          t.status = (op.completed === undefined || op.completed === true) ? 'completed' : 'pending';
-          t.updatedAt = new Date().toISOString(); mutatedSinceRefresh = true; results.push({ ok: true, op, todo: t }); completed++;
-          appendAudit({ action: 'complete', op, result: 'ok', id: t.id, meta: { correlationId } });
-        } else if (op.op === 'complete_occurrence') {
-          const t = findTodoById(op.id); if (!t) throw new Error('not_found');
-          if (!(t.recurrence && t.recurrence.type && t.recurrence.type !== 'none')) throw new Error('not_repeating');
-          const status = (op.completed === undefined) ? 'completed' : (op.completed ? 'completed' : 'pending');
-          const after = db.setTodoOccurrenceStatus({ id: t.id, occurrenceDate: op.occurrenceDate, status });
-          mutatedSinceRefresh = true; results.push({ ok: true, op, todo: after }); completed++;
-          appendAudit({ action: 'complete_occurrence', op, result: 'ok', id: t.id, meta: { correlationId } });
-        } else if (op.op === 'set_status') {
-          const id = parseInt(op.id, 10);
-          if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
-          const s = String(op.status || 'pending');
-          if (!['pending','completed','skipped'].includes(s)) throw new Error('invalid_status');
-          const occ = op.occurrenceDate;
-          let out;
-          if (occ !== undefined && occ !== null) {
-            out = db.setTodoOccurrenceStatus({ id, occurrenceDate: String(occ), status: s });
-          } else {
-            // master status update
-            const current = findTodoById(id);
-            if (!current) throw new Error('not_found');
-            out = db.updateTodo(id, { status: s });
-          }
-          mutatedSinceRefresh = true; results.push({ ok: true, op, todo: out }); updated++;
-          appendAudit({ action: 'set_status', op, result: 'ok', id, meta: { correlationId } });
-        } else if (
-          op.op === 'goal_create' || op.op === 'goal_update' || op.op === 'goal_delete' ||
-          op.op === 'goal_add_items' || op.op === 'goal_remove_item' ||
-          op.op === 'goal_add_child' || op.op === 'goal_remove_child'
-        ) {
-          if (op.op === 'goal_create') {
-            const g = db.createGoal({ title: String(op.title || '').trim(), notes: op.notes || '', status: op.status || 'active', currentProgressValue: op.currentProgressValue ?? null, targetProgressValue: op.targetProgressValue ?? null, progressUnit: op.progressUnit ?? null });
-            results.push({ ok: true, op, goal: g });
-            appendAudit({ action: 'goal_create', op, result: 'ok', id: g.id, meta: { correlationId } });
-          } else if (op.op === 'goal_update') {
-            const id = parseInt(op.id, 10);
-            if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
-            const g = db.updateGoal(id, { title: op.title, notes: op.notes, status: op.status, currentProgressValue: op.currentProgressValue, targetProgressValue: op.targetProgressValue, progressUnit: op.progressUnit });
-            results.push({ ok: true, op, goal: g });
-            appendAudit({ action: 'goal_update', op, result: 'ok', id, meta: { correlationId } });
-          } else if (op.op === 'goal_delete') {
-            const id = parseInt(op.id, 10);
-            if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
-            db.deleteGoal(id);
-            results.push({ ok: true, op });
-            appendAudit({ action: 'goal_delete', op, result: 'ok', id, meta: { correlationId } });
-          } else if (op.op === 'goal_add_items') {
-            const id = parseInt(op.id, 10);
-            if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
-            const todoIds = Array.isArray(op.todos) ? op.todos.map(x => parseInt((x && x.id) ?? x, 10)).filter(Number.isFinite) : [];
-            const eventIds = Array.isArray(op.events) ? op.events.map(x => parseInt((x && x.id) ?? x, 10)).filter(Number.isFinite) : [];
-            if (todoIds.length) db.addGoalTodoItems(id, todoIds);
-            if (eventIds.length) db.addGoalEventItems(id, eventIds);
-            results.push({ ok: true, op, added: { todos: todoIds.length, events: eventIds.length } });
-            appendAudit({ action: 'goal_add_items', op, result: 'ok', id, meta: { correlationId } });
-          } else if (op.op === 'goal_remove_item') {
-            const id = parseInt(op.id, 10);
-            if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
-            if (Number.isFinite(op.todoId)) db.removeGoalTodoItem(id, parseInt(op.todoId, 10));
-            else if (Number.isFinite(op.eventId)) db.removeGoalEventItem(id, parseInt(op.eventId, 10));
-            else throw new Error('missing_item_id');
-            results.push({ ok: true, op });
-            appendAudit({ action: 'goal_remove_item', op, result: 'ok', id, meta: { correlationId } });
-          } else if (op.op === 'goal_add_child') {
-            const id = parseInt(op.id, 10);
-            if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
-            const childId = parseInt(op.childId, 10);
-            if (!Number.isFinite(childId)) throw new Error('missing_child_id');
-            db.addGoalChildren(id, [childId]);
-            results.push({ ok: true, op });
-            appendAudit({ action: 'goal_add_child', op, result: 'ok', id });
-          } else if (op.op === 'goal_remove_child') {
-            const id = parseInt(op.id, 10);
-            if (!Number.isFinite(id)) throw new Error('missing_or_invalid_id');
-            const childId = parseInt(op.childId, 10);
-            if (!Number.isFinite(childId)) throw new Error('missing_child_id');
-            db.removeGoalChild(id, childId);
-            results.push({ ok: true, op });
-            appendAudit({ action: 'goal_remove_child', op, result: 'ok', id });
-          }
-        } else {
-          results.push({ ok: false, op, error: 'invalid_op' });
-          appendAudit({ action: 'invalid', op, result: 'invalid', meta: { correlationId } });
-        }
-      } catch (e) {
-        results.push({ ok: false, op, error: String(e && e.message ? e.message : e) });
-  appendAudit({ action: op?.op || 'unknown', op, result: 'error', error: String(e && e.message ? e.message : e), meta: { correlationId } });
-      }
-    }
-  });
-  const response = { results, summary: { created, updated, deleted, completed }, correlationId };
-  try { if (idempoKey && requestHash) db.saveIdempotentResponse({ idempotencyKey: idempoKey, requestHash, response }); } catch {}
-  res.json(response);
-});
 
 // --- Assistant chat (two-call pipeline) ---
 function buildConversationalSummaryPrompt({ instruction, operations, todosSnapshot, transcript }) {
@@ -2152,7 +1917,7 @@ async function runProposalAndRepair({ instruction, transcript, focusedWhere, mod
 }
 
 import { runConversationAgent } from './llm/conversation_agent.js';
-import { runOpsAgent } from './llm/ops_agent.js';
+import { runOpsAgent, runOpsAgentWithProcessor } from './llm/ops_agent.js';
 import { runSummary } from './llm/summary.js';
 
 app.post('/api/assistant/message', async (req, res) => {
@@ -2174,8 +1939,14 @@ app.post('/api/assistant/message', async (req, res) => {
       const summaryText = await runSummary({ operations: [], issues: [], timezone: TIMEZONE });
       return res.json({ text: summaryText, operations: [], correlationId });
     }
-    // Plan: call OpsAgent
-    const oa = await runOpsAgent({ taskBrief: ca.delegate?.taskBrief || message.trim(), where: ca.where, transcript, timezone: TIMEZONE });
+    // Plan: call OpsAgent with operation processor integration
+    const oa = await runOpsAgentWithProcessor({ 
+      taskBrief: ca.delegate?.taskBrief || message.trim(), 
+      where: ca.where, 
+      transcript, 
+      timezone: TIMEZONE,
+      operationProcessor 
+    });
     // Generate summary
     const summaryText = await runSummary({ 
       operations: oa.operations, 
@@ -2233,7 +2004,13 @@ app.get('/api/assistant/message/stream', async (req, res) => {
     const heartbeat = setInterval(() => { try { send('heartbeat', JSON.stringify({ ts: new Date().toISOString() })); } catch {} }, 10000);
     __heartbeat = heartbeat;
     res.on('close', () => { try { clearInterval(heartbeat); } catch {} });
-    const oa = await runOpsAgent({ taskBrief: ca.delegate?.taskBrief || message.trim(), where: ca.where, transcript, timezone: TIMEZONE });
+    const oa = await runOpsAgentWithProcessor({ 
+      taskBrief: ca.delegate?.taskBrief || message.trim(), 
+      where: ca.where, 
+      transcript, 
+      timezone: TIMEZONE,
+      operationProcessor 
+    });
     const validCount = oa.operations.length - (oa.notes?.invalidCount || 0);
     const invalidCount = oa.notes?.invalidCount || 0;
     const errors = oa.notes?.errors ? oa.notes.errors.map((error, index) => ({ index, codes: [error] })) : [];
@@ -2278,59 +2055,6 @@ app.get('/api/assistant/message/stream', async (req, res) => {
       try { if (__heartbeat) clearInterval(__heartbeat); } catch {}
       res.end();
     } catch {}
-  }
-});
-
-// Dry-run endpoint: validate and preview without mutating
-app.post('/api/llm/dryrun', async (req, res) => {
-  try {
-    const { operations } = req.body || {};
-    if (Array.isArray(operations) && operations.length > 20) {
-      return res.status(400).json({ error: 'too_many_operations', max: 20 });
-    }
-    const validation = validateProposal({ operations });
-    const results = [];
-    let created = 0, updated = 0, deleted = 0, completed = 0;
-    for (const r of (validation.results || [])) {
-      const op = r.op;
-      const errs = r.errors;
-      const entry = { op, valid: errs.length === 0, errors: errs };
-      if (entry.valid) {
-        if (op.op === 'create' || op.op?.startsWith('goal_')) updated++;
-        else if (op.op === 'update') updated++;
-        else if (op.op === 'delete') deleted++;
-        else if (op.op === 'complete' || op.op === 'complete_occurrence') completed++;
-      }
-      results.push(entry);
-    }
-    return res.json({ results, summary: { created, updated, deleted, completed } });
-  } catch (e) {
-    return res.status(400).json({ error: 'dryrun_failed', detail: String(e && e.message ? e.message : e) });
-  }
-});
-
-// Preview endpoint: summarize affected entities for a list of operations (no mutation)
-app.post('/api/llm/preview', async (req, res) => {
-  try {
-    const { operations } = req.body || {};
-    const shaped = Array.isArray(operations) ? operations.map(o => inferOperationShape(o)).filter(Boolean) : [];
-    const affected = [];
-    for (const op of shaped) {
-      try {
-        const entry = { op, before: null };
-        if (op.op === 'update' || op.op === 'delete' || op.op === 'complete') {
-          if (op.kind === 'event') entry.before = db.getEventById?.(op.id) || null;
-          else if (op.kind === 'habit') entry.before = db.getHabitById?.(op.id) || null;
-          else entry.before = db.getTodoById?.(op.id) || null;
-        }
-        affected.push(entry);
-      } catch {
-        affected.push({ op, before: null });
-      }
-    }
-    return res.json({ affected });
-  } catch (e) {
-    return res.status(400).json({ error: 'preview_failed', detail: String(e && e.message ? e.message : e) });
   }
 });
 
@@ -2412,5 +2136,3 @@ app.listen(PORT, HOST, async () => {
     console.log('Configured LLM models (getAvailableModels not available):', MODELS);
   }
 });
-
-

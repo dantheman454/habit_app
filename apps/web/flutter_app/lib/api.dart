@@ -286,36 +286,7 @@ Future<Map<String, dynamic>> assistantMessage(
   }
 }
 
-Future<Map<String, dynamic>> applyOperations(
-  List<Map<String, dynamic>> ops, {
-  String? correlationId,
-}) async {
-  final res = await api.post(
-    '/api/llm/apply',
-    data: {
-      'operations': ops,
-      if (correlationId != null) 'correlationId': correlationId,
-    },
-    options: Options(headers: {
-      if (correlationId != null) 'x-correlation-id': correlationId,
-    }),
-  );
-  return Map<String, dynamic>.from(res.data);
-}
-
-Future<Map<String, dynamic>> dryRunOperations(
-  List<Map<String, dynamic>> ops,
-) async {
-  final res = await api.post('/api/llm/dryrun', data: {'operations': ops});
-  return Map<String, dynamic>.from(res.data);
-}
-
-Future<Map<String, dynamic>> previewOperations(
-  List<Map<String, dynamic>> ops,
-) async {
-  final res = await api.post('/api/llm/preview', data: {'operations': ops});
-  return Map<String, dynamic>.from(res.data);
-}
+// Legacy HTTP operation functions removed - now using MCP protocol
 
 // --- Goals API ---
 Future<List<dynamic>> listGoals({String? status}) async {
@@ -551,4 +522,222 @@ Future<List<dynamic>> fetchSchedule({
     },
   );
   return (res.data['items'] as List<dynamic>);
+}
+
+// --- MCP Client Functions ---
+Future<List<Map<String, dynamic>>> listMCPTools() async {
+  final res = await api.get('/api/mcp/tools');
+  return List<Map<String, dynamic>>.from(res.data['tools']);
+}
+
+Future<List<Map<String, dynamic>>> listMCPResources() async {
+  final res = await api.get('/api/mcp/resources');
+  return List<Map<String, dynamic>>.from(res.data['resources']);
+}
+
+Future<Map<String, dynamic>?> readMCPResource(String type, String name) async {
+  try {
+    final res = await api.get('/api/mcp/resources/$type/$name');
+    return Map<String, dynamic>.from(res.data);
+  } catch (e) {
+    return null;
+  }
+}
+
+Future<Map<String, dynamic>> callMCPTool(
+  String name,
+  Map<String, dynamic> arguments, {
+  String? correlationId,
+}) async {
+  final res = await api.post(
+    '/api/mcp/tools/call',
+    data: {
+      'name': name,
+      'arguments': arguments,
+    },
+    options: Options(headers: {
+      if (correlationId != null) 'x-correlation-id': correlationId,
+    }),
+  );
+  return Map<String, dynamic>.from(res.data);
+}
+
+// Convert operations to MCP tool calls
+Future<Map<String, dynamic>> applyOperationsMCP(
+  List<Map<String, dynamic>> ops, {
+  String? correlationId,
+}) async {
+  final results = <Map<String, dynamic>>[];
+  int created = 0, updated = 0, deleted = 0, completed = 0;
+  
+  for (final op in ops) {
+    try {
+      final toolName = _operationToToolName(op);
+      final args = _operationToToolArgs(op);
+      
+      final result = await callMCPTool(toolName, args, correlationId: correlationId);
+      results.add(result);
+      
+      // Count operations
+      if (op['action'] == 'create') created++;
+      else if (op['action'] == 'update') updated++;
+      else if (op['action'] == 'delete') deleted++;
+      else if (op['action'] == 'complete' || op['action'] == 'complete_occurrence') completed++;
+    } catch (e) {
+      results.add({'error': e.toString()});
+    }
+  }
+  
+  return {
+    'results': results,
+    'summary': {
+      'created': created,
+      'updated': updated,
+      'deleted': deleted,
+      'completed': completed,
+    }
+  };
+}
+
+// Dry run operations using MCP tool validation
+Future<Map<String, dynamic>> dryRunOperationsMCP(
+  List<Map<String, dynamic>> ops,
+) async {
+  final warnings = <String>[];
+  final tools = await listMCPTools();
+  final toolMap = <String, Map<String, dynamic>>{};
+  
+  for (final tool in tools) {
+    toolMap[tool['name']] = tool;
+  }
+  
+  for (final op in ops) {
+    final toolName = _operationToToolName(op);
+    final args = _operationToToolArgs(op);
+    
+    // Check if tool exists
+    if (!toolMap.containsKey(toolName)) {
+      warnings.add('Unknown operation type: ${op['kind']} ${op['action']}');
+      continue;
+    }
+    
+    // Validate required fields
+    final tool = toolMap[toolName]!;
+    final schema = tool['inputSchema'] as Map<String, dynamic>?;
+    if (schema != null) {
+      final required = schema['required'] as List<dynamic>? ?? [];
+      for (final field in required) {
+        if (!args.containsKey(field)) {
+          warnings.add('Missing required field: $field for ${op['kind']} ${op['action']}');
+        }
+      }
+    }
+  }
+  
+  return {
+    'warnings': warnings,
+    'valid': warnings.isEmpty,
+  };
+}
+
+// Preview operations (client-side shim)
+// Builds a lightweight preview payload expected by the UI:
+// { affected: [ { op, before }, ... ] }
+// Attempts to fetch current entity state for update/delete/complete ops; falls back to null.
+Future<Map<String, dynamic>> previewOperations(
+  List<Map<String, dynamic>> ops,
+) async {
+  final affected = <Map<String, dynamic>>[];
+
+  for (final op in ops) {
+    Map<String, dynamic>? before;
+    try {
+      final action = (op['action'] ?? op['op'] ?? '').toString();
+      final kind = (op['kind'] ?? 'todo').toString();
+      final dynamic idRaw = op['id'];
+      final bool needsBefore =
+          action == 'update' || action == 'delete' || action == 'complete' || action == 'set_status' || action == 'complete_occurrence';
+      if (needsBefore && idRaw != null) {
+        final int? id = (idRaw is int) ? idRaw : int.tryParse(idRaw.toString());
+        if (id != null) {
+          if (kind == 'event') {
+            before = await _getEventById(id);
+          } else if (kind == 'habit') {
+            before = await _getHabitById(id);
+          } else {
+            before = await _getTodoById(id);
+          }
+        }
+      }
+    } catch (_) {}
+    affected.add({'op': op, 'before': before});
+  }
+
+  return {'affected': affected};
+}
+
+// Helpers to fetch current entity state for preview
+Future<Map<String, dynamic>?> _getTodoById(int id) async {
+  try {
+    final res = await api.get('/api/todos/$id');
+    final m = (res.data['todo'] as Map?);
+    return m == null ? null : Map<String, dynamic>.from(m);
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<Map<String, dynamic>?> _getEventById(int id) async {
+  try {
+    final res = await api.get('/api/events/$id');
+    final m = (res.data['event'] as Map?);
+    return m == null ? null : Map<String, dynamic>.from(m);
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<Map<String, dynamic>?> _getHabitById(int id) async {
+  try {
+    final res = await api.get('/api/habits/$id');
+    final m = (res.data['habit'] as Map?);
+    return m == null ? null : Map<String, dynamic>.from(m);
+  } catch (_) {
+    return null;
+  }
+}
+
+String _operationToToolName(Map<String, dynamic> op) {
+  final kind = op['kind'] ?? 'todo';
+  final action = op['action'] ?? op['op'] ?? 'create';
+  
+  switch (action) {
+    case 'create':
+      return 'create_$kind';
+    case 'update':
+      return 'update_$kind';
+    case 'delete':
+      return 'delete_$kind';
+    case 'complete':
+      return 'complete_$kind';
+    case 'complete_occurrence':
+      return 'complete_${kind}_occurrence';
+    case 'set_status':
+      return 'set_${kind}_status';
+    default:
+      return 'create_$kind';
+  }
+}
+
+Map<String, dynamic> _operationToToolArgs(Map<String, dynamic> op) {
+  final args = <String, dynamic>{};
+  
+  // Copy all fields except kind and action
+  for (final entry in op.entries) {
+    if (entry.key != 'kind' && entry.key != 'action' && entry.key != 'op') {
+      args[entry.key] = entry.value;
+    }
+  }
+  
+  return args;
 }

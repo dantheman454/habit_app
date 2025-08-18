@@ -128,8 +128,9 @@ describe('OperationValidators', () => {
       const op = {
         title: 'Test Event',
         scheduledFor: '2025-08-18',
-        timeOfDay: '14:30',
-        duration: 60
+        startTime: '14:30',
+        endTime: '15:30',
+        location: 'Conference Room'
       };
       
       const result = OperationValidators.eventCreate(op);
@@ -143,43 +144,46 @@ describe('OperationValidators', () => {
       };
       
       const result = OperationValidators.eventCreate(op);
-      assert.strictEqual(result.valid, false);
-      assert(result.errors.some(e => e.includes('scheduledFor is required')));
+      assert.strictEqual(result.valid, true); // scheduledFor is now optional
+      assert.strictEqual(result.errors.length, 0);
     });
     
-    test('should reject invalid duration', () => {
+    test('should reject invalid time range', () => {
       const op = {
         title: 'Test Event',
         scheduledFor: '2025-08-18',
-        duration: -1
+        startTime: '15:30',
+        endTime: '14:30' // end before start
       };
       
       const result = OperationValidators.eventCreate(op);
       assert.strictEqual(result.valid, false);
-      assert(result.errors.some(e => e.includes('positive number')));
+      assert(result.errors.some(e => e.includes('endTime must be after startTime')));
     });
   });
   
-  describe('habitToggle', () => {
-    test('should validate valid habit toggle', () => {
+  describe('habitSetOccurrenceStatus', () => {
+    test('should validate valid habit occurrence status', () => {
       const op = {
         id: 1,
-        date: '2025-08-18'
+        occurrenceDate: '2025-08-18',
+        status: 'completed'
       };
       
-      const result = OperationValidators.habitToggle(op);
+      const result = OperationValidators.habitSetOccurrenceStatus(op);
       assert.strictEqual(result.valid, true);
       assert.strictEqual(result.errors.length, 0);
     });
     
-    test('should reject missing date', () => {
+    test('should reject missing occurrenceDate', () => {
       const op = {
-        id: 1
+        id: 1,
+        status: 'completed'
       };
       
-      const result = OperationValidators.habitToggle(op);
+      const result = OperationValidators.habitSetOccurrenceStatus(op);
       assert.strictEqual(result.valid, false);
-      assert(result.errors.some(e => e.includes('Valid date is required')));
+      assert(result.errors.some(e => e.includes('occurrenceDate')));
     });
   });
   

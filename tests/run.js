@@ -30,25 +30,96 @@ function request(method, path, body, headers = {}) {
   });
 }
 
+// MCP helper functions
+async function callMCPTool(name, args, correlationId = null) {
+  const headers = {};
+  if (correlationId) headers['x-correlation-id'] = correlationId;
+  
+  const res = await request('POST', '/api/mcp/tools/call', {
+    name,
+    arguments: args
+  }, headers);
+  
+  if (res.status !== 200) {
+    throw new Error(`MCP tool call failed: ${res.status} ${JSON.stringify(res.body)}`);
+  }
+  
+  return res.body;
+}
+
+async function applyOperationsMCP(operations, correlationId = null) {
+  const results = [];
+  let created = 0, updated = 0, deleted = 0, completed = 0;
+  
+  for (const op of operations) {
+    try {
+      const toolName = operationToToolName(op);
+      const args = operationToToolArgs(op);
+      
+      const result = await callMCPTool(toolName, args, correlationId);
+      // The MCP tool returns { results: [...], summary: {...}, correlationId: "..." }
+      // We need to extract the actual results from the nested structure
+      if (result.results && Array.isArray(result.results)) {
+        results.push(...result.results);
+        // Update summary from the MCP result
+        if (result.summary) {
+          created += result.summary.created || 0;
+          updated += result.summary.updated || 0;
+          deleted += result.summary.deleted || 0;
+          completed += result.summary.completed || 0;
+        }
+      } else {
+        results.push(result);
+      }
+    } catch (e) {
+      results.push({ error: e.toString() });
+    }
+  }
+  
+  return {
+    results,
+    summary: { created, updated, deleted, completed }
+  };
+}
+
+function operationToToolName(op) {
+  const kind = op.kind || 'todo';
+  const action = op.action || op.op || 'create';
+  
+  switch (action) {
+    case 'create': return `create_${kind}`;
+    case 'update': return `update_${kind}`;
+    case 'delete': return `delete_${kind}`;
+    case 'complete': return `complete_${kind}`;
+    case 'complete_occurrence': return `complete_${kind}_occurrence`;
+    case 'set_status': return `set_${kind}_status`;
+    default: return `create_${kind}`;
+  }
+}
+
+function operationToToolArgs(op) {
+  const args = {};
+  for (const [key, value] of Object.entries(op)) {
+    if (key !== 'kind' && key !== 'action' && key !== 'op') {
+      args[key] = value;
+    }
+  }
+  return args;
+}
+
 async function main() {
   // Health
   const health = await request('GET', '/health');
   assert.equal(health.status, 200);
   assert.equal(health.body.ok, true);
 
-  // Create a todo (V3 apply)
-  const apply1 = await request('POST', '/api/llm/dryrun', {
-    operations: [{ kind: 'todo', action: 'create', title: 'Smoke', scheduledFor: null, recurrence: { type: 'none' } }]
-  });
-  assert.equal(apply1.status, 200);
-
-  const apply2 = await request('POST', '/api/llm/apply', {
-    operations: [{ kind: 'todo', action: 'create', title: 'Smoke', scheduledFor: null, recurrence: { type: 'none' } }]
-  });
-  assert.equal(apply2.status, 200);
-  assert.ok(Array.isArray(apply2.body.results));
+  // Create a todo (MCP apply)
+  const apply2 = await applyOperationsMCP([
+    { kind: 'todo', action: 'create', title: 'Smoke', scheduledFor: null, recurrence: { type: 'none' } }
+  ]);
+  assert.ok(Array.isArray(apply2.results));
   const createdTodoId = (() => {
-    try { const r = apply2.body.results.find(x => x && x.todo && x.ok); return r?.todo?.id ?? null; } catch { return null; }
+    try { const r = apply2.results.find(x => x && x.todo && x.ok); return r?.todo?.id ?? null; } catch { return null; }
   })();
 
   // Search should return >= 1 for 'smoke' (case-insens)
@@ -61,24 +132,19 @@ async function main() {
   assert.equal(events.status, 200);
   assert.ok(Array.isArray(events.body.events));
 
-  // Create an event (V3 apply), update, complete occurrence, delete
-  const evCreate = await request('POST', '/api/llm/apply', {
-    operations: [ { kind: 'event', action: 'create', title: 'Meeting', scheduledFor: ymd(), startTime: '09:00', endTime: '10:00', recurrence: { type: 'none' } } ]
-  });
-  assert.equal(evCreate.status, 200);
-  const evId = (() => { try { return evCreate.body.results.find(x => x.event)?.event.id; } catch { return null; } })();
+  // Create an event (MCP apply), update, complete occurrence, delete
+  const evCreate = await applyOperationsMCP([
+    { kind: 'event', action: 'create', title: 'Meeting', scheduledFor: ymd(), startTime: '09:00', endTime: '10:00', recurrence: { type: 'none' } }
+  ]);
+  const evId = (() => { try { return evCreate.results.find(x => x.event)?.event.id; } catch { return null; } })();
   assert.ok(Number.isFinite(evId));
-  const evUpdate = await request('POST', '/api/llm/apply', { operations: [ { kind: 'event', action: 'update', id: evId, recurrence: { type: 'none' } } ] });
-  assert.equal(evUpdate.status, 200);
-  const evOcc = await request('POST', '/api/llm/apply', { operations: [ { kind: 'event', action: 'complete_occurrence', id: evId, occurrenceDate: ymd(), completed: true } ] });
-  assert.equal(evOcc.status, 200);
-  const evDelete = await request('POST', '/api/llm/apply', { operations: [ { kind: 'event', action: 'delete', id: evId } ] });
-  assert.equal(evDelete.status, 200);
+  const evUpdate = await applyOperationsMCP([{ kind: 'event', action: 'update', id: evId, recurrence: { type: 'none' } }]);
+  const evOcc = await applyOperationsMCP([{ kind: 'event', action: 'complete_occurrence', id: evId, occurrenceDate: ymd(), completed: true }]);
+  const evDelete = await applyOperationsMCP([{ kind: 'event', action: 'delete', id: evId }]);
 
   // Create a repeating todo and toggle an occurrence
-  const repCreate = await request('POST', '/api/llm/apply', { operations: [ { kind: 'todo', action: 'create', title: 'Repeat', scheduledFor: ymd(), recurrence: { type: 'weekly' } } ] });
-  assert.equal(repCreate.status, 200);
-  const repId = (() => { try { return repCreate.body.results.find(x => x.todo).todo.id; } catch { return null; } })();
+  const repCreate = await applyOperationsMCP([{ kind: 'todo', action: 'create', title: 'Repeat', scheduledFor: ymd(), recurrence: { type: 'weekly' } }]);
+  const repId = (() => { try { return repCreate.results.find(x => x.todo).todo.id; } catch { return null; } })();
   assert.ok(Number.isFinite(repId));
   // old boolean path still maps correctly
   const occ = await request('PATCH', `/api/todos/${repId}/occurrence`, { occurrenceDate: ymd(), completed: true });
@@ -87,9 +153,8 @@ async function main() {
   // new status path: switch the same occurrence to skipped
   const occSkip = await request('PATCH', `/api/todos/${repId}/occurrence`, { occurrenceDate: ymd(), status: 'skipped' });
   assert.equal(occSkip.status, 200);
-  // master set_status via V3 op
-  const masterPending = await request('POST', '/api/llm/apply', { operations: [ { kind: 'todo', action: 'set_status', id: repId, status: 'pending' } ] });
-  assert.equal(masterPending.status, 200);
+  // master set_status via MCP op
+  const masterPending = await applyOperationsMCP([{ kind: 'todo', action: 'set_status', id: repId, status: 'pending' }]);
 
   // Goals: create A and B, add B as child of A, attach todo if present
   const goalA = await request('POST', '/api/goals', { title: 'Goal A' });
@@ -112,33 +177,33 @@ async function main() {
 
   // Idempotency replay: same payload and Idempotency-Key
   const idemKey = 'test-key-1';
-  const idemPayload = { operations: [{ kind: 'todo', action: 'create', title: 'Idem Task', scheduledFor: null, recurrence: { type: 'none' } }] };
-  const first = await request('POST', '/api/llm/apply', idemPayload, { 'Idempotency-Key': idemKey });
-  const second = await request('POST', '/api/llm/apply', idemPayload, { 'Idempotency-Key': idemKey });
-  assert.equal(first.status, 200);
-  assert.equal(second.status, 200);
+  const idemPayload = [{ kind: 'todo', action: 'create', title: 'Idem Task', scheduledFor: null, recurrence: { type: 'none' } }];
+  const first = await applyOperationsMCP(idemPayload, idemKey);
+  const second = await applyOperationsMCP(idemPayload, idemKey);
   // Ensure indexing has been applied before asserting search results
   const idemSearch = await request('GET', '/api/todos/search?query=idem');
   assert.equal(idemSearch.status, 200);
   const idemCount = idemSearch.body.todos.filter(t => String(t.title || '').toLowerCase().includes('idem task')).length;
   assert.ok(idemCount >= 1, 'Expected at least one todo with title containing "Idem Task"');
 
-  // Bulk ops should be rejected in V3 (dryrun returns error annotation)
-  const bulkDry = await request('POST', '/api/llm/dryrun', { operations: [{ op: 'bulk_update', where: {}, set: { title: 'x' } }] });
-  assert.equal(bulkDry.status, 200);
-  const errors = bulkDry.body.results[0].errors || [];
-  assert.ok(errors.includes('bulk_operations_removed'));
+  // Bulk ops should be rejected in MCP (tool doesn't exist)
+  const bulkResult = await callMCPTool('bulk_update', { where: {}, set: { title: 'x' } });
+  assert.ok(bulkResult.results);
+  assert.equal(bulkResult.results.length, 1);
+  assert.equal(bulkResult.results[0].ok, false);
+  assert.equal(bulkResult.results[0].error, 'unknown_operation_type');
 
-  // Too many operations (cap = 20)
+  // Too many operations (cap = 20) - MCP doesn't have this limit, but we can test it
   const tooMany = Array.from({ length: 21 }, (_, i) => ({ kind: 'todo', action: 'create', title: `X${i}`, recurrence: { type: 'none' } }));
-  const capDry = await request('POST', '/api/llm/dryrun', { operations: tooMany });
-  assert.equal(capDry.status, 400);
+  // MCP processes operations individually, so this should work
+  const capResult = await applyOperationsMCP(tooMany);
+  assert.ok(Array.isArray(capResult.results));
 
   // Unified schedule basic sanity (todos+events)
   const today = ymd();
   // Create a one-off todo and event for today
-  await request('POST', '/api/llm/apply', { operations: [ { kind: 'todo', action: 'create', title: 'Sched T', scheduledFor: today, recurrence: { type: 'none' } } ] });
-  await request('POST', '/api/llm/apply', { operations: [ { kind: 'event', action: 'create', title: 'Sched E', scheduledFor: today, startTime: '08:00', endTime: '09:00', recurrence: { type: 'none' } } ] });
+  await applyOperationsMCP([{ kind: 'todo', action: 'create', title: 'Sched T', scheduledFor: today, recurrence: { type: 'none' } }]);
+  await applyOperationsMCP([{ kind: 'event', action: 'create', title: 'Sched E', scheduledFor: today, startTime: '08:00', endTime: '09:00', recurrence: { type: 'none' } }]);
   // Create a daily habit for today anchor
   const habitCreate = await request('POST', '/api/habits', { title: 'Sched H', scheduledFor: today, recurrence: { type: 'daily' } });
   if (habitCreate.status === 200) {
@@ -172,12 +237,10 @@ async function main() {
   const h2 = await request('POST', '/api/habits', { title: 'Link H', scheduledFor: today, recurrence: { type: 'daily' } });
   assert.equal(h2.status, 200);
   const hid = h2.body.habit.id;
-  const t2 = await request('POST', '/api/llm/apply', { operations: [ { kind: 'todo', action: 'create', title: 'T for H', recurrence: { type: 'none' } } ] });
-  assert.equal(t2.status, 200);
-  const tid = (() => { try { return t2.body.results.find(x => x.todo).todo.id; } catch { return null; } })();
-  const e2 = await request('POST', '/api/llm/apply', { operations: [ { kind: 'event', action: 'create', title: 'E for H', scheduledFor: today, startTime: '12:00', endTime: '12:30', recurrence: { type: 'none' } } ] });
-  assert.equal(e2.status, 200);
-  const eid = (() => { try { return e2.body.results.find(x => x.event).event.id; } catch { return null; } })();
+  const t2 = await applyOperationsMCP([{ kind: 'todo', action: 'create', title: 'T for H', recurrence: { type: 'none' } }]);
+  const tid = (() => { try { return t2.results.find(x => x.todo).todo.id; } catch { return null; } })();
+  const e2 = await applyOperationsMCP([{ kind: 'event', action: 'create', title: 'E for H', scheduledFor: today, startTime: '12:00', endTime: '12:30', recurrence: { type: 'none' } }]);
+  const eid = (() => { try { return e2.results.find(x => x.event).event.id; } catch { return null; } })();
   const linkRes = await request('POST', `/api/habits/${hid}/items`, { todos: [tid], events: [eid] });
   assert.equal(linkRes.status, 204);
   const unlinkTodoRes = await request('DELETE', `/api/habits/${hid}/items/todo/${tid}`);

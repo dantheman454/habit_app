@@ -17,7 +17,18 @@ class TestHooks {
   static bool skipRefresh = false;
 }
 
-var createTodoFn = api.createTodo;
+var createTodoFn = (Map<String, dynamic> data) async {
+  final res = await api.callMCPTool('create_todo', data);
+  try {
+    final results = (res['results'] as List<dynamic>?);
+    if (results != null && results.isNotEmpty) {
+      final first = results.first as Map<String, dynamic>;
+      final todo = first['todo'];
+      if (todo is Map) return Map<String, dynamic>.from(todo);
+    }
+  } catch (_) {}
+  throw Exception('create_todo_failed');
+};
 var createEventFn = api.createEvent;
 var createHabitFn = api.createHabit;
 var createGoalFn = api.createGoal;
@@ -1306,16 +1317,16 @@ class _HomePageState extends State<HomePage> {
         // todo: use status model
           if (t.masterId != null && t.scheduledFor != null) {
             final next = (t.status == 'completed') ? 'pending' : 'completed';
-            await api.setTodoOccurrenceStatus(
-              t.masterId!,
-              t.scheduledFor!,
-              next,
-            );
+            await api.callMCPTool('set_todo_status', {
+              'id': t.masterId!,
+              'status': next,
+              'occurrenceDate': t.scheduledFor!,
+            });
           } else {
             final next = (t.status == 'completed') ? 'pending' : 'completed';
-            await api.updateTodo(t.id, {
+            await api.callMCPTool('set_todo_status', {
+              'id': t.id,
               'status': next,
-              'recurrence': t.recurrence ?? {'type': 'none'},
             });
           }
       }
@@ -1330,16 +1341,16 @@ class _HomePageState extends State<HomePage> {
       if (t.kind != 'todo') return;
       if (t.masterId != null && t.scheduledFor != null) {
         final next = (t.status == 'skipped') ? 'pending' : 'skipped';
-        await api.setTodoOccurrenceStatus(
-          t.masterId!,
-          t.scheduledFor!,
-          next,
-        );
+        await api.callMCPTool('set_todo_status', {
+          'id': t.masterId!,
+          'status': next,
+          'occurrenceDate': t.scheduledFor!,
+        });
       } else {
         final next = (t.status == 'skipped') ? 'pending' : 'skipped';
-        await api.updateTodo(t.id, {
+        await api.callMCPTool('set_todo_status', {
+          'id': t.id,
           'status': next,
-          'recurrence': t.recurrence ?? {'type': 'none'},
         });
       }
       await _refreshAll();
@@ -1375,7 +1386,7 @@ class _HomePageState extends State<HomePage> {
       } else if (t.kind == 'habit') {
         await api.deleteHabit(t.id);
       } else {
-        await api.deleteTodo(t.id);
+        await api.callMCPTool('delete_todo', {'id': t.id});
       }
       await _refreshAll();
     } catch (e) {
@@ -2260,7 +2271,7 @@ class _HomePageState extends State<HomePage> {
       }
       // Dry-run before apply to surface warnings
       try {
-        final preview = await api.dryRunOperations(selectedOps);
+        final preview = await api.dryRunOperationsMCP(selectedOps);
         final warnings =
             (preview['warnings'] as List<dynamic>?)
                 ?.map((e) => e.toString())
@@ -2306,7 +2317,7 @@ class _HomePageState extends State<HomePage> {
       } catch (_) {
         // Ignore dry-run failures; continue to apply
       }
-  final res = await api.applyOperations(selectedOps, correlationId: _lastCorrelationId);
+        final res = await api.applyOperationsMCP(selectedOps, correlationId: _lastCorrelationId);
       final summary = res['summary'];
       if (mounted) {
         setState(() {
@@ -4146,7 +4157,8 @@ class _HomePageState extends State<HomePage> {
                 'recurrence': t.recurrence ?? {'type': 'daily'},
               });
             } else {
-              await api.updateTodo(t.id, {
+              await api.callMCPTool('update_todo', {
+                'id': t.id,
                 'title': newTitle,
                 'recurrence': t.recurrence ?? {'type': 'none'},
               });
@@ -4177,7 +4189,8 @@ class _HomePageState extends State<HomePage> {
                 t.timeOfDay = newTime;
               });
             } else {
-              await api.updateTodo(t.id, {
+              await api.callMCPTool('update_todo', {
+                'id': t.id,
                 'timeOfDay': newTime,
                 'recurrence': t.recurrence ?? {'type': 'none'},
               });

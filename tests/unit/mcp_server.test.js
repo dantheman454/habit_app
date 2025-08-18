@@ -29,8 +29,19 @@ describe('HabitusMCPServer', () => {
     assert(toolNames.includes('update_todo'));
     assert(toolNames.includes('delete_todo'));
     assert(toolNames.includes('set_todo_status'));
-    assert(toolNames.includes('complete_todo'));
     assert(toolNames.includes('complete_todo_occurrence'));
+    
+    // Check for expected event tools
+    assert(toolNames.includes('create_event'));
+    assert(toolNames.includes('update_event'));
+    assert(toolNames.includes('delete_event'));
+    assert(toolNames.includes('set_event_occurrence_status'));
+    
+    // Check for expected habit tools
+    assert(toolNames.includes('create_habit'));
+    assert(toolNames.includes('update_habit'));
+    assert(toolNames.includes('delete_habit'));
+    assert(toolNames.includes('set_habit_occurrence_status'));
   });
 
   test('should convert tool call to operation format', () => {
@@ -106,13 +117,10 @@ describe('HabitusMCPServer', () => {
       recurrence: { type: 'none' }
     });
     
-    assert(result.content);
-    assert(result.content.length === 1);
-    assert.strictEqual(result.content[0].type, 'text');
-    
-    const parsed = JSON.parse(result.content[0].text);
-    assert(parsed.results);
-    assert(parsed.summary);
+    assert(result.results);
+    assert(result.summary);
+    assert.strictEqual(result.results.length, 1);
+    assert.strictEqual(result.results[0].ok, true);
   });
 
   test('should throw error when operation processor not set', async () => {
