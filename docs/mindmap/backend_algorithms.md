@@ -20,7 +20,7 @@ This document enumerates server-side algorithms and strict policies. References 
   - Events: time validation for `startTime/endTime` and anchor when repeating
   - Occurrence endpoints toggle `completedDates` by `occurrenceDate`
 
-- Operation-level validation (apply/dryrun)
+- Operation-level validation (MCP tools)
   - `validateProposal` requires `operations` array; maps V3 `{kind,action,...}` via `inferOperationShape`
   - Guards op kind, field shapes, recurrence/time/date constraints; rejects bulk operations; enforces recurrence + anchor rules
   - Todos: use `set_status` for master or occurrence updates (`{id, status, occurrenceDate?}`); `complete`/`complete_occurrence` on todos yields `use_set_status`
@@ -52,16 +52,24 @@ Edge behaviors:
 - Validation + single repair attempt: `buildRepairPrompt` uses schema excerpt and last-3 transcript; re-validate and fall back to valid subset
 - Summarization: chat-style plain text; Granite tags stripped; deterministic fallback when LLM fails
 
+### Operation execution via MCP tools
+
+- Operations are executed through MCP tool calls rather than direct apply/dryrun endpoints
+- `OperationProcessor` class handles validation and execution with transaction support
+- MCP tools provide structured interface for CRUD operations on todos, events, habits, and goals
+- Audit logging occurs during MCP tool execution
+- Idempotency is handled at the MCP tool level
+
 ### Idempotency and auditing
 
 - Idempotency cache: `Idempotency-Key` header (or `idempotencyKey` in body) + request hash stores/returns cached apply response
-- Audit: DB `audit_log` receives entries across router, repair attempts, apply results, and errors
+- Audit: DB `audit_log` receives entries across router, repair attempts, MCP tool execution, and errors
 - Coverage: create/update/delete/complete/complete_occurrence for todos/events/habits and all `goal_*` operations
 
 ### Error messages catalog (quick reference)
 
 - Endpoints: `invalid_title`, `missing_recurrence`, `invalid_notes`, `invalid_scheduledFor`, `invalid_timeOfDay`, `invalid_recurrence`, `missing_anchor_for_recurrence`, `invalid_completed`, `invalid_id`, `not_found`, `not_repeating`, `invalid_occurrenceDate`, plus event-specific `invalid_start_time`, `invalid_end_time`, `invalid_time_range`
- - Apply/Dry-run: `invalid_operations`, `invalid_op`, `missing_or_invalid_id`, `id_not_found`, `use_complete_occurrence_for_repeating`, `use_set_status`, `bulk_operations_removed`, `too_many_operations`
+ - MCP Tools: `invalid_operations`, `invalid_op`, `missing_or_invalid_id`, `id_not_found`, `use_complete_occurrence_for_repeating`, `use_set_status`, `bulk_operations_removed`, `too_many_operations`
 
 
 

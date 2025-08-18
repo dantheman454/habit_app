@@ -67,17 +67,28 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
  - Common errors: `invalid_title`, `missing_recurrence`, `invalid_notes`, `invalid_scheduledFor`, `invalid_timeOfDay`, `invalid_recurrence`, `missing_anchor_for_recurrence`, `invalid_completed`, `invalid_status`, `invalid_id`, `not_found`, `not_repeating`, `invalid_occurrenceDate`, `use_set_status`
   - GET `/api/assistant/message/stream` → SSE: emits `stage`, `clarify`, `ops`, `summary`, `result`, `heartbeat`, `done`
 
-- LLM Apply + Dry-run
+- Assistant and LLM
+  - POST `/api/assistant/message` → `{ text, operations, steps, tools, notes, correlationId }`
+  - GET `/api/assistant/message/stream` → SSE stream with same events as above
+  - POST `/api/llm/message` → `{ ok: true, text, correlationId }` (minimal conversation endpoint)
+  - GET `/api/llm/health` → `{ ok: true, models, configured, convoPresent, codePresent }`
+
+- MCP Tools (for operation execution)
+  - GET `/api/mcp/tools` → `{ tools: Tool[] }`
+  - GET `/api/mcp/resources` → `{ resources: Resource[] }`
+  - GET `/api/mcp/resources/:type/:name` → `{ uri, content }`
+  - POST `/api/mcp/tools/call` with `{ name, arguments }` → `{ content, isError }`
+
 - Todos: `recurrence` is required on create and update; if repeating, `scheduledFor` is required
 - Events/Habits: similar shape checks; habits must be repeating when `recurrence` provided
-- Apply/Dry-run: `invalid_operations` with per-op `errors[]`; rejects bulk-like ops, and caps to ≤20 ops per request
+- Operations are executed via MCP tool calls rather than direct apply/dryrun endpoints
 
-- Todos: `fetchScheduled`, `fetchScheduledAllTime`, `fetchBacklog`, `searchTodos`, CRUD + `updateOccurrence`
+- Todos: `fetchScheduled`, `fetchScheduledAllTime`, `fetchBacklog`, `searchTodos`, CRUD + `setTodoOccurrenceStatus`
 - Events: `listEvents`, `searchEvents`, CRUD + `toggleEventOccurrence`
 - Habits: `listHabits` (range adds stats), CRUD + `toggleHabitOccurrence`, linking helpers
 - Goals: `listGoals`, `getGoal`, CRUD, link/unlink items, add/remove child
 - Unified: `fetchSchedule({ from, to, kinds, completed })`
- - Assistant: `assistantMessage()` supports SSE or POST fallback; `applyOperations`, `dryRunOperations`. Note: the server does not expose a dedicated `/api/assistant/model` endpoint; client code that previously fetched a model badge has been removed.
+ - Assistant: `assistantMessage()` supports SSE or POST fallback; `applyOperationsMCP`, `dryRunOperationsMCP` via MCP tools. Note: the server does not expose dedicated `/api/llm/apply` or `/api/llm/dryrun` endpoints; operations are executed through MCP tool calls.
 
 ### Types
 
@@ -92,14 +103,13 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 - `/api/todos/search` → `searchTodos`
 - `/api/todos` (POST) → `createTodo`
 - `/api/todos/:id` (PATCH) → `updateTodo`
-- `/api/todos/:id/occurrence` (PATCH) → `updateOccurrence`
+- `/api/todos/:id/occurrence` (PATCH) → `setTodoOccurrenceStatus`
 - `/api/todos/:id` (DELETE) → `deleteTodo`
 - `/api/events*` → `listEvents`, `createEvent`, `updateEvent`, `deleteEvent`, `searchEvents`, `toggleEventOccurrence`
 - `/api/habits*` → `listHabits`, `createHabit`, `updateHabit`, `deleteHabit`, `searchHabits`, `toggleHabitOccurrence`, `linkHabitItems`, `unlinkHabitTodo`, `unlinkHabitEvent`
 - `/api/goals*` → `listGoals`, `getGoal`, `createGoal`, `updateGoal`, `deleteGoal`, `addGoalItems`, `removeGoalTodoItem`, `removeGoalEventItem`, `addGoalChild`, `removeGoalChild`
 - `/api/schedule` → `fetchSchedule`
--- `/api/assistant/message` and `/api/assistant/message/stream` → `assistantMessage`
 - `/api/assistant/message` and `/api/assistant/message/stream` → `assistantMessage`
-- `/api/llm/apply` → `applyOperations`; `/api/llm/dryrun` → `dryRunOperations`
+- `/api/mcp/tools/call` → `applyOperationsMCP`, `dryRunOperationsMCP`
 
 

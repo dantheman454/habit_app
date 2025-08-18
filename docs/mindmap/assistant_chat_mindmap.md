@@ -409,40 +409,31 @@ Widget _buildGroupedOperationList() {
 
 **Apply Request**:
 ```javascript
-// POST /api/llm/apply
+// POST /api/mcp/tools/call
 {
-  "operations": [
-    {
-      "kind": "todo",
-      "action": "update",
-      "id": 1,
-      "recurrence": {"type": "none"}
-    }
-  ]
+  "name": "todo.update",
+  "arguments": {
+    "id": 1,
+    "recurrence": {"type": "none"}
+  }
 }
 ```
 
 **Server Processing**:
 ```javascript
-// 1. Validation
-const shapedOps = operations.map(o => inferOperationShape(o));
-const validation = validateProposal({ operations: shapedOps });
+// 1. MCP tool validation
+const tool = mcpServer.getTool("todo.update");
+const validation = await tool.validate(args);
 
-// 2. Database transaction
-await withDbTransaction(async () => {
-  for (const op of shapedOps) {
-    if (op.op === 'update') {
-      const t = findTodoById(op.id); // Find todo ID 1
-      if (!t) throw new Error('not_found');
-      
-      // Update fields
-      t.updatedAt = new Date().toISOString();
-      
-      results.push({ ok: true, op, todo: t });
-      appendAudit({ action: 'update', op, result: 'ok', id: t.id });
-    }
-  }
-});
+// 2. MCP tool execution
+const result = await mcpServer.handleToolCall("todo.update", args);
+
+// 3. Database transaction (handled by MCP tool)
+// The MCP tool internally:
+// - Validates the operation
+// - Executes the database update
+// - Logs audit entries
+// - Returns the result
 ```
 
 **Database Update**:
@@ -456,19 +447,16 @@ WHERE id = 1;
 **Response**:
 ```javascript
 {
-  "results": [
-    {
-      "ok": true,
-  "op": { "kind": "todo", "action": "update", "id": 1 },
-      "todo": {
-        "id": 1,
-        "title": "Review project proposal",
-        "scheduledFor": "2024-01-15",
-        "updatedAt": "2024-01-15T10:30:00.000Z"
-      }
+  "content": {
+    "ok": true,
+    "todo": {
+      "id": 1,
+      "title": "Review project proposal",
+      "scheduledFor": "2024-01-15",
+      "updatedAt": "2024-01-15T10:30:00.000Z"
     }
-  ],
-  "summary": { "created": 0, "updated": 1, "deleted": 0, "completed": 0 }
+  },
+  "isError": false
 }
 ```
 
@@ -637,7 +625,7 @@ When clarification selection is provided:
 
 ## Operation Execution
 
-### 1. Apply Process (`/api/llm/apply`)
+### 1. Apply Process (MCP Tools)
 **Safety Checks**:
 - Operation count limit (≤20)
 - Idempotency key support
@@ -645,16 +633,15 @@ When clarification selection is provided:
 - Audit logging
 
 **Execution Flow**:
-1. Validate all operations
-2. Begin database transaction
-3. Execute each operation
-4. Log audit entries
-5. Commit transaction
-6. Cache response for idempotency
+1. Convert operations to MCP tool calls
+2. Validate each tool call
+3. Execute tools through MCP server
+4. Log audit entries during tool execution
+5. Return aggregated results
 
-### 2. Dry-Run Support (`/api/llm/dryrun`)
+### 2. Dry-Run Support (MCP Tool Validation)
 - Preview without execution
-- Validation results only
+- Tool schema validation
 - No state changes
 - No audit logging
 

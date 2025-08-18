@@ -30,7 +30,7 @@ Entry files: `apps/web/flutter_app/lib/main.dart`, `apps/web/flutter_app/lib/api
 
 - Toggle completion:
   - Todo: use status
-    - occurrence → `PATCH /api/todos/:id/occurrence { occurrenceDate, status }`
+    - occurrence → `PATCH /api/todos/:id/occurrence { occurrenceDate, status }` → `setTodoOccurrenceStatus`
     - master → `PATCH /api/todos/:id { status }`
   - Event: occurrence → `PATCH /api/events/:id/occurrence`, master → `PATCH /api/events/:id`
   - Habit: occurrence → `PATCH /api/habits/:id/occurrence`, master → `PATCH /api/habits/:id`
@@ -43,7 +43,7 @@ Entry files: `apps/web/flutter_app/lib/main.dart`, `apps/web/flutter_app/lib/api
 - Transcript limited to last 3 turns when sending
 - SSE handler wires `onSummary`, `onClarify`, `onStage`, and `onOps`; falls back to POST when SSE fails
 - Clarify selection state is stored and passed back via `options.clarify.selection`
-- Apply flow: dry-run to preview then POST `/api/llm/apply`; `Idempotency-Key` supported at server side
+- Apply flow: dry-run to preview then execute via MCP tools; operations converted to tool calls via `applyOperationsMCP`
 
 ### Presentation and grouping
 

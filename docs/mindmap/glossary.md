@@ -16,9 +16,9 @@
 
 - Clarify options: Structured list `{ id, title, scheduledFor|null }[]` to guide selection. The client may return a `selection` object `{ ids?, date? }` to bias planning.
 
-- Idempotency: Apply endpoint deduplicates by `Idempotency-Key` + request hash to avoid re-applying the same changes.
+- Idempotency: MCP tool calls deduplicate by `Idempotency-Key` + request hash to avoid re-applying the same changes.
 
-- Audit log: Append-only records of assistant and CRUD actions written during apply.
+- Audit log: Append-only records of assistant and CRUD actions written during MCP tool execution.
 
 - Habits: Repeating-only items (recurrence must not be `none`) with optional `timeOfDay` and derived stats `currentStreak`, `longestStreak`, `weekHeatmap` when listed with a range.
 
