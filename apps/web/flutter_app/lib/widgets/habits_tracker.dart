@@ -141,7 +141,7 @@ class HabitsTracker extends StatelessWidget {
     required VoidCallback onTap,
   }) {
     final bg = completed
-        ? Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.8)
+  ? Theme.of(context).colorScheme.surfaceContainerHighest.withAlpha((0.8 * 255).round())
         : Colors.transparent;
     final borderColor = Theme.of(context).colorScheme.outlineVariant;
     return InkWell(
@@ -161,7 +161,7 @@ class HabitsTracker extends StatelessWidget {
                   border: Border.all(
                     color: Theme.of(
                       context,
-                    ).colorScheme.primary.withOpacity(0.3),
+                    ).colorScheme.primary.withAlpha((0.3 * 255).round()),
                   ),
                 ),
               )

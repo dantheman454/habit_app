@@ -101,9 +101,9 @@ class AssistantPanel extends StatelessWidget {
         opLabel ??
         (dynamic op) {
           // Support annotated ops: { op: {...}, errors: [...] }
-          final candidate = op is Map<String, dynamic> && op.containsKey('op')
-              ? (op['op'] as dynamic)
-              : op;
+      final candidate = op is Map<String, dynamic> && op.containsKey('op')
+        ? op['op']
+        : op;
           final opStr = _getString(candidate, 'op') ?? '';
           final kind = _getString(candidate, 'kind');
           final action = _getString(candidate, 'action');
@@ -134,7 +134,7 @@ class AssistantPanel extends StatelessWidget {
     return Container(
       color: Theme.of(
         context,
-      ).colorScheme.surfaceContainerHighest.withOpacity(0.15),
+      ).colorScheme.surfaceContainerHighest.withAlpha((0.15 * 255).round()),
       child: Column(
         children: [
           // Panel title: Mr. Assister
@@ -199,10 +199,10 @@ class AssistantPanel extends StatelessWidget {
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: Colors.amberAccent.withOpacity(0.15),
+                        color: Colors.amberAccent.withAlpha((0.15 * 255).round()),
                         borderRadius: BorderRadius.circular(6),
                         border: Border.all(
-                          color: Colors.amber.withOpacity(0.6),
+                          color: Colors.amber.withAlpha((0.6 * 255).round()),
                         ),
                       ),
                       child: const Text(
@@ -320,11 +320,11 @@ class AssistantPanel extends StatelessWidget {
 
   Widget _buildTurnBubble(BuildContext context, Map<String, String> turn) {
     final isUser = (turn['role'] == 'user');
-    final Color bg = isUser
-        ? Theme.of(context).colorScheme.primary
-        : Theme.of(
-            context,
-          ).colorScheme.surfaceContainerHighest.withOpacity(0.6);
+  final Color bg = isUser
+    ? Theme.of(context).colorScheme.primary
+    : Theme.of(
+      context,
+      ).colorScheme.surfaceContainerHighest.withAlpha((0.6 * 255).round());
     final Color fg = isUser
         ? Theme.of(context).colorScheme.onPrimary
         : Theme.of(context).colorScheme.onSurfaceVariant;
@@ -350,7 +350,7 @@ class AssistantPanel extends StatelessWidget {
         final v = obj[key];
         return v is String ? v : null;
       }
-      final v = (obj as dynamic)[key];
+  final v = obj[key];
       return v is String ? v : null;
     } catch (_) {
       return null;
@@ -365,7 +365,7 @@ class AssistantPanel extends StatelessWidget {
         if (v is String) return int.tryParse(v);
         return null;
       }
-      final v = (obj as dynamic)[key];
+  final v = obj[key];
       if (v is int) return v;
       if (v is String) return int.tryParse(v);
       return null;
@@ -380,7 +380,7 @@ class AssistantPanel extends StatelessWidget {
         final v = obj[key];
         return v is bool ? v : null;
       }
-      final v = (obj as dynamic)[key];
+  final v = obj[key];
       return v is bool ? v : null;
     } catch (_) {
       return null;
@@ -393,13 +393,13 @@ class AssistantPanel extends StatelessWidget {
         final errs = obj['errors'];
         if (errs is List) return errs.map((e) => e.toString()).toList();
       } else {
-        // Fallback: try dynamic property
-        final errs = (obj as dynamic).errors;
-        if (errs is List) return errs.map((e) => e.toString()).toList();
+  // Fallback: try dynamic property / map access
+  final errs = obj['errors'];
+  if (errs is List) return errs.map((e) => e.toString()).toList();
       }
     } catch (_) {}
     try {
-      final errs = (obj as dynamic)['errors'];
+      final errs = obj['errors'];
       if (errs is List) {
         return errs.map((e) => e.toString()).toList();
       }
@@ -418,8 +418,7 @@ class AssistantPanel extends StatelessWidget {
           final k = candidate['kind'];
           if (k is String && k.isNotEmpty) return k.toLowerCase();
         } else {
-          final dynamicCandidate = candidate as dynamic;
-          final k = dynamicCandidate['kind'];
+          final k = candidate['kind'];
           if (k is String && k.isNotEmpty) return k.toLowerCase();
         }
       } catch (_) {}
@@ -432,8 +431,7 @@ class AssistantPanel extends StatelessWidget {
             return 'todo';
           }
         } else {
-          final dynamicCandidate = candidate as dynamic;
-          final op = dynamicCandidate['op'];
+          final op = candidate['op'];
           if (op is String && op.isNotEmpty) {
             if (op.startsWith('goal_')) return 'goal';
             return 'todo';
@@ -542,7 +540,7 @@ class AssistantPanel extends StatelessWidget {
   Widget _buildTypingBubble(BuildContext context) {
     final bg = Theme.of(
       context,
-    ).colorScheme.surfaceContainerHighest.withOpacity(0.6);
+    ).colorScheme.surfaceContainerHighest.withAlpha((0.6 * 255).round());
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 4),
       alignment: Alignment.centerLeft,
@@ -591,7 +589,7 @@ class AssistantPanel extends StatelessWidget {
             'Progress: ${progressStage ?? ''}$elapsed',
             style: TextStyle(
               fontSize: 12,
-              color: theme.colorScheme.onSurfaceVariant.withOpacity(0.8),
+              color: theme.colorScheme.onSurfaceVariant.withAlpha((0.8 * 255).round()),
             ),
           ),
           const SizedBox(height: 4),
@@ -609,7 +607,7 @@ class AssistantPanel extends StatelessWidget {
                 'ops: $valid valid · $invalid invalid',
                 style: TextStyle(
                   fontSize: 11,
-                  color: theme.colorScheme.onSurfaceVariant.withOpacity(0.7),
+                  color: theme.colorScheme.onSurfaceVariant.withAlpha((0.7 * 255).round()),
                 ),
               ),
             ),
@@ -623,7 +621,7 @@ class AssistantPanel extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.4),
+  color: theme.colorScheme.surfaceContainerHighest.withAlpha((0.4 * 255).round()),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
@@ -699,8 +697,8 @@ class _DiffPopupButton extends StatelessWidget {
           context: context,
           builder: (ctx) {
             // Build request ops based on selection state (if provided)
-      bool includeUnchecked = false;
-      List<Map<String, dynamic>> _buildRequestOps() {
+  bool includeUnchecked = false;
+  List<Map<String, dynamic>> buildRequestOps() {
               final list = <Map<String, dynamic>>[];
               for (var i = 0; i < operations.length; i++) {
         if (checked != null && !includeUnchecked) {
@@ -752,7 +750,7 @@ class _DiffPopupButton extends StatelessWidget {
               builder: (ctx, setDlgState) {
                 // Start loading on first build
                 // Use local state held in closures
-                final future = api.previewOperations(_buildRequestOps());
+                final future = api.previewOperations(buildRequestOps());
                 return Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -967,7 +965,7 @@ class _DiffPopupButton extends StatelessWidget {
       ],
     ));
     addRow('Completed', beforeDone, getAfter('completed'));
-    return rows.where((w) => w is Row).toList();
+  return rows.whereType<Row>().toList();
   }
 }
 

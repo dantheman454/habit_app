@@ -96,7 +96,7 @@ Future<List<dynamic>> searchUnified(
 
 Future<Map<String, dynamic>> createTodo(Map<String, dynamic> data) async {
   final res = await api.post('/api/todos', data: data);
-  return Map<String, dynamic>.from(res.data['todo'] as Map);
+  return Map<String, dynamic>.from(res.data['todo']);
 }
 
 Future<Map<String, dynamic>> updateTodo(
@@ -104,7 +104,7 @@ Future<Map<String, dynamic>> updateTodo(
   Map<String, dynamic> patch,
 ) async {
   final res = await api.patch('/api/todos/$id', data: patch);
-  return Map<String, dynamic>.from(res.data['todo'] as Map);
+  return Map<String, dynamic>.from(res.data['todo']);
 }
 
 Future<Map<String, dynamic>> setTodoOccurrenceStatus(
@@ -116,7 +116,7 @@ Future<Map<String, dynamic>> setTodoOccurrenceStatus(
     '/api/todos/$id/occurrence',
     data: {'occurrenceDate': occurrenceDate, 'status': status},
   );
-  return Map<String, dynamic>.from(res.data['todo'] as Map);
+  return Map<String, dynamic>.from(res.data['todo']);
 }
 
 Future<void> deleteTodo(int id) async {
@@ -153,7 +153,7 @@ Future<Map<String, dynamic>> assistantMessage(
         },
       },
     );
-    final map = Map<String, dynamic>.from(res.data as Map);
+  final map = Map<String, dynamic>.from(res.data);
     // Surface correlationId on non-streaming path, if provided
     try {
       final cid = (map['correlationId'] as String?) ?? '';
@@ -194,12 +194,10 @@ Future<Map<String, dynamic>> assistantMessage(
           if (event == 'clarify') {
             if (onClarify != null) {
               final q = (obj['question'] as String?) ?? '';
-              final optsRaw = obj['options'];
-              final opts = (optsRaw is List)
-                  ? optsRaw
-                        .map((e) => Map<String, dynamic>.from(e as Map))
-                        .toList()
-                  : const <Map<String, dynamic>>[];
+        final optsRaw = obj['options'];
+        final opts = (optsRaw is List)
+          ? optsRaw.map((e) => Map<String, dynamic>.from(e)).toList()
+          : const <Map<String, dynamic>>[];
               if (q.isNotEmpty) onClarify(q, opts);
             }
           } else if (event == 'stage') {
@@ -221,7 +219,7 @@ Future<Map<String, dynamic>> assistantMessage(
                   : 0;
               final ops = (opsRaw is List)
                   ? opsRaw
-                        .map((e) => Map<String, dynamic>.from(e as Map))
+                        .map((e) => Map<String, dynamic>.from(e))
                         .toList()
                   : const <Map<String, dynamic>>[];
               onOps(ops, version, validCount, invalidCount);
@@ -253,7 +251,7 @@ Future<Map<String, dynamic>> assistantMessage(
               },
             },
           );
-          final map = Map<String, dynamic>.from(res.data as Map);
+          final map = Map<String, dynamic>.from(res.data);
           try {
             final cid = (map['correlationId'] as String?) ?? '';
             if (cid.isNotEmpty && onTraceId != null) onTraceId(cid);
@@ -279,7 +277,7 @@ Future<Map<String, dynamic>> assistantMessage(
         'options': {if (clientContext != null) 'client': clientContext},
       },
     );
-    final map = Map<String, dynamic>.from(res.data as Map);
+  final map = Map<String, dynamic>.from(res.data);
     try {
       final cid = (map['correlationId'] as String?) ?? '';
       if (cid.isNotEmpty && onTraceId != null) onTraceId(cid);
@@ -302,21 +300,21 @@ Future<Map<String, dynamic>> applyOperations(
       if (correlationId != null) 'x-correlation-id': correlationId,
     }),
   );
-  return Map<String, dynamic>.from(res.data as Map);
+  return Map<String, dynamic>.from(res.data);
 }
 
 Future<Map<String, dynamic>> dryRunOperations(
   List<Map<String, dynamic>> ops,
 ) async {
   final res = await api.post('/api/llm/dryrun', data: {'operations': ops});
-  return Map<String, dynamic>.from(res.data as Map);
+  return Map<String, dynamic>.from(res.data);
 }
 
 Future<Map<String, dynamic>> previewOperations(
   List<Map<String, dynamic>> ops,
 ) async {
   final res = await api.post('/api/llm/preview', data: {'operations': ops});
-  return Map<String, dynamic>.from(res.data as Map);
+  return Map<String, dynamic>.from(res.data);
 }
 
 // --- Goals API ---
@@ -342,12 +340,12 @@ Future<Map<String, dynamic>?> getGoal(
   );
   return (res.data['goal'] as Map?) == null
       ? null
-      : Map<String, dynamic>.from(res.data['goal'] as Map);
+  : Map<String, dynamic>.from(res.data['goal']);
 }
 
 Future<Map<String, dynamic>> createGoal(Map<String, dynamic> data) async {
   final res = await api.post('/api/goals', data: data);
-  return Map<String, dynamic>.from(res.data['goal'] as Map);
+  return Map<String, dynamic>.from(res.data['goal']);
 }
 
 Future<Map<String, dynamic>> updateGoal(
@@ -355,7 +353,7 @@ Future<Map<String, dynamic>> updateGoal(
   Map<String, dynamic> patch,
 ) async {
   final res = await api.patch('/api/goals/$id', data: patch);
-  return Map<String, dynamic>.from(res.data['goal'] as Map);
+  return Map<String, dynamic>.from(res.data['goal']);
 }
 
 Future<void> deleteGoal(int id) async {
@@ -407,7 +405,7 @@ Future<List<dynamic>> listEvents({
 
 Future<Map<String, dynamic>> createEvent(Map<String, dynamic> data) async {
   final res = await api.post('/api/events', data: data);
-  return Map<String, dynamic>.from(res.data['event'] as Map);
+  return Map<String, dynamic>.from(res.data['event']);
 }
 
 Future<Map<String, dynamic>> updateEvent(
@@ -415,7 +413,7 @@ Future<Map<String, dynamic>> updateEvent(
   Map<String, dynamic> patch,
 ) async {
   final res = await api.patch('/api/events/$id', data: patch);
-  return Map<String, dynamic>.from(res.data['event'] as Map);
+  return Map<String, dynamic>.from(res.data['event']);
 }
 
 Future<void> deleteEvent(int id) async {
@@ -431,7 +429,7 @@ Future<Map<String, dynamic>> toggleEventOccurrence(
     '/api/events/$id/occurrence',
     data: {'occurrenceDate': occurrenceDate, 'completed': completed},
   );
-  return Map<String, dynamic>.from(res.data['event'] as Map);
+  return Map<String, dynamic>.from(res.data['event']);
 }
 
 Future<List<dynamic>> searchEvents(
@@ -469,7 +467,7 @@ Future<List<dynamic>> listHabits({
 
 Future<Map<String, dynamic>> createHabit(Map<String, dynamic> data) async {
   final res = await api.post('/api/habits', data: data);
-  return Map<String, dynamic>.from(res.data['habit'] as Map);
+  return Map<String, dynamic>.from(res.data['habit']);
 }
 
 Future<Map<String, dynamic>> updateHabit(
@@ -477,7 +475,7 @@ Future<Map<String, dynamic>> updateHabit(
   Map<String, dynamic> patch,
 ) async {
   final res = await api.patch('/api/habits/$id', data: patch);
-  return Map<String, dynamic>.from(res.data['habit'] as Map);
+  return Map<String, dynamic>.from(res.data['habit']);
 }
 
 Future<void> deleteHabit(int id) async {
@@ -493,7 +491,7 @@ Future<Map<String, dynamic>> toggleHabitOccurrence(
     '/api/habits/$id/occurrence',
     data: {'occurrenceDate': occurrenceDate, 'completed': completed},
   );
-  return Map<String, dynamic>.from(res.data['habit'] as Map);
+  return Map<String, dynamic>.from(res.data['habit']);
 }
 
 Future<List<dynamic>> searchHabits(

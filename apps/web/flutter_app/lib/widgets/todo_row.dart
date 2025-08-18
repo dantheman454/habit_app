@@ -60,10 +60,10 @@ class TodoRow extends StatelessWidget {
         ),
         borderRadius: BorderRadius.circular(6),
     color: highlighted
-      ? Theme.of(context).colorScheme.primary.withOpacity(0.06)
+  ? Theme.of(context).colorScheme.primary.withAlpha((0.06 * 255).round())
       : (isCompleted
-        ? Colors.grey.withOpacity(0.1)
-        : (isSkipped ? Colors.orange.withOpacity(0.06) : null)),
+  ? Colors.grey.withAlpha((0.1 * 255).round())
+  : (isSkipped ? Colors.orange.withAlpha((0.06 * 255).round()) : null)),
       ),
       child: Row(
         children: [

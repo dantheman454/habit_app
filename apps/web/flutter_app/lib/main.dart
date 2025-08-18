@@ -138,7 +138,7 @@ class LlmOperation {
     location: j['location'] as String?,
     recurrence: j['recurrence'] == null
         ? null
-        : Map<String, dynamic>.from(j['recurrence'] as Map),
+  : Map<String, dynamic>.from(j['recurrence']),
     occurrenceDate: j['occurrenceDate'] as String?,
   );
   Map<String, dynamic> toJson() => {
@@ -167,7 +167,7 @@ class AnnotatedOp {
   factory AnnotatedOp.fromJson(Map<String, dynamic> j) => AnnotatedOp(
     op: (() {
       final raw = j['op'];
-      if (raw is Map) return LlmOperation.fromJson(Map<String, dynamic>.from(raw));
+  if (raw is Map) return LlmOperation.fromJson(Map<String, dynamic>.from(raw));
       // Some servers may send flat shape without wrapping under 'op'
       return LlmOperation.fromJson(j);
     })(),
@@ -408,10 +408,11 @@ class _HomePageState extends State<HomePage> {
                   WidgetsBinding.instance.addPostFrameCallback((_) {
                     if (!mounted) return;
                     _submitQuickAddTodo().whenComplete(() {
-                      if (mounted)
+                      if (mounted) {
                         setState(() {
                           _enterSubmitting = false;
                         });
+                      }
                     });
                   });
                   return KeyEventResult.handled;
@@ -816,15 +817,15 @@ class _HomePageState extends State<HomePage> {
           completed: showCompleted ? null : false,
           statusTodo: showCompleted ? null : 'pending',
         );
-        sList = raw
-            .map((e) => Todo.fromJson(Map<String, dynamic>.from(e as Map)))
-            .toList();
+    sList = raw
+  .map((e) => Todo.fromJson(Map<String, dynamic>.from(e)))
+      .toList();
         // Load habit stats for the same range to display streak badges
         try {
           final habitsRaw = await api.listHabits(from: r.from, to: r.to);
           final Map<int, Map<String, dynamic>> statsMap = {};
           for (final h in habitsRaw) {
-            final m = Map<String, dynamic>.from(h as Map);
+            final m = Map<String, dynamic>.from(h);
             final hid = (m['id'] as int?);
             if (hid != null) {
               final int current = (m['currentStreak'] is int)
@@ -866,9 +867,9 @@ class _HomePageState extends State<HomePage> {
       if (mainView == MainView.tasks && _kindFilter.contains('event')) {
         try {
           final evAllRaw = await api.listEvents();
-          eventsAllList = evAllRaw
-              .map((e) => Todo.fromJson(Map<String, dynamic>.from(e as Map)))
-              .toList();
+      eventsAllList = evAllRaw
+  .map((e) => Todo.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
         } catch (_) {}
       }
   final backlogRaw = await api.fetchBacklog();
@@ -946,7 +947,7 @@ class _HomePageState extends State<HomePage> {
       final goals = await api.listGoals();
       final Map<String, Map<String, dynamic>> map = {};
       for (final g in goals) {
-        final gm = Map<String, dynamic>.from(g as Map);
+  final gm = Map<String, dynamic>.from(g);
         final gid = gm['id'] as int?;
         if (gid == null) continue;
         final detail = await api.getGoal(
@@ -959,7 +960,7 @@ class _HomePageState extends State<HomePage> {
         // Todos
         if (detail['items'] is Map && detail['items']['todos'] is List) {
           for (final t in (detail['items']['todos'] as List)) {
-            final tm = Map<String, dynamic>.from(t as Map);
+            final tm = Map<String, dynamic>.from(t);
             final id = tm['id'] as int?;
             if (id != null) {
               map['todo:$id'] = {'goalId': gid, 'title': title};
@@ -969,7 +970,7 @@ class _HomePageState extends State<HomePage> {
         // Events
         if (detail['items'] is Map && detail['items']['events'] is List) {
           for (final ev in (detail['items']['events'] as List)) {
-            final em = Map<String, dynamic>.from(ev as Map);
+            final em = Map<String, dynamic>.from(ev);
             final id = em['id'] as int?;
             if (id != null) {
               map['event:$id'] = {'goalId': gid, 'title': title};
@@ -1017,7 +1018,7 @@ class _HomePageState extends State<HomePage> {
         limit: 30,
       );
       final items = raw.map((e) {
-        final m = Map<String, dynamic>.from(e as Map);
+  final m = Map<String, dynamic>.from(e);
         // Normalize event times for unified rendering
         if ((m['kind'] as String?) == 'event' &&
             m['startTime'] != null &&
@@ -1082,16 +1083,16 @@ class _HomePageState extends State<HomePage> {
                           child: Container(
                             margin: const EdgeInsets.only(left: 0, right: 0),
                             decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.72),
+                              color: Colors.white.withAlpha((0.72 * 255).round()),
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
-                                color: theme.colorScheme.outline.withOpacity(
-                                  0.35,
+                                color: theme.colorScheme.outline.withAlpha(
+                                  (0.35 * 255).round(),
                                 ),
                               ),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.black.withOpacity(0.08),
+                                  color: Colors.black.withAlpha((0.08 * 255).round()),
                                   blurRadius: 16,
                                   offset: const Offset(0, 8),
                                 ),
@@ -1128,7 +1129,7 @@ class _HomePageState extends State<HomePage> {
                                         child: Container(
                                           color: selected
                                               ? theme.colorScheme.primary
-                                                    .withOpacity(0.08)
+                                                    .withAlpha((0.08 * 255).round())
                                               : Colors.transparent,
                                           padding: const EdgeInsets.symmetric(
                                             horizontal: 12,
@@ -1172,7 +1173,7 @@ class _HomePageState extends State<HomePage> {
                                     separatorBuilder: (_, __) => Divider(
                                       height: 1,
                                       color: theme.colorScheme.outline
-                                          .withOpacity(0.2),
+                                          .withAlpha((0.2 * 255).round()),
                                     ),
                                     itemCount: results.length,
                                   ),
@@ -1267,44 +1268,44 @@ class _HomePageState extends State<HomePage> {
   Future<void> _toggleCompleted(Todo t) async {
     try {
       if (t.kind == 'event') {
-        if (t.masterId != null && t.scheduledFor != null) {
-          await api.toggleEventOccurrence(
-            t.masterId!,
-            t.scheduledFor!,
-            !t.completed,
-          );
-        } else {
-          await api.updateEvent(t.id, {'completed': !t.completed});
-        }
+          if (t.masterId != null && t.scheduledFor != null) {
+            await api.toggleEventOccurrence(
+              t.masterId!,
+              t.scheduledFor!,
+              !t.completed,
+            );
+          } else {
+            await api.updateEvent(t.id, {'completed': !t.completed});
+          }
       } else if (t.kind == 'habit') {
-        if (t.masterId != null && t.scheduledFor != null) {
-          await api.toggleHabitOccurrence(
-            t.masterId!,
-            t.scheduledFor!,
-            !t.completed,
-          );
-        } else {
-          await api.updateHabit(t.id, {
-            'completed': !t.completed,
-            if (t.recurrence != null) 'recurrence': t.recurrence,
-          });
-        }
+          if (t.masterId != null && t.scheduledFor != null) {
+            await api.toggleHabitOccurrence(
+              t.masterId!,
+              t.scheduledFor!,
+              !t.completed,
+            );
+          } else {
+            await api.updateHabit(t.id, {
+              'completed': !t.completed,
+              if (t.recurrence != null) 'recurrence': t.recurrence,
+            });
+          }
       } else {
         // todo: use status model
-        if (t.masterId != null && t.scheduledFor != null) {
-          final next = (t.status == 'completed') ? 'pending' : 'completed';
-          await api.setTodoOccurrenceStatus(
-            t.masterId!,
-            t.scheduledFor!,
-            next,
-          );
-        } else {
-          final next = (t.status == 'completed') ? 'pending' : 'completed';
-          await api.updateTodo(t.id, {
-            'status': next,
-            'recurrence': t.recurrence ?? {'type': 'none'},
-          });
-        }
+          if (t.masterId != null && t.scheduledFor != null) {
+            final next = (t.status == 'completed') ? 'pending' : 'completed';
+            await api.setTodoOccurrenceStatus(
+              t.masterId!,
+              t.scheduledFor!,
+              next,
+            );
+          } else {
+            final next = (t.status == 'completed') ? 'pending' : 'completed';
+            await api.updateTodo(t.id, {
+              'status': next,
+              'recurrence': t.recurrence ?? {'type': 'none'},
+            });
+          }
       }
       await _refreshAll();
     } catch (e) {
@@ -1353,7 +1354,9 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
     );
-    if (ok != true) return;
+    if (ok != true) {
+      return;
+    }
     try {
       if (t.kind == 'event') {
         await api.deleteEvent(t.id);
@@ -1394,23 +1397,23 @@ class _HomePageState extends State<HomePage> {
       context: context,
       builder: (c) => StatefulBuilder(
         builder: (c, setDlgState) {
-          Future<void> _loadLinkables() async {
+          Future<void> loadLinkables() async {
             try {
               final tds = await api.fetchScheduledAllTime();
               final evs = await api.listEvents();
               setDlgState(() {
                 allTodos = tds
-                    .map((x) => Map<String, dynamic>.from(x as Map))
+                    .map((x) => Map<String, dynamic>.from(x))
                     .toList();
                 allEvents = evs
-                    .map((x) => Map<String, dynamic>.from(x as Map))
+                    .map((x) => Map<String, dynamic>.from(x))
                     .toList();
               });
             } catch (_) {}
           }
 
           if (allTodos.isEmpty && allEvents.isEmpty) {
-            _loadLinkables();
+            loadLinkables();
           }
           return AlertDialog(
             title: const Text('Edit habit'),
@@ -1554,10 +1557,11 @@ class _HomePageState extends State<HomePage> {
                               value: selectedEventIds.contains(e['id'] as int),
                               onChanged: (v) => setDlgState(() {
                                 final id = e['id'] as int;
-                                if (v == true)
+                                if (v == true) {
                                   selectedEventIds.add(id);
-                                else
+                                } else {
                                   selectedEventIds.remove(id);
+                                }
                               }),
                               title: Text('#${e['id']}  ${e['title'] ?? ''}'),
                             ),
@@ -1582,19 +1586,27 @@ class _HomePageState extends State<HomePage> {
         },
       ),
     );
-    if (ok != true) return;
+    if (ok != true) {
+      return;
+    }
 
     final patch = <String, dynamic>{};
-    if (titleCtrl.text != t.title) patch['title'] = titleCtrl.text;
-    if (notesCtrl.text != t.notes) patch['notes'] = notesCtrl.text;
+    if (titleCtrl.text != t.title) {
+      patch['title'] = titleCtrl.text;
+    }
+    if (notesCtrl.text != t.notes) {
+      patch['notes'] = notesCtrl.text;
+    }
     final sched = dateCtrl.text.trim();
     final normalized = sched.isEmpty ? null : sched;
-    if (normalized != (t.scheduledFor ?? ''))
+    if (normalized != (t.scheduledFor ?? '')) {
       patch['scheduledFor'] = normalized;
+    }
   // priority removed
     final time = timeCtrl.text.trim();
-    if ((time.isEmpty ? null : time) != (t.timeOfDay))
+    if ((time.isEmpty ? null : time) != (t.timeOfDay)) {
       patch['timeOfDay'] = time.isEmpty ? null : time;
+    }
     // Recurrence
     final existingType =
         (t.recurrence != null && t.recurrence!['type'] is String)
@@ -1608,8 +1620,9 @@ class _HomePageState extends State<HomePage> {
       patch['recurrence'] = {'type': recurType};
       if (recurType == 'every_n_days') {
         final n = int.tryParse(intervalCtrl.text.trim());
-        if (n != null && n >= 1)
+        if (n != null && n >= 1) {
           (patch['recurrence'] as Map<String, dynamic>)['intervalDays'] = n;
+        }
       }
     } else if (recurType == 'every_n_days') {
       final n = int.tryParse(intervalCtrl.text.trim());
@@ -1619,7 +1632,13 @@ class _HomePageState extends State<HomePage> {
     }
 
     // If recurrence becomes repeating, require an anchor date
-    final willRepeat = (patch['recurrence'] is Map && (patch['recurrence'] as Map)['type'] != 'none');
+    final willRepeat = () {
+      if (patch['recurrence'] is Map) {
+        final Map rec = patch['recurrence'] as Map;
+        return (rec['type'] != 'none');
+      }
+      return false;
+    }();
     final nextAnchor = (patch.containsKey('scheduledFor')) ? (patch['scheduledFor'] as String?) : (t.scheduledFor);
     if (willRepeat && (nextAnchor == null || nextAnchor.trim().isEmpty)) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1756,12 +1775,14 @@ class _HomePageState extends State<HomePage> {
     if (notesCtrl.text != t.notes) patch['notes'] = notesCtrl.text;
     final sched = dateCtrl.text.trim();
     final normalized = sched.isEmpty ? null : sched;
-    if (normalized != (t.scheduledFor ?? ''))
+    if (normalized != (t.scheduledFor ?? '')) {
       patch['scheduledFor'] = normalized;
+    }
   // priority removed
     final time = timeCtrl.text.trim();
-    if ((time.isEmpty ? null : time) != (t.timeOfDay))
+    if ((time.isEmpty ? null : time) != (t.timeOfDay)) {
       patch['timeOfDay'] = time.isEmpty ? null : time;
+    }
     // Recurrence
     final existingType =
         (t.recurrence != null && t.recurrence!['type'] is String)
@@ -1775,8 +1796,9 @@ class _HomePageState extends State<HomePage> {
       patch['recurrence'] = {'type': recurType};
       if (recurType == 'every_n_days') {
         final n = int.tryParse(intervalCtrl.text.trim());
-        if (n != null && n >= 1)
+        if (n != null && n >= 1) {
           (patch['recurrence'] as Map<String, dynamic>)['intervalDays'] = n;
+        }
       }
     } else if (recurType == 'every_n_days') {
       final n = int.tryParse(intervalCtrl.text.trim());
@@ -1787,7 +1809,13 @@ class _HomePageState extends State<HomePage> {
 
     if (patch.isEmpty) return;
     // If recurrence becomes repeating, require anchor date
-    final willRepeat = (patch['recurrence'] is Map && (patch['recurrence'] as Map)['type'] != 'none');
+    final willRepeat = () {
+      if (patch['recurrence'] is Map) {
+        final Map rec = patch['recurrence'] as Map;
+        return (rec['type'] != 'none');
+      }
+      return false;
+    }();
     final nextAnchor = (patch.containsKey('scheduledFor')) ? (patch['scheduledFor'] as String?) : (t.scheduledFor);
     if (willRepeat && (nextAnchor == null || nextAnchor.trim().isEmpty)) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1927,8 +1955,9 @@ class _HomePageState extends State<HomePage> {
     if (notesCtrl.text != t.notes) patch['notes'] = notesCtrl.text;
     final date = dateCtrl.text.trim();
     final normalized = date.isEmpty ? null : date;
-    if (normalized != (t.scheduledFor ?? ''))
+    if (normalized != (t.scheduledFor ?? '')) {
       patch['scheduledFor'] = normalized;
+    }
   // priority removed
     final start = startCtrl.text.trim();
     final end = endCtrl.text.trim();
@@ -1951,7 +1980,13 @@ class _HomePageState extends State<HomePage> {
                 : {'type': recurType});
     }
     // If recurrence becomes repeating, require anchor date
-    final willRepeat = (patch['recurrence'] is Map && (patch['recurrence'] as Map)['type'] != 'none');
+    final willRepeat = () {
+      if (patch['recurrence'] is Map) {
+        final Map rec = patch['recurrence'] as Map;
+        return (rec['type'] != 'none');
+      }
+      return false;
+    }();
     final nextAnchor = (patch.containsKey('scheduledFor')) ? (patch['scheduledFor'] as String?) : (t.scheduledFor);
     if (willRepeat && (nextAnchor == null || nextAnchor.trim().isEmpty)) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2068,7 +2103,7 @@ class _HomePageState extends State<HomePage> {
           if (!mounted) return;
           setState(() {
             _progressStage = st;
-            if (_progressStart == null) _progressStart = DateTime.now();
+            _progressStart ??= DateTime.now();
           });
         },
         onOps: (ops, version, validCount, invalidCount) {
@@ -2085,7 +2120,7 @@ class _HomePageState extends State<HomePage> {
                     ? x.op
                     : LlmOperation.fromJson(
                         Map<String, dynamic>.from(
-                          (x as Map<String, dynamic>)['op'] as Map,
+                          (x as Map<String, dynamic>)['op'],
                         ),
                       );
                 final id = m.id == null ? '' : '#${m.id}';
@@ -2394,13 +2429,16 @@ class _HomePageState extends State<HomePage> {
                               padding: const EdgeInsets.only(top: 6, bottom: 6),
                               child: th.TabsHeader(
                                 selected: () {
-                                  if (mainView == MainView.goals)
+                                  if (mainView == MainView.goals) {
                                     return th.AppTab.goals;
-                                  if (mainView == MainView.habits)
+                                  }
+                                  if (mainView == MainView.habits) {
                                     return th.AppTab.habits;
+                                  }
                                   if (_kindFilter.length == 1 &&
-                                      _kindFilter.contains('event'))
+                                      _kindFilter.contains('event')) {
                                     return th.AppTab.events;
+                                  }
                                   return th.AppTab.todos;
                                 }(),
                                 onChanged: (tab) async {
@@ -2459,16 +2497,19 @@ class _HomePageState extends State<HomePage> {
                                   child: Focus(
                                     focusNode: _searchFocus,
                                     onFocusChange: (f) {
-                                      if (!f)
+                                      if (!f) {
                                         _removeSearchOverlay();
-                                      else
+                                      } else {
                                         _showSearchOverlayIfNeeded();
+                                      }
                                     },
                                     onKeyEvent: (node, event) {
-                                      if (!_searchFocus.hasFocus)
+                                      if (!_searchFocus.hasFocus) {
                                         return KeyEventResult.ignored;
-                                      if (event is! KeyDownEvent)
+                                      }
+                                      if (event is! KeyDownEvent) {
                                         return KeyEventResult.ignored;
+                                      }
                                       final len = math.min(
                                         searchResults.length,
                                         7,
@@ -2527,7 +2568,7 @@ class _HomePageState extends State<HomePage> {
                                             color: Theme.of(context)
                                                 .colorScheme
                                                 .outline
-                                                .withOpacity(0.4),
+                                                .withAlpha((0.4 * 255).round()),
                                           ),
                                         ),
                                         focusedBorder: OutlineInputBorder(
@@ -2792,10 +2833,11 @@ class _HomePageState extends State<HomePage> {
                                       clarifyQuestion: _pendingClarifyQuestion,
                                       clarifyOptions: _pendingClarifyOptions,
                                       onToggleClarifyId: (id) => setState(() {
-                                        if (_clarifySelectedIds.contains(id))
+                                        if (_clarifySelectedIds.contains(id)) {
                                           _clarifySelectedIds.remove(id);
-                                        else
+                                        } else {
                                           _clarifySelectedIds.add(id);
+                                        }
                                       }),
                                       onSelectClarifyDate: (d) => setState(() {
                                         _clarifySelectedDate = d;
@@ -2875,7 +2917,7 @@ class _HomePageState extends State<HomePage> {
                       padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
                       decoration: BoxDecoration(
                         color: isTodayHeader
-                            ? Theme.of(context).colorScheme.primary.withOpacity(0.06)
+                            ? Theme.of(context).colorScheme.primary.withAlpha((0.06 * 255).round())
                             : null,
                         border: Border(
                           left: BorderSide(
@@ -2983,7 +3025,7 @@ class _HomePageState extends State<HomePage> {
                         ? BoxDecoration(
                             color: Theme.of(
                               context,
-                            ).colorScheme.primary.withOpacity(0.08),
+                            ).colorScheme.primary.withAlpha((0.08 * 255).round()),
                             borderRadius: BorderRadius.circular(999),
                             border: Border.all(
                               color: Theme.of(context).colorScheme.primary,
@@ -3259,12 +3301,13 @@ class _HomePageState extends State<HomePage> {
   void _goPrev() async {
     final a = parseYmd(anchor);
     DateTime next;
-    if (view == View.day)
+    if (view == View.day) {
       next = a.subtract(const Duration(days: 1));
-    else if (view == View.week)
+    } else if (view == View.week) {
       next = a.subtract(const Duration(days: 7));
-    else
+    } else {
       next = DateTime(a.year, a.month - 1, a.day);
+    }
     setState(() {
       anchor = ymd(next);
     });
@@ -3274,12 +3317,13 @@ class _HomePageState extends State<HomePage> {
   void _goNext() async {
     final a = parseYmd(anchor);
     DateTime next;
-    if (view == View.day)
+    if (view == View.day) {
       next = a.add(const Duration(days: 1));
-    else if (view == View.week)
+    } else if (view == View.week) {
       next = a.add(const Duration(days: 7));
-    else
+    } else {
       next = DateTime(a.year, a.month + 1, a.day);
+    }
     setState(() {
       anchor = ymd(next);
     });
@@ -3380,7 +3424,7 @@ class _HomePageState extends State<HomePage> {
               }
               final raw = snap.data ?? const <dynamic>[];
               final goals = raw
-                  .map((e) => Map<String, dynamic>.from(e as Map))
+                  .map((e) => Map<String, dynamic>.from(e))
                   .toList();
               goals.sort((a, b) => (a['id'] as int).compareTo(b['id'] as int));
               return ListView(
@@ -3584,7 +3628,7 @@ class _HomePageState extends State<HomePage> {
                   ...(goal['items'] != null && goal['items']['todos'] is List
                       ? (goal['items']['todos'] as List)
                             .map<Map<String, dynamic>>(
-                              (e) => Map<String, dynamic>.from(e as Map),
+                              (e) => Map<String, dynamic>.from(e),
                             )
                             .map(
                               (t) => Row(
@@ -3616,7 +3660,7 @@ class _HomePageState extends State<HomePage> {
                   ...(goal['items'] != null && goal['items']['events'] is List
                       ? (goal['items']['events'] as List)
                             .map<Map<String, dynamic>>(
-                              (e) => Map<String, dynamic>.from(e as Map),
+                              (e) => Map<String, dynamic>.from(e),
                             )
                             .map(
                               (ev) => Row(
@@ -3713,10 +3757,11 @@ class _HomePageState extends State<HomePage> {
                             Navigator.pop(c);
                             _openGoalDetail(id);
                           } catch (e) {
-                            if (context.mounted)
+                            if (context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(content: Text('Link failed: $e')),
                               );
+                            }
                           }
                         },
                         child: const Text('Add'),
@@ -3740,16 +3785,19 @@ class _HomePageState extends State<HomePage> {
                       FilledButton(
                         onPressed: () async {
                           final cid = int.tryParse(addChildCtrl.text.trim());
-                          if (cid == null) return;
+                          if (cid == null) {
+                            return;
+                          }
                           try {
                             await api.addGoalChild(id, cid);
                             Navigator.pop(c);
                             _openGoalDetail(id);
                           } catch (e) {
-                            if (context.mounted)
+                            if (context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(content: Text('Add child failed: $e')),
                               );
+                            }
                           }
                         },
                         child: const Text('Add Child'),
@@ -3775,10 +3823,11 @@ class _HomePageState extends State<HomePage> {
                   Navigator.pop(c);
                   setState(() {});
                 } catch (e) {
-                  if (context.mounted)
+                  if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text('Delete failed: $e')),
                     );
+                  }
                 }
               },
               child: const Text('Delete'),
@@ -3920,7 +3969,7 @@ class _HomePageState extends State<HomePage> {
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
           color: selected
-              ? Theme.of(context).colorScheme.primary.withOpacity(0.1)
+              ? Theme.of(context).colorScheme.primary.withAlpha((0.1 * 255).round())
               : Colors.grey.shade100,
           borderRadius: BorderRadius.circular(999),
           border: Border.all(
@@ -4171,10 +4220,11 @@ class _HomePageState extends State<HomePage> {
         }
         final todayY = ymd(DateTime.now());
         int current = (stats['currentStreak'] as int?) ?? 0;
-        if (y == todayY)
+        if (y == todayY) {
           current = newCompleted
               ? (current + 1)
               : (current > 0 ? current - 1 : 0);
+        }
         final updated = {
           ...stats,
           'weekHeatmap': heat,
@@ -4190,10 +4240,11 @@ class _HomePageState extends State<HomePage> {
         setState(() {
           habitStatsById = prev;
         });
-        if (mounted)
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Update failed. Reverted.')),
           );
+        }
       }
     }
 
@@ -4216,8 +4267,9 @@ class _HomePageState extends State<HomePage> {
     }
 
     // Narrow layout: left list + right focus grid
-    if (_selectedHabitId == null && rows.isNotEmpty)
+    if (_selectedHabitId == null && rows.isNotEmpty) {
       _selectedHabitId = rows.first.id;
+    }
     final selectedId = _selectedHabitId;
     final selectedStats = (selectedId != null)
         ? habitStatsById[selectedId]
@@ -4316,8 +4368,9 @@ class _HomePageState extends State<HomePage> {
                       Focus(
                         autofocus: true,
                         onKeyEvent: (node, event) {
-                          if (event is! KeyDownEvent)
+                          if (event is! KeyDownEvent) {
                             return KeyEventResult.ignored;
+                          }
                           if (event.logicalKey ==
                               LogicalKeyboardKey.arrowLeft) {
                             setState(() {
@@ -4397,7 +4450,7 @@ class _HomePageState extends State<HomePage> {
     VoidCallback? onTap,
   }) {
     final bg = completed
-        ? Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.8)
+  ? Theme.of(context).colorScheme.surfaceContainerHighest.withAlpha((0.8 * 255).round())
         : Colors.transparent;
     final borderColor = Theme.of(context).colorScheme.outlineVariant;
     return InkWell(
@@ -4419,7 +4472,7 @@ class _HomePageState extends State<HomePage> {
                   border: Border.all(
                     color: Theme.of(
                       context,
-                    ).colorScheme.primary.withOpacity(0.3),
+                    ).colorScheme.primary.withAlpha((0.3 * 255).round()),
                   ),
                 ),
               ),
@@ -4430,7 +4483,7 @@ class _HomePageState extends State<HomePage> {
                   border: Border.all(
                     color: Theme.of(
                       context,
-                    ).colorScheme.primary.withOpacity(0.15),
+                    ).colorScheme.primary.withAlpha((0.15 * 255).round()),
                     width: 2,
                   ),
                 ),
