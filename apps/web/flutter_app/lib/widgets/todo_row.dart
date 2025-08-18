@@ -112,8 +112,9 @@ class TodoRow extends StatelessWidget {
                                     ],
                                   ),
                                 );
-                                if (ok == true)
+                                if (ok == true) {
                                   onTitleEdited!(ctrl.text.trim());
+                                }
                               },
                         child: Text(
                           todo.title,
@@ -231,14 +232,5 @@ class TodoRow extends StatelessWidget {
     );
   }
 
-  Widget _kindIcon(String kind) {
-    IconData icon;
-    if (kind == 'event')
-      icon = Icons.event;
-    else if (kind == 'habit')
-      icon = Icons.repeat;
-    else
-      icon = Icons.check_circle_outline;
-    return Icon(icon, size: 12, color: Colors.black54);
-  }
+  // _kindIcon removed (unused) to reduce analyzer noise.
 }

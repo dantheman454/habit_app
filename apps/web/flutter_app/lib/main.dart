@@ -625,11 +625,14 @@ class _HomePageState extends State<HomePage> {
         context,
       ).showSnackBar(SnackBar(content: Text('Create failed: $e')));
     } finally {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _mustPaintDisabledOnce = false;
         });
-      if (mounted) setState(() => _addingQuick = false);
+      }
+      if (mounted) {
+        setState(() => _addingQuick = false);
+      }
     }
   }
 
@@ -677,7 +680,9 @@ class _HomePageState extends State<HomePage> {
       ).showSnackBar(SnackBar(content: Text('Create failed: $e')));
     } finally {
       await Future<void>.delayed(const Duration(milliseconds: 16));
-      if (mounted) setState(() => _addingQuick = false);
+      if (mounted) {
+        setState(() => _addingQuick = false);
+      }
     }
   }
 
@@ -719,7 +724,9 @@ class _HomePageState extends State<HomePage> {
       ).showSnackBar(SnackBar(content: Text('Create failed: $e')));
     } finally {
       await Future<void>.delayed(const Duration(milliseconds: 16));
-      if (mounted) setState(() => _addingQuick = false);
+      if (mounted) {
+        setState(() => _addingQuick = false);
+      }
     }
   }
 
@@ -764,41 +771,10 @@ class _HomePageState extends State<HomePage> {
       ).showSnackBar(SnackBar(content: Text('Create failed: $e')));
     } finally {
       await Future<void>.delayed(const Duration(milliseconds: 16));
-      if (mounted) setState(() => _addingQuick = false);
+      if (mounted) {
+        setState(() => _addingQuick = false);
+      }
     }
-  }
-
-  Future<void> _quickAddTodo() async {}
-
-  Future<void> _quickAddEvent() async {}
-
-  Future<void> _quickAddHabit() async {}
-
-  Widget _tabChip(String label, bool selected, VoidCallback onTap, {Key? key}) {
-    return InkWell(
-      key: key,
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: selected
-              ? Colors.white.withOpacity(0.2)
-              : Colors.white.withOpacity(0.08),
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(
-            color: selected ? Colors.white : Colors.white.withOpacity(0.5),
-          ),
-        ),
-        child: Text(
-          label,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-    );
   }
 
   @override
@@ -908,17 +884,15 @@ class _HomePageState extends State<HomePage> {
       // Completed filter already applied above; priority now requested server-side
       // Sidebar counters are scoped by active tab context only
       final nowYmd = ymd(DateTime.now());
-      int todayCount;
-      int scheduledCount;
-      int backlogCount = bList.length;
-  int flaggedCount;
-      int allCount;
+  int todayCount;
+  int scheduledCount;
+  int backlogCount = bList.length;
+  int allCount;
       if (mainView == MainView.habits) {
         todayCount = sList
             .where((t) => t.kind == 'habit' && t.scheduledFor == nowYmd)
             .length;
-        scheduledCount = sList.where((t) => t.kind == 'habit').length;
-  flaggedCount = 0;
+  scheduledCount = sList.where((t) => t.kind == 'habit').length;
         allCount =
             scheduledCount +
             backlogCount; // backlog currently excludes habits; acceptable for tab-scoped count
@@ -932,18 +906,15 @@ class _HomePageState extends State<HomePage> {
             .length;
         if (eventsMode) {
           backlogCount = 0; // no backlog for events
-          flaggedCount = 0;
           allCount = eventsAllList.length;
         } else {
-          flaggedCount = 0;
           allCount = sAllList.where((t) => (t.kind == null || t.kind == 'todo')).length + backlogCount;
         }
       } else {
-        // goals tab
-        todayCount = 0;
-        scheduledCount = 0;
-        flaggedCount = 0;
-        allCount = 0;
+  // goals tab
+  todayCount = 0;
+  scheduledCount = 0;
+  allCount = 0;
       }
         final counts = <String, int>{
         'today': todayCount,
@@ -1006,10 +977,11 @@ class _HomePageState extends State<HomePage> {
           }
         }
       }
-      if (mounted)
+      if (mounted) {
         setState(() {
           _itemGoalByKey = map;
         });
+      }
     } catch (_) {
       // Non-blocking
     }
@@ -1147,8 +1119,7 @@ class _HomePageState extends State<HomePage> {
                                       final t = results[i];
                                       final selected = i == _searchHoverIndex;
                                       return InkWell(
-                                        onTap: () =>
-                                            _selectSearchResult(t as Todo),
+                                        onTap: () => _selectSearchResult(t),
                                         onHover: (h) => setState(
                                           () => _searchHoverIndex = h
                                               ? i
@@ -1171,7 +1142,7 @@ class _HomePageState extends State<HomePage> {
                                                       CrossAxisAlignment.start,
                                                   children: [
                                                     Text(
-                                                      (t as Todo).title,
+                                                        t.title,
                                                       maxLines: 1,
                                                       overflow:
                                                           TextOverflow.ellipsis,
@@ -1219,7 +1190,7 @@ class _HomePageState extends State<HomePage> {
     );
     final entry = _searchOverlay;
     final overlay = Overlay.of(context, debugRequiredFor: widget);
-    if (entry != null && overlay != null) {
+    if (entry != null) {
       overlay.insert(entry);
     }
   }
@@ -1287,8 +1258,9 @@ class _HomePageState extends State<HomePage> {
       );
       setState(() => _highlightedId = t.id);
       await Future.delayed(const Duration(seconds: 1));
-      if (mounted && _highlightedId == t.id)
+      if (mounted && _highlightedId == t.id) {
         setState(() => _highlightedId = null);
+      }
     }
   }
 
@@ -1395,11 +1367,6 @@ class _HomePageState extends State<HomePage> {
       setState(() => message = 'Delete failed: $e');
     }
   }
-
-  // Deprecated FAB/event/habit sheets removed; inline quick-add is the single add surface
-  Future<void> _openFabSheet() async {}
-  Future<void> _openEventSheet() async {}
-  Future<void> _openHabitSheet() async {}
 
   Future<void> _editHabit(Todo t) async {
     final titleCtrl = TextEditingController(text: t.title);
@@ -1542,10 +1509,11 @@ class _HomePageState extends State<HomePage> {
                               value: selectedTodoIds.contains(x['id'] as int),
                               onChanged: (v) => setDlgState(() {
                                 final id = x['id'] as int;
-                                if (v == true)
+                                if (v == true) {
                                   selectedTodoIds.add(id);
-                                else
+                                } else {
                                   selectedTodoIds.remove(id);
+                                }
                               }),
                               title: Text('#${x['id']}  ${x['title'] ?? ''}'),
                             ),
@@ -2537,7 +2505,7 @@ class _HomePageState extends State<HomePage> {
                                                 _searchHoverIndex < list.length
                                             ? _searchHoverIndex
                                             : 0;
-                                        _selectSearchResult(list[idx] as Todo);
+                                        _selectSearchResult(list[idx]);
                                         return KeyEventResult.handled;
                                       }
                                       return KeyEventResult.ignored;
@@ -2858,12 +2826,20 @@ class _HomePageState extends State<HomePage> {
   }
 
   String _opLabel(LlmOperation op) {
-    final parts = <String>['${op.op}'];
-    if (op.id != null) parts.add('#${op.id}');
-    if (op.title != null) parts.add('– ${op.title}');
-  // priority removed from label
-    if (op.scheduledFor != null) parts.add('@${op.scheduledFor}');
-    if (op.completed != null) parts.add(op.completed! ? '[done]' : '[undone]');
+    final parts = <String>[op.op];
+    if (op.id != null) {
+      parts.add('#${op.id}');
+    }
+    if (op.title != null) {
+      parts.add('– ${op.title}');
+    }
+    // priority removed from label
+    if (op.scheduledFor != null) {
+      parts.add('@${op.scheduledFor}');
+    }
+    if (op.completed != null) {
+      parts.add(op.completed! ? '[done]' : '[undone]');
+    }
     return parts.join(' ');
   }
 
@@ -3477,7 +3453,7 @@ class _HomePageState extends State<HomePage> {
                     },
                   ),
                   const SizedBox(height: 8),
-                  ...goals.map((g) => _goalRow(g)).toList(),
+                  ...goals.map((g) => _goalRow(g)),
                 ],
               );
             },
@@ -3818,9 +3794,6 @@ class _HomePageState extends State<HomePage> {
       setState(() => message = 'Load goal failed: $e');
     }
   }
-
-  // Deprecated goal create dialog removed; use inline quick-add instead
-  Future<void> _openCreateGoalDialog() async {}
 
   Future<void> _openEditGoalDialog(Map<String, dynamic> goal) async {
     final titleCtrl = TextEditingController(
@@ -4165,7 +4138,7 @@ class _HomePageState extends State<HomePage> {
       7,
       (i) => monday.add(Duration(days: i)),
     );
-    final weekY = week.map((d) => ymd(d)).toList();
+  final weekY = week.map((d) => ymd(d)).toList();
     // Prepare habits
     final items = scheduled.where((t) => t.kind == 'habit').toList()
       ..sort((a, b) => (a.title).compareTo(b.title));
@@ -4467,6 +4440,4 @@ class _HomePageState extends State<HomePage> {
       ),
     );
   }
-
-  
 }

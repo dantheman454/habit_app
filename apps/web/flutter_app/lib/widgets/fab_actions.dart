@@ -15,12 +15,13 @@ class FabActions extends StatelessWidget {
   Widget build(BuildContext context) {
     return PopupMenuButton<String>(
       onSelected: (v) {
-        if (v == 'todo')
+        if (v == 'todo') {
           onCreateTodo();
-        else if (v == 'event')
+        } else if (v == 'event') {
           onCreateEvent();
-        else if (v == 'habit')
+        } else if (v == 'habit') {
           onCreateHabit();
+        }
       },
       itemBuilder: (c) => const [
         PopupMenuItem<String>(value: 'todo', child: Text('New Task')),

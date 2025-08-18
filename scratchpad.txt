@@ -13,6 +13,7 @@ Actionable:
     *Make todos UI better (fix it from being so snappy when deleting todos or going between tabs)
         >Use google calendar and reminders app for inspo
         >Make sure to display the month and have the toggle switch for Day/Week/Month
+        >Make the weekly view start with Sunday on left and end with Sat on the right
     *Add in a third option for tasks to have 'skipped/(didn't do it)'
     *Get repeated tasks and events working properly
     *JUST FOCUS ON TODOS and EVENTS (Habits and goals can be buffed out later once solid foundation is laid)

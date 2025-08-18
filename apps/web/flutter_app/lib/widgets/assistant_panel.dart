@@ -342,30 +342,14 @@ class AssistantPanel extends StatelessWidget {
     );
   }
 
-  Widget _buildOpsDiffView(
-    List<dynamic> ops,
-    String Function(dynamic) labeler,
-    BuildContext context,
-  ) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (final op in ops)
-          Container(
-            margin: const EdgeInsets.only(bottom: 6),
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey.shade300),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Text(labeler(op)),
-          ),
-      ],
-    );
-  }
+  // _buildOpsDiffView removed (unused) to reduce analyzer noise.
 
   static String? _getString(dynamic obj, String key) {
     try {
+      if (obj is Map) {
+        final v = obj[key];
+        return v is String ? v : null;
+      }
       final v = (obj as dynamic)[key];
       return v is String ? v : null;
     } catch (_) {
@@ -375,6 +359,12 @@ class AssistantPanel extends StatelessWidget {
 
   static int? _getInt(dynamic obj, String key) {
     try {
+      if (obj is Map) {
+        final v = obj[key];
+        if (v is int) return v;
+        if (v is String) return int.tryParse(v);
+        return null;
+      }
       final v = (obj as dynamic)[key];
       if (v is int) return v;
       if (v is String) return int.tryParse(v);
@@ -386,6 +376,10 @@ class AssistantPanel extends StatelessWidget {
 
   static bool? _getBool(dynamic obj, String key) {
     try {
+      if (obj is Map) {
+        final v = obj[key];
+        return v is bool ? v : null;
+      }
       final v = (obj as dynamic)[key];
       return v is bool ? v : null;
     } catch (_) {
@@ -395,9 +389,13 @@ class AssistantPanel extends StatelessWidget {
 
   static List<String> _getErrors(dynamic obj) {
     try {
-      final errs = (obj as dynamic).errors;
-      if (errs is List) {
-        return errs.map((e) => e.toString()).toList();
+      if (obj is Map) {
+        final errs = obj['errors'];
+        if (errs is List) return errs.map((e) => e.toString()).toList();
+      } else {
+        // Fallback: try dynamic property
+        final errs = (obj as dynamic).errors;
+        if (errs is List) return errs.map((e) => e.toString()).toList();
       }
     } catch (_) {}
     try {
@@ -412,19 +410,34 @@ class AssistantPanel extends StatelessWidget {
   String _kindOf(dynamic obj) {
     try {
       final candidate = obj is Map<String, dynamic> && obj.containsKey('op')
-          ? (obj['op'] as dynamic)
+          ? obj['op']
           : obj;
       // Prefer V3 'kind'
       try {
-        final k = (candidate as dynamic)['kind'];
-        if (k is String && k.isNotEmpty) return k.toLowerCase();
+        if (candidate is Map) {
+          final k = candidate['kind'];
+          if (k is String && k.isNotEmpty) return k.toLowerCase();
+        } else {
+          final dynamicCandidate = candidate as dynamic;
+          final k = dynamicCandidate['kind'];
+          if (k is String && k.isNotEmpty) return k.toLowerCase();
+        }
       } catch (_) {}
       // Fallback: infer from 'op' verb if present
       try {
-        final op = (candidate as dynamic)['op'];
-        if (op is String && op.isNotEmpty) {
-          if (op.startsWith('goal_')) return 'goal';
-          return 'todo';
+        if (candidate is Map) {
+          final op = candidate['op'];
+          if (op is String && op.isNotEmpty) {
+            if (op.startsWith('goal_')) return 'goal';
+            return 'todo';
+          }
+        } else {
+          final dynamicCandidate = candidate as dynamic;
+          final op = dynamicCandidate['op'];
+          if (op is String && op.isNotEmpty) {
+            if (op.startsWith('goal_')) return 'goal';
+            return 'todo';
+          }
         }
       } catch (_) {}
     } catch (_) {}
@@ -575,7 +588,7 @@ class AssistantPanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Progress: ${progressStage}${elapsed}',
+            'Progress: ${progressStage ?? ''}$elapsed',
             style: TextStyle(
               fontSize: 12,
               color: theme.colorScheme.onSurfaceVariant.withOpacity(0.8),
@@ -698,38 +711,38 @@ class _DiffPopupButton extends StatelessWidget {
                   if (!isChecked || errs.isNotEmpty) continue;
                 }
                 final dyn = operations[i];
-                try {
-                  dynamic inner = (dyn is Map<String, dynamic> && dyn['op'] != null)
-                      ? dyn['op']
-                      : (dyn as dynamic).op;
-                  Map<String, dynamic>? m;
-                  if (inner is Map) {
-                    m = Map<String, dynamic>.from(inner as Map);
-                  } else {
-                    final tj = (inner as dynamic).toJson();
-                    if (tj is Map) m = Map<String, dynamic>.from(tj as Map);
-                  }
+                  try {
+                    final inner = (dyn is Map<String, dynamic> && dyn['op'] != null)
+                        ? dyn['op']
+                        : dyn.op;
+                    Map<String, dynamic>? m;
+                    if (inner is Map) {
+                      m = Map<String, dynamic>.from(inner);
+                    } else {
+                      final tj = inner.toJson();
+                      if (tj is Map) m = Map<String, dynamic>.from(tj);
+                    }
                   if (m != null) list.add(m);
                 } catch (_) {}
               }
               // Fallback: if nothing selected, optionally preview all valid ops
               if (list.isEmpty) {
                 for (final dyn in operations) {
-                  try {
-                    final errs = AssistantPanel._getErrors(dyn);
-                    if (errs.isNotEmpty) continue;
-                    dynamic inner = (dyn is Map<String, dynamic> && dyn['op'] != null)
-                        ? dyn['op']
-                        : (dyn as dynamic).op;
-                    Map<String, dynamic>? m;
-                    if (inner is Map) {
-                      m = Map<String, dynamic>.from(inner as Map);
-                    } else {
-                      final tj = (inner as dynamic).toJson();
-                      if (tj is Map) m = Map<String, dynamic>.from(tj as Map);
-                    }
-                    if (m != null) list.add(m);
-                  } catch (_) {}
+                    try {
+                      final errs = AssistantPanel._getErrors(dyn);
+                      if (errs.isNotEmpty) continue;
+                      final inner = (dyn is Map<String, dynamic> && dyn['op'] != null)
+                          ? dyn['op']
+                          : dyn.op;
+                      Map<String, dynamic>? m;
+                      if (inner is Map) {
+                        m = Map<String, dynamic>.from(inner);
+                      } else {
+                        final tj = inner.toJson();
+                        if (tj is Map) m = Map<String, dynamic>.from(tj);
+                      }
+                      if (m != null) list.add(m);
+                    } catch (_) {}
                 }
               }
               return list;
@@ -944,10 +957,10 @@ class _DiffPopupButton extends StatelessWidget {
         const SizedBox(width: 6),
         Expanded(child: Text(() {
           final afterType = (op != null && op.containsKey('recurrence') && op['recurrence'] is Map)
-              ? fmt((op!['recurrence'] as Map)['type'])
+              ? fmt((op['recurrence'] as Map)['type'])
               : (beforeRecurType ?? '—');
           final afterN = (op != null && op.containsKey('recurrence') && op['recurrence'] is Map)
-              ? fmt((op!['recurrence'] as Map)['intervalDays'])
+              ? fmt((op['recurrence'] as Map)['intervalDays'])
               : (beforeRecurN ?? '—');
           return afterN == '—' || afterType == '—' ? afterType : '$afterType ($afterN)';
         }())),
