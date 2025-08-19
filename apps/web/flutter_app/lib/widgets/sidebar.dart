@@ -43,6 +43,8 @@ class Sidebar extends StatelessWidget {
   final VoidCallback? onDatePrev; // NEW
   final VoidCallback? onDateNext; // NEW
   final VoidCallback? onDateToday; // NEW
+  final bool showCompleted; // Add this prop
+  final void Function(bool) onShowCompletedChanged; // Add this prop
 
   const Sidebar({
     super.key,
@@ -56,6 +58,8 @@ class Sidebar extends StatelessWidget {
     this.onDatePrev, // NEW
     this.onDateNext, // NEW
     this.onDateToday, // NEW
+    required this.showCompleted, // Add this
+    required this.onShowCompletedChanged, // Add this
   });
 
   @override
@@ -99,25 +103,41 @@ class Sidebar extends StatelessWidget {
           const Divider(height: 1),
         // Smart lists
         Expanded(
-          child: ListView(
+          child: Column(
             children: [
-              _tile('Today', 'today', Icons.today, count: counters['today']),
-              _tile('All', 'all', Icons.inbox, count: counters['all']),
-              const SizedBox(height: 8),
-              // Context filters section
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                child: Text(
-                  'Contexts',
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+              Expanded(
+                child: ListView(
+                  children: [
+                    _tile('Today', 'today', Icons.today, count: counters['today']),
+                    _tile('All', 'all', Icons.inbox, count: counters['all']),
+                    const SizedBox(height: 8),
+                    // Context filters section
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      child: Text(
+                        'Contexts',
+                        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    _contextTile('All', null, Icons.public),
+                    _contextTile('School', 'school', Icons.school, count: counters['school']),
+                    _contextTile('Personal', 'personal', Icons.person, count: counters['personal']),
+                    _contextTile('Work', 'work', Icons.work, count: counters['work']),
+                  ],
                 ),
               ),
-              _contextTile('All', null, Icons.public),
-              _contextTile('School', 'school', Icons.school, count: counters['school']),
-              _contextTile('Personal', 'personal', Icons.person, count: counters['personal']),
-              _contextTile('Work', 'work', Icons.work, count: counters['work']),
+              // Show Completed toggle at bottom
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.check_circle_outline, size: 20),
+                title: const Text('Show Completed'),
+                trailing: Switch(
+                  value: showCompleted,
+                  onChanged: onShowCompletedChanged,
+                ),
+              ),
             ],
           ),
         ),

@@ -398,8 +398,6 @@ class _HomePageState extends State<HomePage> {
   final TextEditingController _qaGoalUnit = TextEditingController();
   String _qaGoalStatus = 'active';
   bool _addingQuick = false;
-  bool _enterSubmitting = false; // transient flag for immediate Enter disable
-  bool _mustPaintDisabledOnce = false; // ensure disabled for at least one frame
 
   @override
   void initState() {
@@ -426,192 +424,40 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Widget _quickAddInline() {
-    // Decide which inline form to show based on current tab
-    final isGoals = (mainView == MainView.goals);
-    final isHabits = (mainView == MainView.habits);
-    final isEvents =
-        (!isHabits &&
-        !isGoals &&
-        _kindFilter.length == 1 &&
-        _kindFilter.contains('event'));
-    // Default to todos when in tasks view and not events
-    final isTodos = (!isHabits && !isGoals && !isEvents);
-
-    if (isTodos) {
-      return Row(
-        children: [
-          SizedBox(
-            width: 260,
-            child: Focus(
-              onKeyEvent: (node, event) {
-                if (event is KeyDownEvent &&
-                    event.logicalKey == LogicalKeyboardKey.enter) {
-                  setState(() {
-                    _enterSubmitting = true;
-                  });
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (!mounted) return;
-                    _submitQuickAddTodo().whenComplete(() {
-                      if (mounted) {
-                        setState(() {
-                          _enterSubmitting = false;
-                        });
-                      }
-                    });
-                  });
-                  return KeyEventResult.handled;
-                }
-                return KeyEventResult.ignored;
-              },
-              child: TextField(
-                key: const Key('qa_todo_title'),
-                controller: _qaTodoTitle,
-                decoration: const InputDecoration(labelText: 'Title *'),
-                textInputAction: TextInputAction.done,
-                onSubmitted: (_) => _submitQuickAddTodo(),
-                onEditingComplete: _submitQuickAddTodo,
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          SizedBox(
-            width: 120,
-            child: TextField(
-              key: const Key('qa_todo_time'),
-              controller: _qaTodoTime,
-              decoration: const InputDecoration(labelText: 'Time'),
-            ),
-          ),
-          const SizedBox(width: 8),
-          const SizedBox(width: 8),
-          FilledButton(
-            onPressed:
-                (_addingQuick || _enterSubmitting || _mustPaintDisabledOnce)
-                ? null
-                : _submitQuickAddTodo,
-            child: const Text('Add'),
-          ),
-        ],
-      );
-    }
-    if (isEvents) {
-      return Row(
-        children: [
-          SizedBox(
-            width: 240,
-            child: TextField(
-              key: const Key('qa_event_title'),
-              controller: _qaEventTitle,
-              decoration: const InputDecoration(labelText: 'Title'),
-              textInputAction: TextInputAction.done,
-              onSubmitted: (_) => _submitQuickAddEvent(),
-              onEditingComplete: _submitQuickAddEvent,
-            ),
-          ),
-          const SizedBox(width: 8),
-          SizedBox(
-            width: 110,
-            child: TextField(
-              key: const Key('qa_event_start'),
-              controller: _qaEventStart,
-              decoration: const InputDecoration(labelText: 'Start'),
-            ),
-          ),
-          const SizedBox(width: 8),
-          SizedBox(
-            width: 110,
-            child: TextField(
-              key: const Key('qa_event_end'),
-              controller: _qaEventEnd,
-              decoration: const InputDecoration(labelText: 'End'),
-            ),
-          ),
-          const SizedBox(width: 8),
-          SizedBox(
-            width: 160,
-            child: TextField(
-              key: const Key('qa_event_location'),
-              controller: _qaEventLocation,
-              decoration: const InputDecoration(labelText: 'Location'),
-            ),
-          ),
-          const SizedBox(width: 8),
-          const SizedBox(width: 8),
-          FilledButton(
-            onPressed: _addingQuick ? null : _submitQuickAddEvent,
-            child: const Text('Add'),
-          ),
-        ],
-      );
-    }
-    if (isHabits) {
-      return Row(
-        children: [
-          SizedBox(
-            width: 260,
-            child: TextField(
-              key: const Key('qa_habit_title'),
-              controller: _qaHabitTitle,
-              decoration: const InputDecoration(labelText: 'Title *'),
-              textInputAction: TextInputAction.done,
-              onSubmitted: (_) => _submitQuickAddHabit(),
-              onEditingComplete: _submitQuickAddHabit,
-            ),
-          ),
-          const SizedBox(width: 8),
-          SizedBox(
-            width: 120,
-            child: TextField(
-              key: const Key('qa_habit_time'),
-              controller: _qaHabitTime,
-              decoration: const InputDecoration(labelText: 'Time'),
-            ),
-          ),
-          const SizedBox(width: 8),
-          const SizedBox(width: 8),
-          FilledButton(
-            onPressed: _addingQuick ? null : _submitQuickAddHabit,
-            child: const Text('Add'),
-          ),
-        ],
-      );
-    }
-    // Default fallback: show Todos quick-add so there is always a visible form
+  Widget _quickAddHabitsInline() {
     return Row(
       children: [
         SizedBox(
           width: 260,
           child: TextField(
-            key: const Key('qa_todo_title'),
-            controller: _qaTodoTitle,
+            key: const Key('qa_habit_title'),
+            controller: _qaHabitTitle,
             decoration: const InputDecoration(labelText: 'Title *'),
             textInputAction: TextInputAction.done,
-            onSubmitted: (_) => _submitQuickAddTodo(),
-            onEditingComplete: _submitQuickAddTodo,
+            onSubmitted: (_) => _submitQuickAddHabit(),
+            onEditingComplete: _submitQuickAddHabit,
           ),
         ),
         const SizedBox(width: 8),
         SizedBox(
           width: 120,
           child: TextField(
-            key: const Key('qa_todo_time'),
-            controller: _qaTodoTime,
+            key: const Key('qa_habit_time'),
+            controller: _qaHabitTime,
             decoration: const InputDecoration(labelText: 'Time'),
           ),
         ),
         const SizedBox(width: 8),
-  const SizedBox(width: 8),
+        const SizedBox(width: 8),
         FilledButton(
-          onPressed:
-              (_addingQuick || _enterSubmitting || _mustPaintDisabledOnce)
-              ? null
-              : _submitQuickAddTodo,
+          onPressed: _addingQuick ? null : _submitQuickAddHabit,
           child: const Text('Add'),
         ),
       ],
     );
   }
+
+
 
   bool _isValidTime(String s) {
     if (s.trim().isEmpty) return true; // optional
@@ -644,10 +490,6 @@ class _HomePageState extends State<HomePage> {
     setState(() => _addingQuick = true);
     // Request a frame so disabled state is paint-visible on next pump (no timers)
     WidgetsBinding.instance.scheduleFrame();
-    // Guarantee one disabled paint
-    setState(() {
-      _mustPaintDisabledOnce = true;
-    });
     try {
       // No extra timers; proceed to API
   final created = await createTodoFn({
@@ -675,11 +517,6 @@ class _HomePageState extends State<HomePage> {
         ).showSnackBar(SnackBar(content: Text('Create failed: $e')));
       }
     } finally {
-      if (mounted) {
-        setState(() {
-          _mustPaintDisabledOnce = false;
-        });
-      }
       if (mounted) {
         setState(() => _addingQuick = false);
       }
@@ -2742,6 +2579,11 @@ class _HomePageState extends State<HomePage> {
                         selectedKey: _smartListKey(selected),
                         currentView: view,
                         selectedContext: selectedContext,
+                        showCompleted: showCompleted,
+                        onShowCompletedChanged: (v) {
+                          setState(() => showCompleted = v);
+                          _refreshAll();
+                        },
                         onViewChanged: (newView) async {
                           setState(() {
                             view = newView;
@@ -2953,105 +2795,52 @@ class _HomePageState extends State<HomePage> {
     final items = _currentList();
     final grouped = _groupByDate(items);
             if (view == ViewMode.month) {
-      return Column(
-        children: [
-          // Main month grid first so content is at the top
-          Expanded(child: _buildMonthGrid(grouped)),
-          const Divider(height: 1),
-          _buildBottomControls(),
-        ],
-      );
+      return _buildMonthGrid(grouped);
     }
-    return Column(
+    return ListView(
+      padding: const EdgeInsets.all(12),
       children: [
-        Expanded(
-          child: ListView(
-            padding: const EdgeInsets.all(12),
-            children: [
-              if (view == ViewMode.week) _buildWeekdayHeader(),
-              for (final entry in grouped.entries) ...[
-                Builder(
-                  builder: (context) {
-                    final isTodayHeader = entry.key == ymd(DateTime.now());
-                    final label = isTodayHeader ? '${entry.key}  (Today)' : entry.key;
-                    return Container(
-                      margin: const EdgeInsets.only(top: 8, bottom: 2),
-                      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
-                      decoration: BoxDecoration(
-                        color: isTodayHeader
-                            ? Theme.of(context).colorScheme.primary.withAlpha((0.06 * 255).round())
-                            : null,
-                        border: Border(
-                          left: BorderSide(
-                            color: isTodayHeader
-                                ? Theme.of(context).colorScheme.primary
-                                : Colors.transparent,
-                            width: 3,
-                          ),
-                        ),
-                      ),
-                      child: Text(
-                        label,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          color: isTodayHeader
-                              ? Theme.of(context).colorScheme.primary
-                              : null,
-                        ),
-                      ),
-                    );
-                  },
+        if (view == ViewMode.week) _buildWeekdayHeader(),
+        for (final entry in grouped.entries) ...[
+          Builder(
+            builder: (context) {
+              final isTodayHeader = entry.key == ymd(DateTime.now());
+              final label = isTodayHeader ? '${entry.key}  (Today)' : entry.key;
+              return Container(
+                margin: const EdgeInsets.only(top: 8, bottom: 2),
+                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+                decoration: BoxDecoration(
+                  color: isTodayHeader
+                      ? Theme.of(context).colorScheme.primary.withAlpha((0.06 * 255).round())
+                      : null,
+                  border: Border(
+                    left: BorderSide(
+                      color: isTodayHeader
+                          ? Theme.of(context).colorScheme.primary
+                          : Colors.transparent,
+                      width: 3,
+                    ),
+                  ),
                 ),
-                ...entry.value.map(_buildRow),
-              ],
-            ],
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: isTodayHeader
+                        ? Theme.of(context).colorScheme.primary
+                        : null,
+                  ),
+                ),
+              );
+            },
           ),
-        ),
-        const Divider(height: 1),
-        _buildBottomControls(),
+          ...entry.value.map(_buildRow),
+        ],
       ],
     );
   }
 
-  // Bottom controls: quick-add + filters moved from top to bottom
-  Widget _buildBottomControls() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                // Inline quick-add per current tab (todos/events/habits)
-                if (mainView == MainView.tasks || mainView == MainView.habits)
-                  _quickAddInline(),
-                if (mainView == MainView.tasks) ...[
-                  const SizedBox(width: 12),
-                  const SizedBox(width: 12),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text('Show Completed'),
-                      Switch(
-                        value: showCompleted,
-                        onChanged: (v) {
-                          setState(() => showCompleted = v);
-                          _refreshAll();
-                        },
-                      ),
-                    ],
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+
 
   Widget _buildWeekdayHeader() {
     try {
@@ -4245,7 +4034,7 @@ class _HomePageState extends State<HomePage> {
             child: Wrap(
               spacing: 8,
               runSpacing: 6,
-              children: [_quickAddInline()],
+              children: [_quickAddHabitsInline()],
             ),
           ),
         ],
