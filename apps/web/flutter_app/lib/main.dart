@@ -247,6 +247,39 @@ class App extends StatelessWidget {
   }
 }
 
+class DateNavigation extends StatelessWidget {
+  final VoidCallback onPrev;
+  final VoidCallback onNext;
+  final VoidCallback onToday;
+
+  const DateNavigation({
+    super.key,
+    required this.onPrev,
+    required this.onNext,
+    required this.onToday,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        IconButton(
+          icon: const Icon(Icons.chevron_left),
+          onPressed: onPrev,
+        ),
+        TextButton(
+          onPressed: onToday,
+          child: const Text('Today'),
+        ),
+        IconButton(
+          icon: const Icon(Icons.chevron_right),
+          onPressed: onNext,
+        ),
+      ],
+    );
+  }
+}
+
 DateRange rangeForView(String anchor, ViewMode view) {
   final a = parseYmd(anchor);
   if (view == ViewMode.day) {
@@ -2549,6 +2582,9 @@ class _HomePageState extends State<HomePage> {
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 child: Row(
                   children: [
+                    // Logo
+                    const sb.HabitusLogo(),
+                    const SizedBox(width: 16),
                     // Search box
                     Expanded(
                       child: ConstrainedBox(
@@ -2683,24 +2719,6 @@ class _HomePageState extends State<HomePage> {
                       ),
                     ),
                     const SizedBox(width: 16),
-                    // Navigation
-                    Row(
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.chevron_left),
-                          onPressed: _goPrev,
-                        ),
-                        TextButton(
-                          onPressed: _goToToday,
-                          child: const Text('Today'),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.chevron_right),
-                          onPressed: _goNext,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(width: 16),
                     // Assistant toggle
                     TextButton.icon(
                       onPressed: () => setState(() => assistantCollapsed = !assistantCollapsed),
@@ -2736,6 +2754,9 @@ class _HomePageState extends State<HomePage> {
                           });
                           await _refreshAll();
                         },
+                        onDatePrev: _goPrev,
+                        onDateNext: _goNext,
+                        onDateToday: _goToToday,
                         onSelect: (k) async {
                           if (k == 'goals') {
                             setState(() {

@@ -1,5 +1,36 @@
 import 'package:flutter/material.dart';
 import '../models.dart' show ViewMode;
+import '../main.dart' show DateNavigation;
+
+class HabitusLogo extends StatelessWidget {
+  const HabitusLogo({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          Icon(
+            Icons.spa,
+            size: 32,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            'Habitus',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w600,
+              color: Theme.of(context).colorScheme.onSurface,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class Sidebar extends StatelessWidget {
   final String selectedKey; // 'today' | 'all'
@@ -9,6 +40,9 @@ class Sidebar extends StatelessWidget {
   final void Function(ViewMode) onViewChanged; // Add view change callback
   final String? selectedContext; // Add context parameter
   final void Function(String?) onContextChanged; // Add context change callback
+  final VoidCallback? onDatePrev; // NEW
+  final VoidCallback? onDateNext; // NEW
+  final VoidCallback? onDateToday; // NEW
 
   const Sidebar({
     super.key,
@@ -19,36 +53,15 @@ class Sidebar extends StatelessWidget {
     required this.selectedContext,
     required this.onContextChanged,
     this.counters = const <String, int>{},
+    this.onDatePrev, // NEW
+    this.onDateNext, // NEW
+    this.onDateToday, // NEW
   });
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        // Logo header
-        Container(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Icon(
-                Icons.spa,
-                size: 32,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'Habitus',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w600,
-                  color: Theme.of(context).colorScheme.onSurface,
-                  letterSpacing: 0.2,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const Divider(height: 1),
         // View toggles
         Padding(
           padding: const EdgeInsets.all(12),
@@ -72,6 +85,18 @@ class Sidebar extends StatelessWidget {
           ),
         ),
         const Divider(height: 1),
+        // Date Navigation
+        if (onDatePrev != null && onDateNext != null && onDateToday != null)
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: DateNavigation(
+              onPrev: onDatePrev!,
+              onNext: onDateNext!,
+              onToday: onDateToday!,
+            ),
+          ),
+        if (onDatePrev != null && onDateNext != null && onDateToday != null)
+          const Divider(height: 1),
         // Smart lists
         Expanded(
           child: ListView(
