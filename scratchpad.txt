@@ -6,23 +6,14 @@ Keep in mind:
 Get done Week of 8/17:
     -Have two types of completions for task (completed and skipped)
     -Get fundamental functions of tasks and events working
+    -Get search working
     -Clean up UI
+        *switch week to start from sunday 
+        *fix it from being so snappy when deleting todos or going between tabs
     -Get assistant pipeline working for basic chats about events and tasks (maybe basic functions??)
         *iron out current pipeline
         *plug in gpt-oss and see how it goes
-
-
-
-Actionable:
--get a todo list app up and running fully and soundly (must have same functionality as reminders app and google calendar)
-    *Make todos UI better (fix it from being so snappy when deleting todos or going between tabs)
-        >Use google calendar and reminders app for inspo
-        >Make sure to display the month and have the toggle switch for Day/Week/Month
-        >Make the weekly view start with Sunday on left and end with Sat on the right
-    *Add in a third option for tasks to have 'skipped/(didn't do it)'
-    *Get repeated tasks and events working properly
-    *JUST FOCUS ON TODOS and EVENTS (Habits and goals can be buffed out later once solid foundation is laid)
-    *Clear out database and insert real todos and events coming up (still use reminders app and google calendar for now to keep parity and have fail safe)
+    -spam flutter analyze until no issues found and functionality is preserved
 
 
 -get behaviours the app needs to faciliate (use notebookLM for this and make a detailed spec for the application; Frontend, backend, and everything needed to fully make a prototype of this app)

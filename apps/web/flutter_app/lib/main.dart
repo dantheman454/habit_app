@@ -5,13 +5,14 @@ import 'widgets/sidebar.dart' as sb;
 import 'widgets/todo_row.dart' as row;
 import 'widgets/habits_tracker.dart' as ht;
 import 'widgets/tabs_header.dart' as th;
-import 'widgets/context_filter.dart';
+
 import 'api.dart' as api;
 import 'package:dio/dio.dart';
 import 'package:flutter/services.dart';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'util/storage.dart' as storage;
+import 'models.dart';
 
 // --- Test hooks and injectable API (local single-user context) ---
 class TestHooks {
@@ -210,12 +211,6 @@ class DateRange {
   const DateRange({required this.from, required this.to});
 }
 
-enum View { day, week, month }
-
-enum SmartList { today, all, backlog }
-
-enum MainView { tasks, habits, goals }
-
 class App extends StatelessWidget {
   const App({super.key});
 
@@ -251,12 +246,12 @@ class App extends StatelessWidget {
   }
 }
 
-DateRange rangeForView(String anchor, View view) {
+DateRange rangeForView(String anchor, ViewMode view) {
   final a = parseYmd(anchor);
-  if (view == View.day) {
+  if (view == ViewMode.day) {
     final s = ymd(a);
     return DateRange(from: s, to: s);
-  } else if (view == View.week) {
+  } else if (view == ViewMode.week) {
     final weekday = a.weekday; // 1=Mon..7=Sun
     final monday = a.subtract(Duration(days: weekday - 1));
     final sunday = monday.add(const Duration(days: 6));
@@ -278,7 +273,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   // Header state
   String anchor = ymd(DateTime.now());
-  View view = View.day;
+  ViewMode view = ViewMode.day;
   bool showCompleted = false;
 
   final TextEditingController searchCtrl = TextEditingController();
@@ -836,7 +831,7 @@ class _HomePageState extends State<HomePage> {
       final r = rangeForView(anchor, view);
       // Day/Week/Month: use unified schedule for Tasks and Habits
       List<Todo> sList;
-      if (view == View.day || view == View.week || view == View.month) {
+      if (view == ViewMode.day || view == ViewMode.week || view == ViewMode.month) {
         // Select kinds strictly by tab: tasks (todo or event) or habits
         final kinds = (mainView == MainView.habits)
             ? <String>['habit']
@@ -947,10 +942,52 @@ class _HomePageState extends State<HomePage> {
   todayCount = 0;
   allCount = 0;
       }
+        // Calculate context counts (using unfiltered data for counts)
+        int schoolCount = 0;
+        int personalCount = 0;
+        int workCount = 0;
+        try {
+          // Count items by context from all data (not filtered by selectedContext)
+          for (final item in sAllList) {
+            switch (item.context) {
+              case 'school':
+                schoolCount++;
+                break;
+              case 'personal':
+                personalCount++;
+                break;
+              case 'work':
+                workCount++;
+                break;
+            }
+          }
+          // Add backlog counts to context totals (if not in events mode)
+          if (!(_kindFilter.contains('event') && mainView == MainView.tasks)) {
+            for (final item in bList) {
+              switch (item.context) {
+                case 'school':
+                  schoolCount++;
+                  break;
+                case 'personal':
+                  personalCount++;
+                  break;
+                case 'work':
+                  workCount++;
+                  break;
+              }
+            }
+          }
+        } catch (_) {
+          // If context counting fails, use zeros
+        }
+        
         final counts = <String, int>{
         'today': todayCount,
         'all': allCount,
         'backlog': backlogCount,
+        'school': schoolCount,
+        'personal': personalCount,
+        'work': workCount,
       };
       setState(() {
         scheduled = sList;
@@ -2422,46 +2459,9 @@ class _HomePageState extends State<HomePage> {
                 color: Theme.of(context).colorScheme.surface,
                 padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 0),
                 child: SizedBox(
-                  height: 112,
+                  height: 80,
                   child: Row(
                     children: [
-                      // Left: App title box (fixed width to align with sidebar)
-                      SizedBox(
-                        width: 220,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.start,
-                            children: [
-                              Icon(
-                                Icons.spa,
-                                size: 44,
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .primary,
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                'Habitus',
-                                style: TextStyle(
-                                  fontSize: 36,
-                                  fontWeight: FontWeight.w600,
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .onSurface,
-                                  letterSpacing: 0.2,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      // Full-height divider aligning with body split (left of main tasks)
-                      VerticalDivider(
-                        width: 1,
-                        thickness: 1,
-                        color: Theme.of(context).colorScheme.outline,
-                      ),
                       // Left: Tab segmented control + center: Search box (responsive)
                       Expanded(
                         child: Column(
@@ -2680,45 +2680,26 @@ class _HomePageState extends State<HomePage> {
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.end,
                             children: [
-                              IconButton(
-                                icon: const Icon(Icons.chevron_left),
-                                tooltip: 'Previous',
-                                onPressed: _goPrev,
+                              // Compact date navigation
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.chevron_left),
+                                    tooltip: 'Previous',
+                                    onPressed: _goPrev,
+                                  ),
+                                  TextButton(
+                                    onPressed: _goToToday,
+                                    child: const Text('Today'),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.chevron_right),
+                                    tooltip: 'Next',
+                                    onPressed: _goNext,
+                                  ),
+                                ],
                               ),
-                              TextButton(
-                                onPressed: _goToToday,
-                                child: const Text('Today'),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.chevron_right),
-                                tooltip: 'Next',
-                                onPressed: _goNext,
-                              ),
-                              const SizedBox(width: 12),
-                              if (mainView != MainView.goals)
-                                SegmentedButton<View>(
-                                  segments: const [
-                                    ButtonSegment(
-                                      value: View.day,
-                                      label: Text('Day'),
-                                    ),
-                                    ButtonSegment(
-                                      value: View.week,
-                                      label: Text('Week'),
-                                    ),
-                                    ButtonSegment(
-                                      value: View.month,
-                                      label: Text('Month'),
-                                    ),
-                                  ],
-                                  selected: {view},
-                                  onSelectionChanged: (s) async {
-                                    setState(() {
-                                      view = s.first;
-                                    });
-                                    await _refreshAll();
-                                  },
-                                ),
                               const SizedBox(width: 12),
                               TextButton.icon(
                                 onPressed: () => setState(
@@ -2752,9 +2733,23 @@ class _HomePageState extends State<HomePage> {
                   children: [
                     // Sidebar
                     SizedBox(
-                      width: 220,
+                      width: 260,
                       child: sb.Sidebar(
                         selectedKey: _smartListKey(selected),
+                        currentView: view,
+                        selectedContext: selectedContext,
+                        onViewChanged: (newView) async {
+                          setState(() {
+                            view = newView;
+                          });
+                          await _refreshAll();
+                        },
+                        onContextChanged: (context) async {
+                          setState(() {
+                            selectedContext = context;
+                          });
+                          await _refreshAll();
+                        },
                         onSelect: (k) async {
                           if (k == 'goals') {
                             setState(() {
@@ -2767,13 +2762,35 @@ class _HomePageState extends State<HomePage> {
                             });
                             await _refreshAll();
                             return;
+                          } else if (k == 'add_task') {
+                            // Switch to todos tab for quick task creation
+                            setState(() {
+                              mainView = MainView.tasks;
+                              _kindFilter = <String>{'todo'};
+                              selected = SmartList.today;
+                              view = ViewMode.day;
+                              anchor = ymd(DateTime.now());
+                            });
+                            await _refreshAll();
+                            return;
+                          } else if (k == 'add_event') {
+                            // Switch to events tab for quick event creation
+                            setState(() {
+                              mainView = MainView.tasks;
+                              _kindFilter = <String>{'event'};
+                              selected = SmartList.today;
+                              view = ViewMode.day;
+                              anchor = ymd(DateTime.now());
+                            });
+                            await _refreshAll();
+                            return;
                           }
                           final sl = _smartListFromKey(k);
                           if (sl == SmartList.today) {
                             setState(() {
                               selected = sl;
                               mainView = MainView.tasks;
-                              view = View.day;
+                              view = ViewMode.day;
                               anchor = ymd(DateTime.now());
                             });
                             await _refreshAll();
@@ -2818,25 +2835,6 @@ class _HomePageState extends State<HomePage> {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      // Context filter (only for tasks and habits)
-                                      if (mainView == MainView.tasks || mainView == MainView.habits)
-                                        Padding(
-                                          padding: const EdgeInsets.only(
-                                            left: 12,
-                                            right: 12,
-                                            top: 16,
-                                            bottom: 24,
-                                          ),
-                                          child: ContextFilter(
-                                            selectedContext: selectedContext,
-                                            onChanged: (context) {
-                                              setState(() {
-                                                selectedContext = context;
-                                              });
-                                              _refreshAll();
-                                            },
-                                          ),
-                                        ),
                                       Expanded(
                                         child: Stack(
                                           children: [
@@ -2945,7 +2943,7 @@ class _HomePageState extends State<HomePage> {
   Widget _buildMainList() {
     final items = _currentList();
     final grouped = _groupByDate(items);
-    if (view == View.month) {
+            if (view == ViewMode.month) {
       return Column(
         children: [
           // Main month grid first so content is at the top
@@ -2961,7 +2959,7 @@ class _HomePageState extends State<HomePage> {
           child: ListView(
             padding: const EdgeInsets.all(12),
             children: [
-              if (view == View.week) _buildWeekdayHeader(),
+              if (view == ViewMode.week) _buildWeekdayHeader(),
               for (final entry in grouped.entries) ...[
                 Builder(
                   builder: (context) {
@@ -3303,7 +3301,7 @@ class _HomePageState extends State<HomePage> {
 
   void _goToDate(String y) async {
     setState(() {
-      view = View.day;
+              view = ViewMode.day;
       anchor = y;
       _pendingScrollYmd = y;
     });
@@ -3319,7 +3317,7 @@ class _HomePageState extends State<HomePage> {
 
   void _maybeScrollToPendingDate() {
     if (_pendingScrollYmd == null) return;
-    if (view != View.day) {
+          if (view != ViewMode.day) {
       _pendingScrollYmd = null;
       return;
     }
@@ -3356,9 +3354,9 @@ class _HomePageState extends State<HomePage> {
   void _goPrev() async {
     final a = parseYmd(anchor);
     DateTime next;
-    if (view == View.day) {
+    if (view == ViewMode.day) {
       next = a.subtract(const Duration(days: 1));
-    } else if (view == View.week) {
+    } else if (view == ViewMode.week) {
       next = a.subtract(const Duration(days: 7));
     } else {
       next = DateTime(a.year, a.month - 1, a.day);
@@ -3372,9 +3370,9 @@ class _HomePageState extends State<HomePage> {
   void _goNext() async {
     final a = parseYmd(anchor);
     DateTime next;
-    if (view == View.day) {
+    if (view == ViewMode.day) {
       next = a.add(const Duration(days: 1));
-    } else if (view == View.week) {
+    } else if (view == ViewMode.week) {
       next = a.add(const Duration(days: 7));
     } else {
       next = DateTime(a.year, a.month + 1, a.day);
