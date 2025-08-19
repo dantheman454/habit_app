@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 class Sidebar extends StatelessWidget {
-  final String selectedKey; // 'today' | 'scheduled' | 'all' | 'backlog'
+  final String selectedKey; // 'today' | 'all' | 'backlog'
   final void Function(String) onSelect;
   final Map<String, int> counters;
 
@@ -20,12 +20,6 @@ class Sidebar extends StatelessWidget {
           child: ListView(
             children: [
               _tile('Today', 'today', Icons.today, count: counters['today']),
-              _tile(
-                'Scheduled',
-                'scheduled',
-                Icons.calendar_month,
-                count: counters['scheduled'],
-              ),
               _tile('All', 'all', Icons.inbox, count: counters['all']),
               _tile(
                 'Backlog',

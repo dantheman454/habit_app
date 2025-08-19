@@ -212,7 +212,7 @@ class DateRange {
 
 enum View { day, week, month }
 
-enum SmartList { today, scheduled, all, backlog }
+enum SmartList { today, all, backlog }
 
 enum MainView { tasks, habits, goals }
 
@@ -924,24 +924,17 @@ class _HomePageState extends State<HomePage> {
       // Sidebar counters are scoped by active tab context only
       final nowYmd = ymd(DateTime.now());
   int todayCount;
-  int scheduledCount;
   int backlogCount = bList.length;
   int allCount;
       if (mainView == MainView.habits) {
         todayCount = sList
             .where((t) => t.kind == 'habit' && t.scheduledFor == nowYmd)
             .length;
-  scheduledCount = sList.where((t) => t.kind == 'habit').length;
-        allCount =
-            scheduledCount +
-            backlogCount; // backlog currently excludes habits; acceptable for tab-scoped count
+        allCount = sList.where((t) => t.kind == 'habit').length + backlogCount; // backlog currently excludes habits; acceptable for tab-scoped count
       } else if (mainView == MainView.tasks) {
         final bool eventsMode = _kindFilter.contains('event');
         todayCount = sList
             .where((t) => (eventsMode ? t.kind == 'event' : (t.kind == 'todo' || t.kind == null)) && t.scheduledFor == nowYmd)
-            .length;
-        scheduledCount = sList
-            .where((t) => eventsMode ? t.kind == 'event' : (t.kind == 'todo' || t.kind == null))
             .length;
         if (eventsMode) {
           backlogCount = 0; // no backlog for events
@@ -952,12 +945,10 @@ class _HomePageState extends State<HomePage> {
       } else {
   // goals tab
   todayCount = 0;
-  scheduledCount = 0;
   allCount = 0;
       }
         final counts = <String, int>{
         'today': todayCount,
-        'scheduled': scheduledCount,
         'all': allCount,
         'backlog': backlogCount,
       };
@@ -2378,9 +2369,6 @@ class _HomePageState extends State<HomePage> {
       case SmartList.today:
         items = scheduled;
         break;
-      case SmartList.scheduled:
-        items = scheduled;
-        break;
       case SmartList.backlog:
         items = backlog;
         break;
@@ -2402,8 +2390,6 @@ class _HomePageState extends State<HomePage> {
     switch (sl) {
       case SmartList.today:
         return 'today';
-      case SmartList.scheduled:
-        return 'scheduled';
       case SmartList.all:
         return 'all';
       case SmartList.backlog:
@@ -2415,8 +2401,6 @@ class _HomePageState extends State<HomePage> {
     switch (k) {
       case 'today':
         return SmartList.today;
-      case 'scheduled':
-        return SmartList.scheduled;
       case 'all':
         return SmartList.all;
       case 'backlog':
@@ -2791,13 +2775,6 @@ class _HomePageState extends State<HomePage> {
                               mainView = MainView.tasks;
                               view = View.day;
                               anchor = ymd(DateTime.now());
-                            });
-                            await _refreshAll();
-                          } else if (sl == SmartList.scheduled) {
-                            setState(() {
-                              selected = sl;
-                              mainView = MainView.tasks;
-                              view = View.week;
                             });
                             await _refreshAll();
                           } else {

@@ -4,7 +4,7 @@ Entry files: `apps/web/flutter_app/lib/main.dart`, `apps/web/flutter_app/lib/api
 
 ### State and views
 
-- Enums: `View { day, week, month }`, `SmartList { today, scheduled, all, backlog }`, `MainView { tasks, habits, goals }`
+- Enums: `View { day, week, month }`, `SmartList { today, all, backlog }`, `MainView { tasks, habits, goals }`
 - Anchor date `anchor` drives date-range via `rangeForView(anchor, view)` → `{from,to}`
 - Primary lists in state:
   - `scheduled`: unified schedule items (with `kind: 'todo'|'event'|'habit'`) in the current date window
