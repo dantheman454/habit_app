@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS todos (
   recurrence TEXT NOT NULL DEFAULT '{"type":"none"}',
   completed_dates TEXT NULL,
   skipped_dates TEXT NULL,
+  context TEXT CHECK(context IN ('school', 'personal', 'work')) DEFAULT 'personal',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -26,6 +27,7 @@ CREATE TABLE IF NOT EXISTS events (
   completed INTEGER NOT NULL DEFAULT 0,
   recurrence TEXT NOT NULL DEFAULT '{"type":"none"}',
   completed_dates TEXT NULL,
+  context TEXT CHECK(context IN ('school', 'personal', 'work')) DEFAULT 'personal',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -52,6 +54,7 @@ CREATE TABLE IF NOT EXISTS habits (
   completed INTEGER NOT NULL DEFAULT 0,
   recurrence TEXT NOT NULL DEFAULT '{"type":"none"}',
   completed_dates TEXT NULL,
+  context TEXT CHECK(context IN ('school', 'personal', 'work')) DEFAULT 'personal',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

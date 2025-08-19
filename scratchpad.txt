@@ -5,9 +5,12 @@ Keep in mind:
 
 Get done Week of 8/17:
     -Have two types of completions for task (completed and skipped)
+    -Have different events/tasks for school, personal, and work
     -Get fundamental functions of tasks and events working
     -Clean up UI
     -Get assistant pipeline working for basic tasks
+
+
 
 Actionable:
 -get a todo list app up and running fully and soundly (must have same functionality as reminders app and google calendar)

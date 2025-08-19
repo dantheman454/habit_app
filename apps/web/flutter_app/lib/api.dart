@@ -20,6 +20,7 @@ Future<List<dynamic>> fetchScheduled({
   required String from,
   required String to,
   String? status, // 'pending' | 'completed' | 'skipped' (todos only)
+  String? context, // 'school' | 'personal' | 'work' | null for 'all'
 }) async {
   final res = await api.get(
     '/api/todos',
@@ -27,6 +28,7 @@ Future<List<dynamic>> fetchScheduled({
       'from': from,
       'to': to,
       if (status != null) 'status': status,
+      if (context != null) 'context': context,
     },
   );
   return (res.data['todos'] as List<dynamic>);
@@ -34,21 +36,24 @@ Future<List<dynamic>> fetchScheduled({
 
 Future<List<dynamic>> fetchScheduledAllTime({
   String? status, // todos only
+  String? context, // 'school' | 'personal' | 'work' | null for 'all'
 }) async {
   final res = await api.get(
     '/api/todos',
     queryParameters: {
       if (status != null) 'status': status,
+      if (context != null) 'context': context,
     },
   );
   return (res.data['todos'] as List<dynamic>);
 }
 
-Future<List<dynamic>> fetchBacklog({String? status}) async {
+Future<List<dynamic>> fetchBacklog({String? status, String? context}) async {
   final res = await api.get(
     '/api/todos/backlog',
     queryParameters: {
       if (status != null) 'status': status,
+      if (context != null) 'context': context,
     },
   );
   final items = (res.data['todos'] as List<dynamic>);
@@ -58,6 +63,7 @@ Future<List<dynamic>> fetchBacklog({String? status}) async {
 Future<List<dynamic>> searchTodos(
   String q, {
   String? status, // todos only
+  String? context, // 'school' | 'personal' | 'work' | null for 'all'
   CancelToken? cancelToken,
 }) async {
   final res = await api.get(
@@ -65,6 +71,7 @@ Future<List<dynamic>> searchTodos(
     queryParameters: {
       'query': q,
       if (status != null) 'status': status,
+      if (context != null) 'context': context,
     },
     cancelToken: cancelToken,
   );
@@ -362,6 +369,7 @@ Future<List<dynamic>> listEvents({
   String? from,
   String? to,
   bool? completed,
+  String? context, // 'school' | 'personal' | 'work' | null for 'all'
 }) async {
   final res = await api.get(
     '/api/events',
@@ -369,6 +377,7 @@ Future<List<dynamic>> listEvents({
       if (from != null) 'from': from,
       if (to != null) 'to': to,
       if (completed != null) 'completed': completed.toString(),
+      if (context != null) 'context': context,
     },
   );
   return (res.data['events'] as List<dynamic>);
@@ -406,6 +415,7 @@ Future<Map<String, dynamic>> toggleEventOccurrence(
 Future<List<dynamic>> searchEvents(
   String q, {
   bool? completed,
+  String? context, // 'school' | 'personal' | 'work' | null for 'all'
   CancelToken? cancelToken,
 }) async {
   final res = await api.get(
@@ -413,6 +423,7 @@ Future<List<dynamic>> searchEvents(
     queryParameters: {
       'query': q,
       if (completed != null) 'completed': completed.toString(),
+      if (context != null) 'context': context,
     },
     cancelToken: cancelToken,
   );
@@ -424,6 +435,7 @@ Future<List<dynamic>> listHabits({
   String? from,
   String? to,
   bool? completed,
+  String? context, // 'school' | 'personal' | 'work' | null for 'all'
 }) async {
   final res = await api.get(
     '/api/habits',
@@ -431,6 +443,7 @@ Future<List<dynamic>> listHabits({
       if (from != null) 'from': from,
       if (to != null) 'to': to,
       if (completed != null) 'completed': completed.toString(),
+      if (context != null) 'context': context,
     },
   );
   return (res.data['habits'] as List<dynamic>);
@@ -468,6 +481,7 @@ Future<Map<String, dynamic>> toggleHabitOccurrence(
 Future<List<dynamic>> searchHabits(
   String q, {
   bool? completed,
+  String? context, // 'school' | 'personal' | 'work' | null for 'all'
   CancelToken? cancelToken,
 }) async {
   final res = await api.get(
@@ -475,6 +489,7 @@ Future<List<dynamic>> searchHabits(
     queryParameters: {
       'query': q,
       if (completed != null) 'completed': completed.toString(),
+      if (context != null) 'context': context,
     },
     cancelToken: cancelToken,
   );
@@ -510,6 +525,7 @@ Future<List<dynamic>> fetchSchedule({
   List<String>? kinds,
   bool? completed, // events/habits only
   String? statusTodo, // todos only
+  String? context, // 'school' | 'personal' | 'work' | null for 'all'
 }) async {
   final res = await api.get(
     '/api/schedule',
@@ -519,6 +535,7 @@ Future<List<dynamic>> fetchSchedule({
       if (kinds != null && kinds.isNotEmpty) 'kinds': kinds.join(','),
       if (completed != null) 'completed': completed.toString(),
       if (statusTodo != null) 'status_todo': statusTodo,
+      if (context != null) 'context': context,
     },
   );
   return (res.data['items'] as List<dynamic>);

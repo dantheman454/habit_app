@@ -5,6 +5,7 @@ import 'widgets/sidebar.dart' as sb;
 import 'widgets/todo_row.dart' as row;
 import 'widgets/habits_tracker.dart' as ht;
 import 'widgets/tabs_header.dart' as th;
+import 'widgets/context_filter.dart';
 import 'api.dart' as api;
 import 'package:dio/dio.dart';
 import 'package:flutter/services.dart';
@@ -49,6 +50,7 @@ class Todo {
   String? status; // 'pending'|'completed'|'skipped' for todos
   Map<String, dynamic>? recurrence; // {type,...}
   int? masterId; // present on expanded occurrences
+  String? context; // 'school'|'personal'|'work'
   final String createdAt;
   String updatedAt;
 
@@ -64,6 +66,7 @@ class Todo {
     this.status,
     required this.recurrence,
     required this.masterId,
+    this.context,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -80,6 +83,7 @@ class Todo {
     status: j['status'] as String?,
     recurrence: j['recurrence'] as Map<String, dynamic>?,
     masterId: j['masterId'] as int?,
+    context: j['context'] as String?,
     createdAt: j['createdAt'] as String? ?? '',
     updatedAt: j['updatedAt'] as String? ?? '',
   );
@@ -295,6 +299,9 @@ class _HomePageState extends State<HomePage> {
   MainView mainView = MainView.tasks;
   
   String? _goalsStatusFilter; // null=all | 'active'|'completed'|'archived'
+  
+  // Context filter state
+  String? selectedContext; // 'school', 'personal', 'work', null for 'all'
 
   // Data
   List<Todo> scheduled = [];
@@ -621,6 +628,7 @@ class _HomePageState extends State<HomePage> {
         'scheduledFor': anchor,
         'timeOfDay': time.isEmpty ? null : time,
         'recurrence': {'type': 'none'},
+        'context': selectedContext ?? 'personal',
       });
   if (!mounted) return;
       setState(() {
@@ -681,6 +689,7 @@ class _HomePageState extends State<HomePage> {
         'endTime': end.isEmpty ? null : end,
   'location': location.isEmpty ? null : location,
         'recurrence': {'type': 'none'},
+        'context': selectedContext ?? 'personal',
       });
   if (!mounted) return;
   setState(() {
@@ -725,11 +734,12 @@ class _HomePageState extends State<HomePage> {
     await Future<void>.delayed(Duration.zero);
     try {
       await Future<void>.delayed(const Duration(milliseconds: 1));
-  await createHabitFn({
+    await createHabitFn({
         'title': title,
         'scheduledFor': anchor,
-  'timeOfDay': time.isEmpty ? null : time,
+        'timeOfDay': time.isEmpty ? null : time,
         'recurrence': {'type': 'daily'},
+        'context': selectedContext ?? 'personal',
       });
   if (!mounted) return;
   setState(() {
@@ -839,13 +849,16 @@ class _HomePageState extends State<HomePage> {
           kinds: kinds,
           completed: showCompleted ? null : false,
           statusTodo: showCompleted ? null : 'pending',
+          context: selectedContext,
         );
     sList = raw
   .map((e) => Todo.fromJson(Map<String, dynamic>.from(e)))
       .toList();
+        
+
         // Load habit stats for the same range to display streak badges
         try {
-          final habitsRaw = await api.listHabits(from: r.from, to: r.to);
+          final habitsRaw = await api.listHabits(from: r.from, to: r.to, context: selectedContext);
           final Map<int, Map<String, dynamic>> statsMap = {};
           for (final h in habitsRaw) {
             final m = Map<String, dynamic>.from(h);
@@ -877,6 +890,7 @@ class _HomePageState extends State<HomePage> {
           from: r.from,
           to: r.to,
           status: showCompleted ? null : 'pending',
+          context: selectedContext,
         );
         sList = scheduledRaw
             .map((e) => Todo.fromJson(e as Map<String, dynamic>))
@@ -884,18 +898,19 @@ class _HomePageState extends State<HomePage> {
       }
       final scheduledAllRaw = await api.fetchScheduledAllTime(
         status: showCompleted ? null : 'pending',
+        context: selectedContext,
       );
       // For Events tab, load all scheduled events across time for counts
       List<Todo> eventsAllList = const <Todo>[];
       if (mainView == MainView.tasks && _kindFilter.contains('event')) {
         try {
-          final evAllRaw = await api.listEvents();
+          final evAllRaw = await api.listEvents(context: selectedContext);
       eventsAllList = evAllRaw
   .map((e) => Todo.fromJson(Map<String, dynamic>.from(e)))
         .toList();
         } catch (_) {}
       }
-  final backlogRaw = await api.fetchBacklog();
+  final backlogRaw = await api.fetchBacklog(context: selectedContext);
     final sAllList = scheduledAllRaw
       .map((e) => Todo.fromJson(e as Map<String, dynamic>))
       .toList();
@@ -2358,17 +2373,29 @@ class _HomePageState extends State<HomePage> {
   }
 
   List<Todo> _currentList() {
+    List<Todo> items;
     switch (selected) {
       case SmartList.today:
-        return scheduled;
+        items = scheduled;
+        break;
       case SmartList.scheduled:
-        return scheduled;
+        items = scheduled;
+        break;
       case SmartList.backlog:
-        return backlog;
+        items = backlog;
+        break;
       case SmartList.all:
-  if (mainView == MainView.tasks && _kindFilter.contains('event')) return scheduledAllTime;
-  return [...scheduledAllTime, ...backlog];
+        if (mainView == MainView.tasks && _kindFilter.contains('event')) {
+          items = scheduledAllTime;
+        } else {
+          items = [...scheduledAllTime, ...backlog];
+        }
+        break;
     }
+    
+
+    
+    return items;
   }
 
   String _smartListKey(SmartList sl) {
@@ -2814,6 +2841,25 @@ class _HomePageState extends State<HomePage> {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
+                                      // Context filter (only for tasks and habits)
+                                      if (mainView == MainView.tasks || mainView == MainView.habits)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            left: 12,
+                                            right: 12,
+                                            top: 16,
+                                            bottom: 24,
+                                          ),
+                                          child: ContextFilter(
+                                            selectedContext: selectedContext,
+                                            onChanged: (context) {
+                                              setState(() {
+                                                selectedContext = context;
+                                              });
+                                              _refreshAll();
+                                            },
+                                          ),
+                                        ),
                                       Expanded(
                                         child: Stack(
                                           children: [
@@ -4062,6 +4108,7 @@ class _HomePageState extends State<HomePage> {
           ? (t.status == 'completed')
           : t.completed,
       overdue: isOverdue,
+      context: t.context,
     );
     // Build a small extra badge for habits with streaks if stats available
     Widget? extraBadge;

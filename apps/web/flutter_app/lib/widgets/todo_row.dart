@@ -9,6 +9,7 @@ class TodoLike {
   final String? status; // 'pending'|'completed'|'skipped' (todos)
   final bool completed; // events/habits or derived for UI
   final bool overdue;
+  final String? context; // 'school'|'personal'|'work'
   const TodoLike({
     required this.id,
     required this.title,
@@ -18,6 +19,7 @@ class TodoLike {
     this.status,
     required this.completed,
     this.overdue = false,
+    this.context,
   });
 }
 
@@ -81,6 +83,10 @@ class TodoRow extends StatelessWidget {
                     if (extraBadge != null) ...[
                       const SizedBox(width: 6),
                       extraBadge!,
+                    ],
+                    if (todo.context != null) ...[
+                      const SizedBox(width: 6),
+                      _buildContextBadge(todo.context!),
                     ],
                     const SizedBox(width: 6),
                     Flexible(
@@ -232,5 +238,50 @@ class TodoRow extends StatelessWidget {
     );
   }
 
-  // _kindIcon removed (unused) to reduce analyzer noise.
+  Widget _buildContextBadge(String context) {
+    IconData icon;
+    Color color;
+    
+    switch (context) {
+      case 'school':
+        icon = Icons.school;
+        color = Colors.blue;
+        break;
+      case 'work':
+        icon = Icons.work;
+        color = Colors.orange;
+        break;
+      case 'personal':
+        icon = Icons.person;
+        color = Colors.green;
+        break;
+      default:
+        icon = Icons.public;
+        color = Colors.grey;
+    }
+    
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.3), width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(
+            context.substring(0, 1).toUpperCase() + context.substring(1),
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w500,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

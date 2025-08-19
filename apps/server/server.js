@@ -133,6 +133,10 @@ function filterTodosByWhere(where = {}) {
   if (typeof where.status === 'string') {
     filtered = filtered.filter((t) => String(t.status) === String(where.status));
   }
+  // context (todos and events)
+  if (typeof where.context === 'string') {
+    filtered = filtered.filter((t) => String(t.context) === String(where.context));
+  }
   // back-compat: completed boolean filter maps to status
   if (typeof where.completed === 'boolean') {
     if (where.completed) filtered = filtered.filter((t) => String(t.status) === 'completed');
@@ -178,6 +182,9 @@ function filterItemsByWhere(items, where = {}) {
   }
   if (typeof where.completed === 'boolean') {
     filtered = filtered.filter((t) => !!t.completed === where.completed);
+  }
+  if (typeof where.context === 'string') {
+    filtered = filtered.filter((t) => String(t.context) === String(where.context));
   }
   if (typeof where.repeating === 'boolean') {
     const isRepeating = (x) => !!(x?.recurrence && x.recurrence.type && x.recurrence.type !== 'none');
@@ -307,8 +314,8 @@ function applyRecurrenceMutation(targetTodo, incomingRecurrence) {
   } catch {}
 }
 
-function createTodoDb({ title, notes = '', scheduledFor = null, timeOfDay = null, recurrence = undefined }) {
-  return db.createTodo({ title, notes, scheduledFor, timeOfDay, recurrence: recurrence || { type: 'none' }, completed: false });
+function createTodoDb({ title, notes = '', scheduledFor = null, timeOfDay = null, recurrence = undefined, context = 'personal' }) {
+  return db.createTodo({ title, notes, scheduledFor, timeOfDay, recurrence: recurrence || { type: 'none' }, completed: false, context });
 }
 
 function findTodoById(id) { return db.getTodoById(parseInt(id, 10)); }
@@ -398,6 +405,7 @@ function expandOccurrences(todo, fromDate, toDate) {
         completed: !!occCompleted,
         status: occCompleted ? 'completed' : (occSkipped ? 'skipped' : 'pending'),
         recurrence: todo.recurrence,
+        context: todo.context,
         createdAt: todo.createdAt,
         updatedAt: todo.updatedAt,
       });
@@ -431,6 +439,7 @@ function expandEventOccurrences(event, fromDate, toDate) {
         location: event.location ?? null,
         completed: !!occCompleted,
         recurrence: event.recurrence,
+        context: event.context,
         createdAt: event.createdAt,
         updatedAt: event.updatedAt,
       });
@@ -526,7 +535,7 @@ if (process.env.ENABLE_DEBUG_ROUTES === 'true') {
 // --- CRUD Endpoints ---
 // Create
 app.post('/api/todos', (req, res) => {
-  const { title, notes, scheduledFor, timeOfDay, recurrence } = req.body || {};
+  const { title, notes, scheduledFor, timeOfDay, recurrence, context } = req.body || {};
   if (typeof title !== 'string' || title.trim() === '') {
     return res.status(400).json({ error: 'invalid_title' });
   }
@@ -551,14 +560,17 @@ app.post('/api/todos', (req, res) => {
       return res.status(400).json({ error: 'missing_anchor_for_recurrence' });
     }
   }
+  if (context !== undefined && !['school','personal','work'].includes(String(context))) {
+    return res.status(400).json({ error: 'invalid_context' });
+  }
 
-  const todo = createTodoDb({ title: title.trim(), notes: notes || '', scheduledFor: scheduledFor ?? null, timeOfDay: (timeOfDay === '' ? null : timeOfDay) ?? null, recurrence: recurrence });
+  const todo = createTodoDb({ title: title.trim(), notes: notes || '', scheduledFor: scheduledFor ?? null, timeOfDay: (timeOfDay === '' ? null : timeOfDay) ?? null, recurrence: recurrence, context: context || 'personal' });
   res.json({ todo });
 });
 
 // List (scheduled only within range)
 app.get('/api/todos', (req, res) => {
-  const { from, to, completed, status } = req.query;
+  const { from, to, completed, status, context } = req.query;
   if (from !== undefined && !isYmdString(from)) return res.status(400).json({ error: 'invalid_from' });
   if (to !== undefined && !isYmdString(to)) return res.status(400).json({ error: 'invalid_to' });
   let completedBool;
@@ -568,12 +580,14 @@ app.get('/api/todos', (req, res) => {
     else return res.status(400).json({ error: 'invalid_completed' });
   }
   if (status !== undefined && !['pending','completed','skipped'].includes(String(status))) return res.status(400).json({ error: 'invalid_status' });
+  if (context !== undefined && !['school','personal','work'].includes(String(context))) return res.status(400).json({ error: 'invalid_context' });
 
   const fromDate = from ? parseYMD(from) : null;
   const toDate = to ? parseYMD(to) : null;
 
   let items = db.listTodos({ from: null, to: null, status: status || null }).filter(t => t.scheduledFor !== null);
   if (completedBool !== undefined) items = items.filter(t => t.completed === completedBool);
+  if (context !== undefined) items = items.filter(t => String(t.context) === String(context));
 
   const doExpand = !!(fromDate && toDate);
   if (!doExpand) {
@@ -608,10 +622,11 @@ app.get('/api/todos', (req, res) => {
     }
   }
   // Apply filters post-expansion when provided
-  if (completedBool !== undefined || status !== undefined) {
+  if (completedBool !== undefined || status !== undefined || context !== undefined) {
     const filtered = expanded.filter(x => (
       (completedBool === undefined || (typeof x.completed === 'boolean' && x.completed === completedBool)) &&
-      (status === undefined || (typeof x.status === 'string' && x.status === status))
+      (status === undefined || (typeof x.status === 'string' && x.status === status)) &&
+      (context === undefined || (typeof x.context === 'string' && x.context === context))
     ));
     return res.json({ todos: filtered });
   }
@@ -620,7 +635,11 @@ app.get('/api/todos', (req, res) => {
 
 // Backlog (unscheduled only)
 app.get('/api/todos/backlog', (req, res) => {
-  const items = listAllTodosRaw().filter(t => t.scheduledFor === null);
+  const { context } = req.query;
+  if (context !== undefined && !['school','personal','work'].includes(String(context))) return res.status(400).json({ error: 'invalid_context' });
+  
+  let items = listAllTodosRaw().filter(t => t.scheduledFor === null);
+  if (context !== undefined) items = items.filter(t => String(t.context) === String(context));
   res.json({ todos: items });
 });
 
@@ -631,9 +650,11 @@ app.get('/api/todos/search', (req, res) => {
   if (q.length === 0) return res.status(400).json({ error: 'invalid_query' });
   const status = (req.query.status === undefined) ? undefined : String(req.query.status);
   if (status !== undefined && !['pending','completed','skipped'].includes(status)) return res.status(400).json({ error: 'invalid_status' });
+  const context = (req.query.context === undefined) ? undefined : String(req.query.context);
+  if (context !== undefined && !['school','personal','work'].includes(context)) return res.status(400).json({ error: 'invalid_context' });
   try {
     // FTS5 search when possible; DbService handles fallback behavior
-    let items = db.searchTodos({ q, status });
+    let items = db.searchTodos({ q, status, context });
     // For very short queries, DbService returns a broad set; apply substring filter to mimic previous UX
     if (q.length < 2) {
       const ql = q.toLowerCase();
@@ -667,38 +688,40 @@ app.get('/api/todos/:id', (req, res) => {
 
 // Events (mirror Todos minimal wiring)
 app.post('/api/events', (req, res) => {
-  const { title, notes, scheduledFor, startTime, endTime, location, recurrence } = req.body || {};
+  const { title, notes, scheduledFor, startTime, endTime, location, recurrence, context } = req.body || {};
   if (typeof title !== 'string' || title.trim() === '') return res.status(400).json({ error: 'invalid_title' });
   if (startTime !== undefined && !(startTime === null || /^([01]\d|2[0-3]):[0-5]\d$/.test(String(startTime)))) return res.status(400).json({ error: 'invalid_start_time' });
   if (endTime !== undefined && !(endTime === null || /^([01]\d|2[0-3]):[0-5]\d$/.test(String(endTime)))) return res.status(400).json({ error: 'invalid_end_time' });
   if (startTime && endTime && String(endTime) < String(startTime)) return res.status(400).json({ error: 'invalid_time_range' });
+  if (context !== undefined && !['school','personal','work'].includes(String(context))) return res.status(400).json({ error: 'invalid_context' });
   const rec = (recurrence && typeof recurrence === 'object') ? recurrence : { type: 'none' };
   if (rec.type && rec.type !== 'none') {
     if (!(scheduledFor && isYmdString(scheduledFor))) return res.status(400).json({ error: 'missing_anchor_for_recurrence' });
   }
   try {
-  const ev = db.createEvent({ title: title.trim(), notes: notes || '', scheduledFor: scheduledFor ?? null, startTime: startTime ?? null, endTime: endTime ?? null, location: location ?? null, recurrence: rec, completed: false });
+  const ev = db.createEvent({ title: title.trim(), notes: notes || '', scheduledFor: scheduledFor ?? null, startTime: startTime ?? null, endTime: endTime ?? null, location: location ?? null, recurrence: rec, completed: false, context: context || 'personal' });
     return res.json({ event: ev });
   } catch (e) { return res.status(500).json({ error: 'create_failed' }); }
 });
 
 // Habits (mirror Todos but must be repeating)
 app.post('/api/habits', (req, res) => {
-  const { title, notes, scheduledFor, timeOfDay, recurrence } = req.body || {};
+  const { title, notes, scheduledFor, timeOfDay, recurrence, context } = req.body || {};
   if (typeof title !== 'string' || title.trim() === '') return res.status(400).json({ error: 'invalid_title' });
   if (!(scheduledFor !== null && isYmdString(scheduledFor))) return res.status(400).json({ error: 'missing_anchor_for_recurrence' });
   if (!isValidTimeOfDay(timeOfDay === '' ? null : timeOfDay)) return res.status(400).json({ error: 'invalid_timeOfDay' });
+  if (context !== undefined && !['school','personal','work'].includes(String(context))) return res.status(400).json({ error: 'invalid_context' });
   // require recurrence and forbid none
   if (!(recurrence && typeof recurrence === 'object' && typeof recurrence.type === 'string')) return res.status(400).json({ error: 'missing_recurrence' });
   if (!isValidRecurrence(recurrence) || recurrence.type === 'none') return res.status(400).json({ error: 'invalid_recurrence' });
   try {
-  const h = db.createHabit({ title: title.trim(), notes: notes || '', scheduledFor, timeOfDay: (timeOfDay === '' ? null : timeOfDay) ?? null, recurrence, completed: false });
+  const h = db.createHabit({ title: title.trim(), notes: notes || '', scheduledFor, timeOfDay: (timeOfDay === '' ? null : timeOfDay) ?? null, recurrence, completed: false, context: context || 'personal' });
     return res.json({ habit: h });
   } catch { return res.status(500).json({ error: 'create_failed' }); }
 });
 
 app.get('/api/habits', (req, res) => {
-  const { from, to, completed } = req.query;
+  const { from, to, completed, context } = req.query;
   if (from !== undefined && !isYmdString(from)) return res.status(400).json({ error: 'invalid_from' });
   if (to !== undefined && !isYmdString(to)) return res.status(400).json({ error: 'invalid_to' });
   let completedBool;
@@ -707,9 +730,10 @@ app.get('/api/habits', (req, res) => {
     else if (completed === 'false' || completed === false) completedBool = false;
     else return res.status(400).json({ error: 'invalid_completed' });
   }
+  if (context !== undefined && !['school','personal','work'].includes(String(context))) return res.status(400).json({ error: 'invalid_context' });
   const fromDate = from ? parseYMD(from) : null;
   const toDate = to ? parseYMD(to) : null;
-  let items = db.listHabits({ from: null, to: null }).filter(h => h.scheduledFor !== null);
+  let items = db.listHabits({ from: null, to: null, context: context || null }).filter(h => h.scheduledFor !== null);
   // Filter masters by range if provided (no expansion here)
   if (fromDate || toDate) {
     items = items.filter(h => {
@@ -753,8 +777,10 @@ app.get('/api/habits/search', (req, res) => {
     else if (req.query.completed === 'false' || req.query.completed === false) completedBool = false;
     else return res.status(400).json({ error: 'invalid_completed' });
   }
+  const context = (req.query.context === undefined) ? undefined : String(req.query.context);
+  if (context !== undefined && !['school','personal','work'].includes(context)) return res.status(400).json({ error: 'invalid_context' });
   try {
-    let items = db.searchHabits({ q, completed: completedBool });
+    let items = db.searchHabits({ q, completed: completedBool, context });
     if (q.length < 2) {
       const ql = q.toLowerCase();
       items = items.filter(h => String(h.title || '').toLowerCase().includes(ql) || String(h.notes || '').toLowerCase().includes(ql));
@@ -846,7 +872,7 @@ app.patch('/api/habits/:id/occurrence', (req, res) => {
   }
 });
 app.get('/api/events', (req, res) => {
-  const { from, to, completed } = req.query;
+  const { from, to, completed, context } = req.query;
   if (from !== undefined && !isYmdString(from)) return res.status(400).json({ error: 'invalid_from' });
   if (to !== undefined && !isYmdString(to)) return res.status(400).json({ error: 'invalid_to' });
   let completedBool;
@@ -855,6 +881,7 @@ app.get('/api/events', (req, res) => {
     else if (completed === 'false' || completed === false) completedBool = false;
     else return res.status(400).json({ error: 'invalid_completed' });
   }
+  if (context !== undefined && !['school','personal','work'].includes(String(context))) return res.status(400).json({ error: 'invalid_context' });
   try {
     const fromDate = from ? parseYMD(from) : null;
     const toDate = to ? parseYMD(to) : null;
@@ -878,6 +905,7 @@ app.get('/api/events', (req, res) => {
         });
       }
       if (completedBool !== undefined) items = items.filter(e => e.completed === completedBool);
+      if (context !== undefined) items = items.filter(e => String(e.context) === String(context));
       // Keep ordering by scheduledFor ASC, startTime ASC nulls-first, id ASC
       const sorted = items.slice().sort((a, b) => {
         const sfa = String(a.scheduledFor || '');
@@ -908,8 +936,11 @@ app.get('/api/events', (req, res) => {
     }
     // Apply completed filter post-expansion when provided
     let out = expanded;
-    if (completedBool !== undefined) {
-      out = expanded.filter(x => x && typeof x.completed === 'boolean' && (x.completed === completedBool));
+    if (completedBool !== undefined || context !== undefined) {
+      out = expanded.filter(x => x && 
+        (completedBool === undefined || (typeof x.completed === 'boolean' && x.completed === completedBool)) &&
+        (context === undefined || (typeof x.context === 'string' && x.context === context))
+      );
     }
     // Order: scheduledFor ASC, startTime ASC nulls-first, id ASC
     out = out.slice().sort((a, b) => {
@@ -1111,7 +1142,7 @@ app.get('/api/search', (req, res) => {
 
 // Unified schedule (todos + events; habits added once implemented)
 app.get('/api/schedule', (req, res) => {
-  const { from, to, kinds, completed, status_todo } = req.query || {};
+  const { from, to, kinds, completed, status_todo, context } = req.query || {};
   if (!isYmdString(from)) return res.status(400).json({ error: 'invalid_from' });
   if (!isYmdString(to)) return res.status(400).json({ error: 'invalid_to' });
   let completedBool;
@@ -1121,6 +1152,7 @@ app.get('/api/schedule', (req, res) => {
     else return res.status(400).json({ error: 'invalid_completed' });
   }
   if (status_todo !== undefined && !['pending','completed','skipped'].includes(String(status_todo))) return res.status(400).json({ error: 'invalid_status_todo' });
+  if (context !== undefined && !['school','personal','work'].includes(String(context))) return res.status(400).json({ error: 'invalid_context' });
   // priority removed
 
   const requestedKinds = (() => {
@@ -1143,7 +1175,7 @@ app.get('/api/schedule', (req, res) => {
     const items = [];
 
   if (requestedKinds.includes('todo')) {
-    let todos = db.listTodos({ from: null, to: null, status: status_todo || null }).filter(t => t.scheduledFor !== null);
+    let todos = db.listTodos({ from: null, to: null, status: status_todo || null, context: context || null }).filter(t => t.scheduledFor !== null);
       // Expand where needed
       for (const t of todos) {
         const isRepeating = (t.recurrence && t.recurrence.type && t.recurrence.type !== 'none');
@@ -1161,6 +1193,7 @@ app.get('/api/schedule', (req, res) => {
                 status: occ.status,
                 timeOfDay: occ.timeOfDay ?? null,
                 recurrence: occ.recurrence,
+                context: occ.context,
                 createdAt: occ.createdAt,
                 updatedAt: occ.updatedAt,
               });
@@ -1179,6 +1212,7 @@ app.get('/api/schedule', (req, res) => {
         status: t.status,
               timeOfDay: t.timeOfDay ?? null,
               recurrence: t.recurrence,
+              context: t.context,
               createdAt: t.createdAt,
               updatedAt: t.updatedAt,
             });
@@ -1188,7 +1222,7 @@ app.get('/api/schedule', (req, res) => {
     }
 
     if (requestedKinds.includes('event')) {
-  let events = db.listEvents({ from: null, to: null }).filter(e => e.scheduledFor !== null);
+  let events = db.listEvents({ from: null, to: null, context: context || null }).filter(e => e.scheduledFor !== null);
       for (const e of events) {
         const isRepeating = (e.recurrence && e.recurrence.type && e.recurrence.type !== 'none');
         if (isRepeating) {
@@ -1207,6 +1241,7 @@ app.get('/api/schedule', (req, res) => {
                 endTime: occ.endTime ?? null,
                 location: occ.location ?? null,
                 recurrence: occ.recurrence,
+                context: occ.context,
                 createdAt: occ.createdAt,
                 updatedAt: occ.updatedAt,
               });
@@ -1227,6 +1262,7 @@ app.get('/api/schedule', (req, res) => {
               endTime: e.endTime ?? null,
               location: e.location ?? null,
               recurrence: e.recurrence,
+              context: e.context,
               createdAt: e.createdAt,
               updatedAt: e.updatedAt,
             });
@@ -1236,7 +1272,7 @@ app.get('/api/schedule', (req, res) => {
     }
 
     if (requestedKinds.includes('habit')) {
-  let habits = db.listHabits({ from: null, to: null }).filter(h => h.scheduledFor !== null);
+  let habits = db.listHabits({ from: null, to: null, context: context || null }).filter(h => h.scheduledFor !== null);
       for (const h of habits) {
         // habits must be repeating; always expand
         for (const occ of expandOccurrences(h, fromDate, toDate)) {
@@ -1252,6 +1288,7 @@ app.get('/api/schedule', (req, res) => {
               completed: occ.completed,
               timeOfDay: occ.timeOfDay ?? null,
               recurrence: occ.recurrence,
+              context: occ.context,
               createdAt: occ.createdAt,
               updatedAt: occ.updatedAt,
             });
