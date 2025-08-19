@@ -4,7 +4,8 @@ import 'widgets/assistant_panel.dart';
 import 'widgets/sidebar.dart' as sb;
 import 'widgets/todo_row.dart' as row;
 import 'widgets/habits_tracker.dart' as ht;
-import 'widgets/tabs_header.dart' as th;
+import 'widgets/smart_list_tabs.dart' as slt;
+import 'widgets/fab_actions.dart';
 
 import 'api.dart' as api;
 import 'package:dio/dio.dart';
@@ -301,7 +302,6 @@ class _HomePageState extends State<HomePage> {
   // Data
   List<Todo> scheduled = [];
   List<Todo> scheduledAllTime = [];
-  List<Todo> backlog = [];
   List<Todo> searchResults = [];
   Map<String, int> sidebarCounts = {};
   // Habit stats for current range (by habit id)
@@ -313,9 +313,10 @@ class _HomePageState extends State<HomePage> {
   int _habitFocusCol = 0; // 0..6
 
   // Unified schedule filters (chips)
-  // Default to Tasks (todos) only; tabs switch this to 'event' or 'habit'.
+  // Default to show both todos and events; tabs can filter to specific types.
   Set<String> _kindFilter = <String>{
     'todo',
+    'event',
   };
 
   bool loading = false;
@@ -373,17 +374,15 @@ class _HomePageState extends State<HomePage> {
     // Restore persisted main tab if available
     try {
       final saved = storage.getItem('mainTab') ?? '';
-      if (saved == 'events') {
-        mainView = MainView.tasks;
-        _kindFilter = <String>{'event'};
-      } else if (saved == 'todos') {
-        mainView = MainView.tasks;
-        _kindFilter = <String>{'todo'};
-      } else if (saved == 'habits') {
+      if (saved == 'habits') {
         mainView = MainView.habits;
         _kindFilter = <String>{'habit'};
       } else if (saved == 'goals') {
         mainView = MainView.goals;
+      } else {
+        // Default to tasks view with both todos and events
+        mainView = MainView.tasks;
+        _kindFilter = <String>{'todo', 'event'};
       }
     } catch (_) {}
     if (!TestHooks.skipRefresh) {
@@ -835,9 +834,7 @@ class _HomePageState extends State<HomePage> {
         // Select kinds strictly by tab: tasks (todo or event) or habits
         final kinds = (mainView == MainView.habits)
             ? <String>['habit']
-            : (_kindFilter.contains('event')
-                ? <String>['event']
-                : <String>['todo']);
+            : (_kindFilter.toList());
         final raw = await api.fetchSchedule(
           from: r.from,
           to: r.to,
@@ -895,47 +892,44 @@ class _HomePageState extends State<HomePage> {
         status: showCompleted ? null : 'pending',
         context: selectedContext,
       );
-      // For Events tab, load all scheduled events across time for counts
+      // Load events data when needed for "All" or "Events" views
       List<Todo> eventsAllList = const <Todo>[];
-      if (mainView == MainView.tasks && _kindFilter.contains('event')) {
+      if (mainView == MainView.tasks && (_kindFilter.contains('event') || _kindFilter.contains('todo'))) {
         try {
           final evAllRaw = await api.listEvents(context: selectedContext);
-      eventsAllList = evAllRaw
-  .map((e) => Todo.fromJson(Map<String, dynamic>.from(e)))
-        .toList();
+          eventsAllList = evAllRaw
+              .map((e) => Todo.fromJson(Map<String, dynamic>.from(e)))
+              .toList();
         } catch (_) {}
       }
-  final backlogRaw = await api.fetchBacklog(context: selectedContext);
     final sAllList = scheduledAllRaw
       .map((e) => Todo.fromJson(e as Map<String, dynamic>))
       .toList();
-    var bList = backlogRaw
-      .map((e) => Todo.fromJson(e as Map<String, dynamic>))
-      .toList();
-      if (!showCompleted) {
-        bList = bList.where((t) => !t.completed).toList();
-      }
       // Completed filter already applied above; priority now requested server-side
       // Sidebar counters are scoped by active tab context only
       final nowYmd = ymd(DateTime.now());
   int todayCount;
-  int backlogCount = bList.length;
   int allCount;
       if (mainView == MainView.habits) {
         todayCount = sList
             .where((t) => t.kind == 'habit' && t.scheduledFor == nowYmd)
             .length;
-        allCount = sList.where((t) => t.kind == 'habit').length + backlogCount; // backlog currently excludes habits; acceptable for tab-scoped count
+        allCount = sList.where((t) => t.kind == 'habit').length;
       } else if (mainView == MainView.tasks) {
-        final bool eventsMode = _kindFilter.contains('event');
+        final bool eventsMode = _kindFilter.contains('event') && !_kindFilter.contains('todo');
+        final bool todosMode = _kindFilter.contains('todo') && !_kindFilter.contains('event');
+        
         todayCount = sList
-            .where((t) => (eventsMode ? t.kind == 'event' : (t.kind == 'todo' || t.kind == null)) && t.scheduledFor == nowYmd)
+            .where((t) => (eventsMode ? t.kind == 'event' : (todosMode ? (t.kind == 'todo' || t.kind == null) : true)) && t.scheduledFor == nowYmd)
             .length;
+        
         if (eventsMode) {
-          backlogCount = 0; // no backlog for events
           allCount = eventsAllList.length;
+        } else if (todosMode) {
+          allCount = sAllList.where((t) => (t.kind == null || t.kind == 'todo')).length;
         } else {
-          allCount = sAllList.where((t) => (t.kind == null || t.kind == 'todo')).length + backlogCount;
+          // All mode: combine counts
+          allCount = sAllList.where((t) => (t.kind == null || t.kind == 'todo')).length + eventsAllList.length;
         }
       } else {
   // goals tab
@@ -961,22 +955,7 @@ class _HomePageState extends State<HomePage> {
                 break;
             }
           }
-          // Add backlog counts to context totals (if not in events mode)
-          if (!(_kindFilter.contains('event') && mainView == MainView.tasks)) {
-            for (final item in bList) {
-              switch (item.context) {
-                case 'school':
-                  schoolCount++;
-                  break;
-                case 'personal':
-                  personalCount++;
-                  break;
-                case 'work':
-                  workCount++;
-                  break;
-              }
-            }
-          }
+
         } catch (_) {
           // If context counting fails, use zeros
         }
@@ -984,17 +963,23 @@ class _HomePageState extends State<HomePage> {
         final counts = <String, int>{
         'today': todayCount,
         'all': allCount,
-        'backlog': backlogCount,
         'school': schoolCount,
         'personal': personalCount,
         'work': workCount,
       };
       setState(() {
         scheduled = sList;
-        // If we're in events mode, surface eventsAllList for the "All" collection
-        scheduledAllTime = (_kindFilter.contains('event') && mainView == MainView.tasks) ? eventsAllList : sAllList;
-        // Don't show todo backlog when viewing events
-        backlog = (_kindFilter.contains('event') && mainView == MainView.tasks) ? <Todo>[] : bList;
+        // Combine todos and events for "All" view, or use specific list for filtered views
+        if (mainView == MainView.tasks && _kindFilter.contains('todo') && _kindFilter.contains('event')) {
+          // "All" view: combine todos and events
+          scheduledAllTime = [...sAllList, ...eventsAllList];
+        } else if (mainView == MainView.tasks && _kindFilter.contains('event')) {
+          // "Events" view: events only
+          scheduledAllTime = eventsAllList;
+        } else {
+          // "Tasks" view or other: todos only
+          scheduledAllTime = sAllList;
+        }
         sidebarCounts = counts;
         message = null;
       });
@@ -1294,25 +1279,29 @@ class _HomePageState extends State<HomePage> {
       _searchHoverIndex = -1;
     });
     // Determine list membership
-    // Switch tab by kind (requirements: tasks-only vs events-only views)
+    // Ensure we're in tasks view and the item type is visible
     if (t.kind == 'event') {
       if (!(mainView == MainView.tasks && _kindFilter.contains('event'))) {
         setState(() {
           mainView = MainView.tasks;
-          _kindFilter = <String>{'event'};
+          // Ensure events are visible (add to filter if not present)
+          if (!_kindFilter.contains('event')) {
+            _kindFilter = <String>{'todo', 'event'};
+          }
           selected = SmartList.all;
         });
-        try { storage.setItem('mainTab', 'events'); } catch (_) {}
         await _refreshAll();
       }
     } else { // treat default as todo
       if (!(mainView == MainView.tasks && _kindFilter.contains('todo'))) {
         setState(() {
           mainView = MainView.tasks;
-          _kindFilter = <String>{'todo'};
+          // Ensure todos are visible (add to filter if not present)
+          if (!_kindFilter.contains('todo')) {
+            _kindFilter = <String>{'todo', 'event'};
+          }
           selected = SmartList.all;
         });
-        try { storage.setItem('mainTab', 'todos'); } catch (_) {}
         await _refreshAll();
       }
     }
@@ -2406,19 +2395,24 @@ class _HomePageState extends State<HomePage> {
       case SmartList.today:
         items = scheduled;
         break;
-      case SmartList.backlog:
-        items = backlog;
-        break;
       case SmartList.all:
-        if (mainView == MainView.tasks && _kindFilter.contains('event')) {
-          items = scheduledAllTime;
-        } else {
-          items = [...scheduledAllTime, ...backlog];
-        }
+        items = scheduledAllTime;
         break;
     }
     
-
+    // Apply type filtering - but skip filtering when showing "All"
+    if (mainView == MainView.tasks && _kindFilter.isNotEmpty) {
+      if (_kindFilter.contains('todo') && _kindFilter.contains('event')) {
+        // "All" mode: don't filter, show everything
+        // The data combination already happened in _refreshAll()
+      } else if (_kindFilter.contains('todo')) {
+        // "Tasks" mode: show only todos
+        items = items.where((item) => item.kind == 'todo' || item.kind == null).toList();
+      } else if (_kindFilter.contains('event')) {
+        // "Events" mode: show only events  
+        items = items.where((item) => item.kind == 'event').toList();
+      }
+    }
     
     return items;
   }
@@ -2429,8 +2423,6 @@ class _HomePageState extends State<HomePage> {
         return 'today';
       case SmartList.all:
         return 'all';
-      case SmartList.backlog:
-        return 'backlog';
     }
   }
 
@@ -2439,11 +2431,108 @@ class _HomePageState extends State<HomePage> {
       case 'today':
         return SmartList.today;
       case 'all':
-        return SmartList.all;
-      case 'backlog':
       default:
-        return SmartList.backlog;
+        return SmartList.all;
     }
+  }
+
+  String? _getSelectedType() {
+    if (_kindFilter.length == 1) {
+      return _kindFilter.first;
+    }
+    return null; // Both todo and event
+  }
+
+  String? _getCurrentViewDate() {
+    if (selected == SmartList.today) {
+      return ymd(DateTime.now());
+    }
+    // For other views, return the anchor date
+    return anchor;
+  }
+
+  void _showQuickAddTodo() {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add Task'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _qaTodoTitle,
+              decoration: const InputDecoration(labelText: 'Title *'),
+              autofocus: true,
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _qaTodoTime,
+              decoration: const InputDecoration(labelText: 'Time (HH:MM)'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              Navigator.of(context).pop();
+              await _submitQuickAddTodo();
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showQuickAddEvent() {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add Event'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _qaEventTitle,
+              decoration: const InputDecoration(labelText: 'Title *'),
+              autofocus: true,
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _qaEventStart,
+              decoration: const InputDecoration(labelText: 'Start Time (HH:MM)'),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _qaEventEnd,
+              decoration: const InputDecoration(labelText: 'End Time (HH:MM)'),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _qaEventLocation,
+              decoration: const InputDecoration(labelText: 'Location'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              Navigator.of(context).pop();
+              await _submitQuickAddEvent();
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -2457,273 +2546,170 @@ class _HomePageState extends State<HomePage> {
               // Unified header spanning entire app width
               Container(
                 color: Theme.of(context).colorScheme.surface,
-                padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 0),
-                child: SizedBox(
-                  height: 80,
-                  child: Row(
-                    children: [
-                      // Left: Tab segmented control + center: Search box (responsive)
-                      Expanded(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            // Tabs row
-                            Padding(
-                              padding: const EdgeInsets.only(top: 6, bottom: 6),
-                              child: th.TabsHeader(
-                                selected: () {
-                                  if (mainView == MainView.goals) {
-                                    return th.AppTab.goals;
-                                  }
-                                  if (mainView == MainView.habits) {
-                                    return th.AppTab.habits;
-                                  }
-                                  if (_kindFilter.length == 1 &&
-                                      _kindFilter.contains('event')) {
-                                    return th.AppTab.events;
-                                  }
-                                  return th.AppTab.todos;
-                                }(),
-                                onChanged: (tab) async {
-                                  if (tab == th.AppTab.goals) {
-                                    setState(() {
-                                      mainView = MainView.goals;
-                                    });
-                                    try {
-                                      storage.setItem('mainTab', 'goals');
-                                    } catch (_) {}
-                                    return;
-                                  }
-                                  if (tab == th.AppTab.habits) {
-                                    setState(() {
-                                      mainView = MainView.habits;
-                                      _kindFilter = <String>{'habit'};
-                                    });
-                                    try {
-                                      storage.setItem('mainTab', 'habits');
-                                    } catch (_) {}
-                                    await _refreshAll();
-                                    return;
-                                  }
-                                  if (tab == th.AppTab.events) {
-                                    setState(() {
-                                      mainView = MainView.tasks;
-                                      _kindFilter = <String>{'event'};
-                                    });
-                                    try {
-                                      storage.setItem('mainTab', 'events');
-                                    } catch (_) {}
-                                    await _refreshAll();
-                                    return;
-                                  }
-                                  // default: todos
-                                  setState(() {
-                                    mainView = MainView.tasks;
-                                    _kindFilter = <String>{'todo'};
-                                  });
-                                  try {
-                                    storage.setItem('mainTab', 'todos');
-                                  } catch (_) {}
-                                  await _refreshAll();
-                                },
-                              ),
-                            ),
-                            // Search line
-                            Center(
-                              child: ConstrainedBox(
-                                constraints: const BoxConstraints(
-                                  minWidth: 320,
-                                  maxWidth: 560,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Row(
+                  children: [
+                    // Search box
+                    Expanded(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 400),
+                        child: CompositedTransformTarget(
+                          link: _searchLink,
+                          child: Focus(
+                            focusNode: _searchFocus,
+                            onFocusChange: (f) {
+                              if (!f) {
+                                _removeSearchOverlay();
+                              } else {
+                                _showSearchOverlayIfNeeded();
+                              }
+                            },
+                            onKeyEvent: (node, event) {
+                              if (!_searchFocus.hasFocus) {
+                                return KeyEventResult.ignored;
+                              }
+                              if (event is! KeyDownEvent) {
+                                return KeyEventResult.ignored;
+                              }
+                              final len = math.min(
+                                searchResults.length,
+                                7,
+                              );
+                              if (event.logicalKey ==
+                                  LogicalKeyboardKey.arrowDown) {
+                                setState(() {
+                                  _searchHoverIndex = len == 0
+                                      ? -1
+                                      : (_searchHoverIndex + 1) % len;
+                                });
+                                _showSearchOverlayIfNeeded();
+                                return KeyEventResult.handled;
+                              } else if (event.logicalKey ==
+                                  LogicalKeyboardKey.arrowUp) {
+                                setState(() {
+                                  _searchHoverIndex = len == 0
+                                      ? -1
+                                      : (_searchHoverIndex - 1 + len) %
+                                            len;
+                                });
+                                _showSearchOverlayIfNeeded();
+                                return KeyEventResult.handled;
+                              } else if (event.logicalKey ==
+                                  LogicalKeyboardKey.enter) {
+                                final list = searchResults
+                                    .take(7)
+                                    .toList();
+                                if (list.isEmpty) {
+                                  return KeyEventResult.handled;
+                                }
+                                final idx =
+                                    _searchHoverIndex >= 0 &&
+                                        _searchHoverIndex < list.length
+                                    ? _searchHoverIndex
+                                    : 0;
+                                _selectSearchResult(list[idx]);
+                                return KeyEventResult.handled;
+                              }
+                              return KeyEventResult.ignored;
+                            },
+                            child: TextField(
+                              controller: searchCtrl,
+                              decoration: InputDecoration(
+                                prefixIcon: const Icon(Icons.search),
+                                hintText: 'Search',
+                                filled: true,
+                                fillColor: Theme.of(
+                                  context,
+                                ).colorScheme.surfaceContainerHigh,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(
+                                    24,
+                                  ),
+                                  borderSide: BorderSide(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .outline
+                                        .withAlpha((0.4 * 255).round()),
+                                  ),
                                 ),
-                                child: CompositedTransformTarget(
-                                  link: _searchLink,
-                                  child: Focus(
-                                    focusNode: _searchFocus,
-                                    onFocusChange: (f) {
-                                      if (!f) {
-                                        _removeSearchOverlay();
-                                      } else {
-                                        _showSearchOverlayIfNeeded();
-                                      }
-                                    },
-                                    onKeyEvent: (node, event) {
-                                      if (!_searchFocus.hasFocus) {
-                                        return KeyEventResult.ignored;
-                                      }
-                                      if (event is! KeyDownEvent) {
-                                        return KeyEventResult.ignored;
-                                      }
-                                      final len = math.min(
-                                        searchResults.length,
-                                        7,
-                                      );
-                                      if (event.logicalKey ==
-                                          LogicalKeyboardKey.arrowDown) {
-                                        setState(() {
-                                          _searchHoverIndex = len == 0
-                                              ? -1
-                                              : (_searchHoverIndex + 1) % len;
-                                        });
-                                        _showSearchOverlayIfNeeded();
-                                        return KeyEventResult.handled;
-                                      } else if (event.logicalKey ==
-                                          LogicalKeyboardKey.arrowUp) {
-                                        setState(() {
-                                          _searchHoverIndex = len == 0
-                                              ? -1
-                                              : (_searchHoverIndex - 1 + len) %
-                                                    len;
-                                        });
-                                        _showSearchOverlayIfNeeded();
-                                        return KeyEventResult.handled;
-                                      } else if (event.logicalKey ==
-                                          LogicalKeyboardKey.enter) {
-                                        final list = searchResults
-                                            .take(7)
-                                            .toList();
-                                        if (list.isEmpty) {
-                                          return KeyEventResult.handled;
-                                        }
-                                        final idx =
-                                            _searchHoverIndex >= 0 &&
-                                                _searchHoverIndex < list.length
-                                            ? _searchHoverIndex
-                                            : 0;
-                                        _selectSearchResult(list[idx]);
-                                        return KeyEventResult.handled;
-                                      }
-                                      return KeyEventResult.ignored;
-                                    },
-                                    child: TextField(
-                                      controller: searchCtrl,
-                                      decoration: InputDecoration(
-                                        prefixIcon: const Icon(Icons.search),
-                                        hintText: 'Search',
-                                        filled: true,
-                                        fillColor: Theme.of(
-                                          context,
-                                        ).colorScheme.surfaceContainerHigh,
-                                        border: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(
-                                            24,
-                                          ),
-                                          borderSide: BorderSide(
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .outline
-                                                .withAlpha((0.4 * 255).round()),
-                                          ),
-                                        ),
-                                        focusedBorder: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(
-                                            24,
-                                          ),
-                                          borderSide: BorderSide(
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.primary,
-                                            width: 2,
-                                          ),
-                                        ),
-                                        suffixIcon: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            if (_searching)
-                                              SizedBox(
-                                                width: 16,
-                                                height: 16,
-                                                child: Padding(
-                                                  padding: EdgeInsets.all(8),
-                                                  child:
-                                                      CircularProgressIndicator(
-                                                        strokeWidth: 2,
-                                                      ),
-                                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(
+                                    24,
+                                  ),
+                                  borderSide: BorderSide(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
+                                    width: 2,
+                                  ),
+                                ),
+                                suffixIcon: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (_searching)
+                                      SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: Padding(
+                                          padding: EdgeInsets.all(8),
+                                          child:
+                                              CircularProgressIndicator(
+                                                strokeWidth: 2,
                                               ),
-                                            if (searchCtrl.text.isNotEmpty)
-                                              IconButton(
-                                                icon: const Icon(Icons.clear),
-                                                onPressed: () {
-                                                  searchCtrl.clear();
-                                                  setState(() {
-                                                    searchResults = [];
-                                                    _searchHoverIndex = -1;
-                                                  });
-                                                  _removeSearchOverlay();
-                                                },
-                                              ),
-                                          ],
                                         ),
                                       ),
-                                      onChanged: (v) {
-                                        _onSearchChanged(v);
-                                        _showSearchOverlayIfNeeded();
-                                      },
-                                    ),
-                                  ),
+                                    if (searchCtrl.text.isNotEmpty)
+                                      IconButton(
+                                        icon: const Icon(Icons.clear),
+                                        onPressed: () {
+                                          searchCtrl.clear();
+                                          setState(() {
+                                            searchResults = [];
+                                            _searchHoverIndex = -1;
+                                          });
+                                          _removeSearchOverlay();
+                                        },
+                                      ),
+                                  ],
                                 ),
                               ),
+                              onChanged: (v) {
+                                _onSearchChanged(v);
+                                _showSearchOverlayIfNeeded();
+                              },
                             ),
-                          ],
-                        ),
-                      ),
-                      // Full-height divider aligning with body split (right of main tasks / left of assistant)
-                      VerticalDivider(
-                        width: 1,
-                        thickness: 1,
-                        color: Theme.of(context).colorScheme.outline,
-                      ),
-                      // Header right: navigation + view controls + assistant toggle
-                      Flexible(
-                        child: SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              // Compact date navigation
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  IconButton(
-                                    icon: const Icon(Icons.chevron_left),
-                                    tooltip: 'Previous',
-                                    onPressed: _goPrev,
-                                  ),
-                                  TextButton(
-                                    onPressed: _goToToday,
-                                    child: const Text('Today'),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.chevron_right),
-                                    tooltip: 'Next',
-                                    onPressed: _goNext,
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(width: 12),
-                              TextButton.icon(
-                                onPressed: () => setState(
-                                  () =>
-                                      assistantCollapsed = !assistantCollapsed,
-                                ),
-                                icon: const Icon(
-                                  Icons.smart_toy_outlined,
-                                  size: 18,
-                                ),
-                                label: showAssistantText
-                                    ? Text(
-                                        assistantCollapsed
-                                            ? 'Show Mr. Assister'
-                                            : 'Hide Mr. Assister',
-                                      )
-                                    : const SizedBox.shrink(),
-                              ),
-                            ],
                           ),
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(width: 16),
+                    // Navigation
+                    Row(
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.chevron_left),
+                          onPressed: _goPrev,
+                        ),
+                        TextButton(
+                          onPressed: _goToToday,
+                          child: const Text('Today'),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.chevron_right),
+                          onPressed: _goNext,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(width: 16),
+                    // Assistant toggle
+                    TextButton.icon(
+                      onPressed: () => setState(() => assistantCollapsed = !assistantCollapsed),
+                      icon: const Icon(Icons.smart_toy_outlined, size: 18),
+                      label: showAssistantText
+                          ? Text(assistantCollapsed ? 'Show Mr. Assister' : 'Hide Mr. Assister')
+                          : const SizedBox.shrink(),
+                    ),
+                  ],
                 ),
               ),
               const Divider(height: 1),
@@ -2759,28 +2745,6 @@ class _HomePageState extends State<HomePage> {
                           } else if (k == 'habits') {
                             setState(() {
                               mainView = MainView.habits;
-                            });
-                            await _refreshAll();
-                            return;
-                          } else if (k == 'add_task') {
-                            // Switch to todos tab for quick task creation
-                            setState(() {
-                              mainView = MainView.tasks;
-                              _kindFilter = <String>{'todo'};
-                              selected = SmartList.today;
-                              view = ViewMode.day;
-                              anchor = ymd(DateTime.now());
-                            });
-                            await _refreshAll();
-                            return;
-                          } else if (k == 'add_event') {
-                            // Switch to events tab for quick event creation
-                            setState(() {
-                              mainView = MainView.tasks;
-                              _kindFilter = <String>{'event'};
-                              selected = SmartList.today;
-                              view = ViewMode.day;
-                              anchor = ymd(DateTime.now());
                             });
                             await _refreshAll();
                             return;
@@ -2835,6 +2799,20 @@ class _HomePageState extends State<HomePage> {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
+                                      // Type Tabs
+                                      if (mainView == MainView.tasks)
+                                        Padding(
+                                          padding: const EdgeInsets.all(16),
+                                          child: slt.TypeTabs(
+                                            selectedType: _getSelectedType(),
+                                            onTypeChanged: (type) async {
+                                              setState(() => _kindFilter = type == null 
+                                                ? <String>{'todo', 'event'} 
+                                                : <String>{type});
+                                              await _refreshAll();
+                                            },
+                                          ),
+                                        ),
                                       Expanded(
                                         child: Stack(
                                           children: [
@@ -2843,6 +2821,16 @@ class _HomePageState extends State<HomePage> {
                                                 : (mainView == MainView.habits
                                                       ? _buildHabitsList()
                                                       : _buildGoalsView()),
+                                            // FAB positioned at bottom right
+                                            Positioned(
+                                              right: 16,
+                                              bottom: 16,
+                                              child: FabActions(
+                                                onCreateTodo: () => _showQuickAddTodo(),
+                                                onCreateEvent: () => _showQuickAddEvent(),
+                                                currentDate: _getCurrentViewDate(),
+                                              ),
+                                            ),
                                           ],
                                         ),
                                       ),

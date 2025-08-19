@@ -6,12 +6,15 @@ Keep in mind:
 Get done Week of 8/17:
     -Have two types of completions for task (completed and skipped)
     -Get fundamental functions of tasks and events working
-    -Get search working
+        *search bar
+        *add tasks and events
+        *views working properly
     -Clean up UI
         *switch week to start from sunday 
+        *make sure no weird wrapping in pills (Day/Week/Month pill is wack right now)
         *fix it from being so snappy when deleting todos or going between tabs
     -Get assistant pipeline working for basic chats about events and tasks (maybe basic functions??)
-        *iron out current pipeline
+        *simplify/iron out current pipeline
         *plug in gpt-oss and see how it goes
     -spam flutter analyze until no issues found and functionality is preserved
 
@@ -23,6 +26,7 @@ Get done Week of 8/17:
     *Habit/Goal Tracking
     *First map out current todo list and google calendar usage, then have it be able to facilitate these behaviours asap
     
+
 -Modularize main and clean up/optimize the flutter directory
 
 -look at current LLM setup and update the prompts and query flow

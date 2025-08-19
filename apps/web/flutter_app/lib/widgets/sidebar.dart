@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../models.dart' show ViewMode;
 
 class Sidebar extends StatelessWidget {
-  final String selectedKey; // 'today' | 'all' | 'backlog'
+  final String selectedKey; // 'today' | 'all'
   final void Function(String) onSelect;
   final Map<String, int> counters;
   final ViewMode currentView; // Add view parameter
@@ -78,12 +78,6 @@ class Sidebar extends StatelessWidget {
             children: [
               _tile('Today', 'today', Icons.today, count: counters['today']),
               _tile('All', 'all', Icons.inbox, count: counters['all']),
-              _tile(
-                'Backlog',
-                'backlog',
-                Icons.list_alt,
-                count: counters['backlog'],
-              ),
               const SizedBox(height: 8),
               // Context filters section
               Padding(
@@ -102,34 +96,7 @@ class Sidebar extends StatelessWidget {
             ],
           ),
         ),
-        const Divider(height: 1),
-        // Quick actions
-        Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Quick Actions',
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
-                onPressed: () => onSelect('add_task'),
-                icon: const Icon(Icons.add, size: 16),
-                label: const Text('Add Task'),
-              ),
-              const SizedBox(height: 4),
-              OutlinedButton.icon(
-                onPressed: () => onSelect('add_event'),
-                icon: const Icon(Icons.event, size: 16),
-                label: const Text('Add Event'),
-              ),
-            ],
-          ),
-        ),
+
       ],
     );
   }

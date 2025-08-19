@@ -3,12 +3,13 @@ import 'package:flutter/material.dart';
 class FabActions extends StatelessWidget {
   final VoidCallback onCreateTodo;
   final VoidCallback onCreateEvent;
-  final VoidCallback onCreateHabit;
+  final String? currentDate; // For smart defaults
+
   const FabActions({
     super.key,
     required this.onCreateTodo,
     required this.onCreateEvent,
-    required this.onCreateHabit,
+    this.currentDate,
   });
 
   @override
@@ -19,14 +20,47 @@ class FabActions extends StatelessWidget {
           onCreateTodo();
         } else if (v == 'event') {
           onCreateEvent();
-        } else if (v == 'habit') {
-          onCreateHabit();
         }
       },
-      itemBuilder: (c) => const [
-        PopupMenuItem<String>(value: 'todo', child: Text('New Task')),
-        PopupMenuItem<String>(value: 'event', child: Text('New Event')),
-        PopupMenuItem<String>(value: 'habit', child: Text('New Habit')),
+      itemBuilder: (c) => [
+        PopupMenuItem<String>(
+          value: 'todo',
+          child: Row(
+            children: [
+              const Icon(Icons.task, size: 18),
+              const SizedBox(width: 8),
+              const Text('New Task'),
+              if (currentDate != null) ...[
+                const Spacer(),
+                Text(
+                  currentDate!,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: 'event',
+          child: Row(
+            children: [
+              const Icon(Icons.event, size: 18),
+              const SizedBox(width: 8),
+              const Text('New Event'),
+              if (currentDate != null) ...[
+                const Spacer(),
+                Text(
+                  currentDate!,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
       ],
       child: FloatingActionButton(
         onPressed: null,

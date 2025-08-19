@@ -3,6 +3,6 @@ enum ViewMode { day, week, month }
 
 enum MainView { tasks, habits, goals }
 
-enum SmartList { today, all, backlog }
+enum SmartList { today, all }
 
 enum AppTab { todos, events, habits, goals }
