@@ -1,90 +1,87 @@
 // Router orchestrator for the two‑LLM pipeline
 // Decision: chat | plan | clarify
 
-import { convoLLM, getModels } from './clients.js';
+import { harmonyConvoLLM, getModels } from './clients.js';
+import { createHarmonyPrompt, getFinalResponse } from './harmony_utils.js';
 import { buildRouterSnapshots, topClarifyCandidates } from './context.js';
 import { mkCorrelationId, logIO } from './logging.js';
 import { extractFirstJson } from './json_extract.js';
+import { qualityMonitor } from './quality_monitor.js';
 
 const CLARIFY_THRESHOLD = 0.45;
 const CHAT_THRESHOLD = 0.70;
 const TIMEZONE = process.env.TZ_NAME || 'America/New_York';
 
 // Cache models locally for this module so logs and calls stay consistent.
-const MODELS = (typeof getModels === 'function') ? getModels() : { convo: process.env.CONVO_MODEL || 'llama3.2:3b' };
+const MODELS = (typeof getModels === 'function') ? getModels() : { convo: process.env.CONVO_MODEL || 'gpt-oss:20b' };
 
 export async function runRouter({ instruction, transcript = [], clarify }) {
   const msg = String(instruction || '').trim();
   if (!msg) return { decision: 'clarify', confidence: 0, question: 'What would you like to do?' };
 
   const correlationId = mkCorrelationId();
+  const startTime = Date.now();
+  qualityMonitor.recordRequest(correlationId, 'router', MODELS.convo);
   const today = new Date();
   const todayYmd = new Intl.DateTimeFormat('en-CA', { timeZone: TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).format(today).replace(/\//g, '-');
   const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
   const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
   const snapshots = buildRouterSnapshots({ timezone: TIMEZONE });
-  const system = `You are an intent router for a todo assistant. Output a single JSON object only with fields: decision, confidence, question, where, delegate, options. If the user intent is ambiguous about time/date or target, choose "clarify" and ask ONE short question in "question". If user intent is concrete or a prior selection exists, choose "plan" and include a focused "where". Use only the last 3 turns from transcript. Do not include any prose or explanations outside JSON.`;
-  const prompt = `You are an intent router for a todo assistant. Output a single JSON object only with fields: decision, confidence, question, where, delegate, options. If the user intent is ambiguous about time/date or target, choose "clarify" and ask ONE short question in "question". If user intent is concrete or a prior selection exists, choose "plan" and include a focused "where". Use only the last 3 turns from transcript. Do not include any prose or explanations outside JSON.
+  const harmonyPrompt = createHarmonyPrompt({
+    system: "You are an intelligent intent router for a todo assistant.",
+    developer: `Your job is to understand user intent and route to the appropriate handler.
 
-Today: ${todayYmd} (${TIMEZONE})
-Transcript (last 3):
+OUTPUT FORMAT: Single JSON object only with these fields:
+- decision: "chat" | "plan" | "clarify"
+- confidence: number (0.0 to 1.0)
+- question: string (only for clarify decisions)
+- where: object (only for plan decisions)
+- delegate: object (only for plan decisions)
+- options: array (only for clarify decisions)
+
+DECISION RULES:
+- "clarify": Use when intent is ambiguous about time/date, target selection, or context
+- "plan": Use when intent is clear and actionable
+- "chat": Use for general questions, status inquiries, or non-actionable requests
+
+CONFIDENCE SCORING:
+- 0.9-1.0: Very clear intent with specific details
+- 0.7-0.8: Clear intent with some ambiguity
+- 0.5-0.6: Somewhat clear but needs context
+- 0.3-0.4: Ambiguous, needs clarification
+- 0.0-0.2: Very ambiguous, definitely needs clarification
+
+CONTEXT AWARENESS:
+- Consider the current date and timezone
+- Use transcript history for context
+- Respect user's current view and filters
+- Be aware of the current tasks and their states
+- Be aware of the current events and their states
+- Be aware of the current habits and their states
+- Be aware of the current goals and their states`,
+    user: `Today: ${todayYmd} (${TIMEZONE})
+Current Context: ${JSON.stringify(snapshots, null, 2)}
+
+Recent Conversation (last 3 turns):
 ${convo}
 
-Context (week+backlog):
-${JSON.stringify(snapshots)}
+User Input: ${msg}
 
-User:
-${msg}
+Analyze the user's intent carefully. Consider:
+1. What specific action do they want to perform?
+2. Do they have all necessary information (time, target, context)?
+3. Is there ambiguity that needs clarification?
+4. What is their confidence level in their request?
 
-Example outputs:
+Respond with JSON only:`
+  });
 
-For a clear action:
-{
-  "decision": "plan",
-  "confidence": 0.9,
-  "where": "Plan inbox"
-}
-
-For ambiguous target:
-{
-  "decision": "clarify",
-  "confidence": 0.3,
-  "question": "Which task do you want to update?",
-  "options": [
-    {"id": 8, "title": "Plan inbox", "scheduledFor": "2025-08-17"},
-    {"id": 12, "title": "Organize budget", "scheduledFor": "2025-08-20"}
-  ]
-}
-
-For general chat:
-{
-  "decision": "chat",
-  "confidence": 0.8
-}
-
-For date-specific actions:
-{
-  "decision": "plan",
-  "confidence": 0.95,
-  "where": "today"
-}`;
-
-  const raw = await convoLLM(prompt, { stream: false, model: MODELS.convo });
-  logIO('router', { model: MODELS.convo, prompt, output: raw, meta: { correlationId, module: 'router' } });
+  const raw = await harmonyConvoLLM(harmonyPrompt, { stream: false, model: MODELS.convo });
+  logIO('router', { model: MODELS.convo, prompt: JSON.stringify(harmonyPrompt), output: raw, meta: { correlationId, module: 'router' } });
   
-  // Extract the actual response from the LLM output
-  let responseText = String(raw || '');
-  if (responseText.includes('"response":')) {
-    // The LLM returned a metadata object, extract just the response field
-    try {
-      const parsed = JSON.parse(responseText);
-      responseText = parsed.response || responseText;
-    } catch (e) {
-      // If parsing fails, use the original text
-    }
-  }
-  
-  const parsed = extractFirstJson(responseText) || {};
+  // Extract final response from Harmony channels
+  const finalResponse = getFinalResponse(raw);
+  const parsed = extractFirstJson(String(finalResponse || '')) || {};
   let decision = parsed.decision || 'clarify';
   const confidence = Number(parsed.confidence || 0);
   
@@ -231,6 +228,12 @@ For date-specific actions:
     result.question = result.question || 'Which item do you want to update?';
     result.options = cands.map(c => ({ id: c.id, title: c.title, scheduledFor: c.scheduledFor ?? null }));
   }
+  
+  // Record quality metrics
+  const responseTime = Date.now() - startTime;
+  const safeConfidence = typeof result.confidence === 'number' ? result.confidence : 0;
+  const errors = result.decision === 'clarify' && safeConfidence < CLARIFY_THRESHOLD ? ['Low confidence routing'] : [];
+  qualityMonitor.recordResponse(correlationId, result, safeConfidence, errors, responseTime);
   
   return result;
 }

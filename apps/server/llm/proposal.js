@@ -5,60 +5,99 @@ import { codeLLM, getModels } from './clients.js';
 import { buildFocusedContext } from './context.js';
 import { mkCorrelationId, logIO } from './logging.js';
 import { extractFirstJson } from './json_extract.js';
+import { qualityMonitor } from './quality_monitor.js';
 
 const TIMEZONE = process.env.TZ_NAME || 'America/New_York';
-const MODELS = (typeof getModels === 'function') ? getModels() : { code: process.env.CODE_MODEL || 'granite-code:8b' };
+const MODELS = (typeof getModels === 'function') ? getModels() : { code: process.env.CODE_MODEL || 'gpt-oss:20b' };
+
+// Add operation validation before returning
+function validateProposalOutput(parsed) {
+  const errors = [];
+  
+  if (!parsed.operations || !Array.isArray(parsed.operations)) {
+    errors.push('Missing or invalid operations array');
+  }
+  
+  if (parsed.operations.length > 20) {
+    errors.push('Too many operations (max 20)');
+  }
+  
+  // Validate each operation
+  parsed.operations.forEach((op, index) => {
+    if (!op.kind || !op.action) {
+      errors.push(`Operation ${index}: missing kind or action`);
+    }
+    
+    if (op.action === 'create' && !op.title) {
+      errors.push(`Operation ${index}: create requires title`);
+    }
+    
+    if (['update', 'delete', 'set_status'].includes(op.action) && !op.id) {
+      errors.push(`Operation ${index}: ${op.action} requires id`);
+    }
+    
+    if (op.recurrence && op.recurrence.type === 'none' && op.kind === 'habit') {
+      errors.push(`Operation ${index}: habits cannot have recurrence type "none"`);
+    }
+  });
+  
+  return { valid: errors.length === 0, errors };
+}
 
 export async function runProposal({ instruction, transcript = [], focusedWhere = {} }) {
   const taskBrief = String(instruction || '').trim();
   if (!taskBrief) return { operations: [] };
 
   const correlationId = mkCorrelationId();
+  const startTime = Date.now();
+  qualityMonitor.recordRequest(correlationId, 'proposal', MODELS.code);
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()).replace(/\//g, '-');
   const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
   const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
   const focusedContext = buildFocusedContext(focusedWhere, { timezone: TIMEZONE });
   const contextJson = JSON.stringify(focusedContext, null, 2);
 
-  const prompt = `You are the operations planner for a todo app. Output ONLY a single JSON object with keys: version, steps, operations, and optional tools, notes. Follow the rules strictly: include recurrence on create/update (use {"type":"none"} for non-repeating; habits must not be 'none'); if recurrence.type != 'none', include an anchor scheduledFor; for todos use set_status (with optional occurrenceDate for repeating); no bulk; ≤20 ops; do NOT invent invalid IDs. When updating time-related fields, always include timeOfDay if specified. You may internally reason, but the final output MUST be JSON only.
+  const prompt = `You are an expert operations planner for a todo application. Your task is to generate precise, valid operations based on user intent.
+
+CRITICAL RULES:
+1. Output ONLY valid JSON with keys: version, steps, operations, tools, notes
+2. Use ONLY IDs from the provided context - NEVER invent IDs
+3. Include recurrence for ALL create/update operations
+4. For habits, recurrence.type cannot be "none"
+5. For todos with recurrence, include scheduledFor as anchor
+6. Maximum 20 operations per request
+7. Validate all time formats (YYYY-MM-DD for dates, HH:MM for times)
+
+OPERATION VALIDATION:
+- todos: require title for create, id for update/delete
+- events: require title, start, end for create
+- habits: require title, recurrence for create
+- timeOfDay: must be HH:MM format
+- scheduledFor: must be YYYY-MM-DD format
+
+CONTEXT ANALYSIS:
+- Review all available items in the focused context
+- Match user intent to specific items when possible
+- Consider time constraints and scheduling conflicts
+- Respect user's current view and filters
 
 Timezone: ${TIMEZONE}; Today: ${today}
 Task: ${taskBrief}
 Where: ${JSON.stringify(focusedWhere)}
-Focused context: ${contextJson}
-Transcript (last 3):
-${convo}
+Available Context: ${contextJson}
+Recent Conversation: ${convo}
 
-IMPORTANT: Use ONLY the IDs from the focused context. Do NOT invent IDs. If updating a task, use its exact ID from the context.
+Generate operations that precisely match the user's intent while following all validation rules.
 
-Respond with JSON exactly as:
+OUTPUT FORMAT: Use version "3" and the exact operation structure shown below:
 {
-  "version":"3",
-  "steps":[{"name":"Identify targets"},{"name":"Apply changes","expectedOps":2}],
-  "operations":[{"kind":"todo","action":"update","id":123,"scheduledFor":"${today}","timeOfDay":"21:00","recurrence":{"type":"none"}}]
-}
-
-Example outputs:
-
-For updating a task's time:
-{
-  "version":"3",
-  "steps":[{"name":"Update time"}],
-  "operations":[{"kind":"todo","action":"update","id":8,"timeOfDay":"21:00","recurrence":{"type":"every_n_days","intervalDays":2,"until":"2025-12-31"}}]
-}
-
-For creating a new task:
-{
-  "version":"3",
-  "steps":[{"name":"Create task"}],
-  "operations":[{"kind":"todo","action":"create","title":"New task","scheduledFor":"${today}","timeOfDay":"14:30","recurrence":{"type":"none"}}]
-}
-
-For completing a task:
-{
-  "version":"3",
-  "steps":[{"name":"Mark complete"}],
-  "operations":[{"kind":"todo","action":"set_status","id":8,"status":"completed"}]
+  "version": "3",
+  "steps": [{"name": "Step description"}],
+  "operations": [
+    {"kind": "todo", "action": "create", "title": "Task title", "scheduledFor": "2025-08-20", "recurrence": {"type": "none"}}
+  ],
+  "tools": [],
+  "notes": {}
 }`;
 
   try {
@@ -80,18 +119,39 @@ For completing a task:
     let parsed = extractFirstJson(responseText);
     
     if (!parsed || !Array.isArray(parsed.operations)) {
-      return { operations: [] };
+      return { operations: [], notes: { errors: ['Failed to parse valid operations'] } };
     }
     
-    return {
+    // Validate the proposal
+    const validation = validateProposalOutput(parsed);
+    if (!validation.valid) {
+      return { 
+        operations: [], 
+        notes: { errors: validation.errors }
+      };
+    }
+    
+    const result = {
       version: parsed.version || '3',
       steps: Array.isArray(parsed.steps) ? parsed.steps : [],
       operations: parsed.operations,
       tools: Array.isArray(parsed.tools) ? parsed.tools : [],
       notes: parsed.notes || {}
     };
+    
+    // Record quality metrics
+    const responseTime = Date.now() - startTime;
+    const errors = Array.isArray(result.notes?.errors) ? result.notes.errors : [];
+    qualityMonitor.recordResponse(correlationId, result, 1.0, errors, responseTime);
+    
+    return result;
   } catch (error) {
     console.error('Proposal error:', error);
+    
+    // Record error in quality metrics
+    const responseTime = Date.now() - startTime;
+    qualityMonitor.recordResponse(correlationId, null, 0.0, Array.isArray(error.message) ? error.message : [error.message], responseTime);
+    
     return { operations: [] };
   }
 }

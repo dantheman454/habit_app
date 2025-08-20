@@ -1,11 +1,12 @@
 // Summary generator for the two-agent system
 // Produces concise plain-text summaries of operations and issues
 
-import { convoLLM, getModels } from './clients.js';
+import { harmonyConvoLLM, getModels } from './clients.js';
+import { createHarmonyPrompt, getFinalResponse } from './harmony_utils.js';
 import { mkCorrelationId, logIO } from './logging.js';
 
 const TIMEZONE = process.env.TZ_NAME || 'America/New_York';
-const MODELS = (typeof getModels === 'function') ? getModels() : { convo: process.env.CONVO_MODEL || 'llama3.2:3b' };
+const MODELS = (typeof getModels === 'function') ? getModels() : { convo: process.env.CONVO_MODEL || 'gpt-oss:20b' };
 
 export async function runSummary({ operations = [], issues = [], timezone } = {}) {
   if (!operations.length) return 'No operations to perform.';
@@ -22,27 +23,64 @@ export async function runSummary({ operations = [], issues = [], timezone } = {}
     return `${index + 1}. ${action} ${kind}: ${title}`;
   });
 
-  const system = `You are a helpful assistant for a todo app. Produce a very concise plain-text summary of the plan. If some operations were invalid, mention what is ready vs what needs attention and why. No markdown, no lists, no JSON.`;
+  const harmonyPrompt = createHarmonyPrompt({
+    system: "You are a helpful, concise assistant for a todo application.",
+    developer: `Your job is to explain what actions will be taken in clear, user-friendly language.
 
-  const prompt = [
-    system,
-    `Today: ${todayYmd} (${timezone || TIMEZONE})`,
-    'Ops (compact):',
-    ...opSummaries,
-    `Issues: ${issues.length > 0 ? issues.join('; ') : 'none'}`,
-    'Summary:'
-  ].join('\n');
+SUMMARY GUIDELINES:
+- Be concise but informative (1-3 sentences)
+- Use natural language, not technical terms
+- Mention specific items being modified when relevant
+- Explain any issues or limitations clearly
+- Avoid jargon or technical details
+- Focus on what the user will see change
 
-  const raw = await convoLLM(prompt, { stream: false, model: MODELS.convo });
-  logIO('summary', { model: MODELS.convo, prompt, output: raw, meta: { correlationId, module: 'summary' } });
+FORMAT RULES:
+- No markdown formatting
+- No bullet points or lists
+- No JSON or technical syntax
+- Plain text only
+- Use present tense for actions
+- Be encouraging and helpful`,
+    user: `Today: ${todayYmd} (${timezone || TIMEZONE})
 
-  // Clean up the response - remove any markdown or extra formatting
-  const summary = String(raw || '').trim()
-    .replace(/^```.*\n?/g, '')  // Remove code blocks
-    .replace(/```$/g, '')       // Remove trailing code blocks
-    .replace(/^[-*]\s*/gm, '')  // Remove list markers
-    .replace(/\n{3,}/g, '\n\n') // Normalize line breaks
-    .trim();
+Operations to perform:
+${opSummaries.join('\n')}
 
-  return summary || 'Plan ready.';
+Issues to address:
+${issues.length > 0 ? issues.join('; ') : 'none'}
+
+Generate a clear, user-friendly summary of what will happen:`
+  });
+
+  const raw = await harmonyConvoLLM(harmonyPrompt, { stream: false, model: MODELS.convo });
+  logIO('summary', { model: MODELS.convo, prompt: JSON.stringify(harmonyPrompt), output: raw, meta: { correlationId, module: 'summary' } });
+
+  // Enhanced response cleaning
+  function cleanSummaryResponse(raw) {
+    let summary = String(raw || '').trim();
+    
+    // Remove markdown and formatting
+    summary = summary
+      .replace(/^```.*\n?/g, '')  // Remove code blocks
+      .replace(/```$/g, '')       // Remove trailing code blocks
+      .replace(/^[-*]\s*/gm, '')  // Remove list markers
+      .replace(/^#+\s*/gm, '')    // Remove headers
+      .replace(/\*\*(.*?)\*\*/g, '$1') // Remove bold
+      .replace(/\*(.*?)\*/g, '$1')     // Remove italic
+      .replace(/\n{3,}/g, '\n\n') // Normalize line breaks
+      .trim();
+    
+    // Ensure it's not too long
+    if (summary.length > 500) {
+      summary = summary.substring(0, 497) + '...';
+    }
+    
+    return summary || 'Ready to apply your changes.';
+  }
+
+  // Extract final response from Harmony channels
+  const finalResponse = getFinalResponse(raw);
+  const summary = cleanSummaryResponse(finalResponse);
+  return summary;
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
 // Clipboard badge removed
 import '../api.dart' as api;
 
@@ -337,7 +338,7 @@ class AssistantPanel extends StatelessWidget {
           color: bg,
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Text(turn['text'] ?? '', style: TextStyle(color: fg)),
+        child: Text(_parseLLMResponse(turn['text'] ?? ''), style: TextStyle(color: fg)),
       ),
     );
   }
@@ -405,6 +406,29 @@ class AssistantPanel extends StatelessWidget {
       }
     } catch (_) {}
     return const <String>[];
+  }
+
+  // Add JSON response parsing and display logic
+  static String _parseLLMResponse(String rawResponse) {
+    try {
+      // Try to parse as JSON
+      final Map<String, dynamic> parsed = jsonDecode(rawResponse);
+      
+      // Extract user-friendly information
+      final String? response = parsed['response'];
+      final String? text = parsed['text'];
+      final List<dynamic>? operations = parsed['operations'];
+      
+      if (response != null) {
+        return response;
+      } else if (text != null) {
+        return text;
+      }
+    } catch (e) {
+      // If not JSON, treat as plain text
+    }
+    
+    return rawResponse;
   }
 
   String _kindOf(dynamic obj) {

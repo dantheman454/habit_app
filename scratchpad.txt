@@ -2,6 +2,8 @@ Keep in mind:
 -Have full functionality (BEFORE SCHOOL STARTS)so I can get my actual todos and events in
     *if not, MUST have better way to do google calendar and reminders app using notebookLM or something else (not ideal but fallback)
 
+-USE HARMONY TO PROMPT GPT-OSS
+
 
 Get done Week of 8/17:
     -Have two types of completions for task (completed and skipped)
@@ -10,6 +12,7 @@ Get done Week of 8/17:
         *add tasks and events
         *views working properly
     -Clean up UI
+        *remove Today and All from sidebar (this functionality is elsewhere already)
         *switch week to start from sunday 
         *make sure no weird wrapping in pills (Day/Week/Month pill is wack right now)
         *fix it from being so snappy when deleting todos or going between tabs
@@ -17,30 +20,17 @@ Get done Week of 8/17:
         *simplify/iron out current pipeline
         *plug in gpt-oss and see how it goes
     -spam flutter analyze until no issues found and functionality is preserved
+    -Modularize main and clean up/optimize the flutter directory??? (if access to GPT-5 again)
+
 
 
 -get behaviours the app needs to faciliate (use notebookLM for this and make a detailed spec for the application; Frontend, backend, and everything needed to fully make a prototype of this app)
+    *First map out current todo list and google calendar usage, then have it be able to facilitate these behaviours asap
     *Daily/Weekly check in 
     *Task allocation/planning
     *Event tracking/planning
     *Habit/Goal Tracking
-    *First map out current todo list and google calendar usage, then have it be able to facilitate these behaviours asap
     
-
--Modularize main and clean up/optimize the flutter directory
-
--look at current LLM setup and update the prompts and query flow
-    *look into JSON prompting (build a test suite to find best way to mix and match LLMs)
-        >Make sure the prompts are formatted as follows:
-            +Role, Task, Context, Reasoning, Ouput Format, Stop conditions?? (this is the best way to prompt GPT 5)
-    *make sure it will just respond to a natural language query without making a tool call
-    *fix the diffs for operations and have the ability to observe the recent ops and undo in current chat(like in cursor)
-    *do two LLM calls; one to determine how to respond then the other to respond (plan response then respond)
-    *Understand if clarification needed -> Route to agent to perform task or ask for clarification
-    *Look into using the thinking mode of the LLM in the best way. Make a router based on complexity? Classify different intents to then route to proper engine
-    
-    *then add in Habit tracking and chatting with thinking and non-thinking version of LLM
-
 
 
 Long term:

@@ -12,6 +12,25 @@ import { fileURLToPath } from 'url';
 import db from './database/DbService.js';
 import { convoLLM, codeLLM, getModels } from './llm/clients.js';
 import { mkCorrelationId, logIO } from './llm/logging.js';
+
+// Add response filtering middleware
+function filterLLMResponse(data) {
+  if (typeof data === 'string') {
+    try {
+      const parsed = JSON.parse(data);
+      // Remove sensitive fields from client responses
+      const filtered = { ...parsed };
+      delete filtered.context;
+      delete filtered.created_at;
+      delete filtered.model;
+      delete filtered.done_reason;
+      return JSON.stringify(filtered);
+    } catch {
+      return data;
+    }
+  }
+  return data;
+}
 import { extractFirstJson } from './llm/json_extract.js';
 import { buildRouterSnapshots as buildRouterSnapshotsLLM, topClarifyCandidates as topClarifyCandidatesLLM, buildFocusedContext as buildFocusedContextLLM } from './llm/context.js';
 import { runRouter as runRouterLLM } from './llm/router.js';
@@ -26,8 +45,8 @@ const __dirname = path.dirname(__filename);
 // throughout the server process. This is intentionally read-once so runtime
 // behaviour is consistent and so we can log configured models at startup.
 const MODELS = (typeof getModels === 'function') ? getModels() : {
-  convo: process.env.CONVO_MODEL || 'llama3.2:3b',
-  code: process.env.CODE_MODEL || 'granite-code:8b',
+  convo: process.env.CONVO_MODEL || 'gpt-oss:20b',
+  code: process.env.CODE_MODEL || 'gpt-oss:20b',
   host: process.env.OLLAMA_HOST || '127.0.0.1',
   port: process.env.OLLAMA_PORT || '11434',
 };
@@ -1956,6 +1975,7 @@ async function runProposalAndRepair({ instruction, transcript, focusedWhere, mod
 import { runConversationAgent } from './llm/conversation_agent.js';
 import { runOpsAgent, runOpsAgentWithProcessor } from './llm/ops_agent.js';
 import { runSummary } from './llm/summary.js';
+import { qualityMonitor } from './llm/quality_monitor.js';
 
 app.post('/api/assistant/message', async (req, res) => {
   try {
@@ -2020,7 +2040,11 @@ app.get('/api/assistant/message/stream', async (req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     if (typeof res.flushHeaders === 'function') res.flushHeaders();
-    const send = (event, data) => { res.write(`event: ${event}\n`); res.write(`data: ${data}\n\n`); };
+    const send = (event, data) => { 
+      const filteredData = filterLLMResponse(data);
+      res.write(`event: ${event}\n`); 
+      res.write(`data: ${filteredData}\n\n`); 
+    };
     send('stage', JSON.stringify({ stage: 'routing', correlationId }));
     // ConversationAgent
     const ca = await runConversationAgent({ instruction: message.trim(), transcript, clarify, timezone: TIMEZONE });
@@ -2085,7 +2109,11 @@ app.get('/api/assistant/message/stream', async (req, res) => {
     return res.end();
   } catch (err) {
     try {
-      const send = (event, data) => { res.write(`event: ${event}\n`); res.write(`data: ${data}\n\n`); };
+      const send = (event, data) => { 
+        const filteredData = filterLLMResponse(data);
+        res.write(`event: ${event}\n`); 
+        res.write(`data: ${filteredData}\n\n`); 
+      };
       send('summary', JSON.stringify({ text: 'Sorry, the assistant encountered an error.' }));
       send('result', JSON.stringify({ text: '', operations: [], correlationId: mkCorrelationId() }));
       send('done', 'true');
@@ -2135,6 +2163,16 @@ app.get('/api/llm/health', async (_req, res) => {
     return res.json({ ok: !!models.ok, models: present, configured, convoPresent, codePresent });
   } catch (e) {
     return res.status(200).json({ ok: false, error: String(e && e.message ? e.message : e) });
+  }
+});
+
+// Quality monitoring endpoint
+app.get('/api/llm/quality', (_req, res) => {
+  try {
+    const report = qualityMonitor.getQualityReport();
+    return res.json({ ok: true, report });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e && e.message ? e.message : e) });
   }
 });
 

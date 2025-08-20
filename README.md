@@ -22,8 +22,8 @@
 - The assistant always uses a two‑LLM pipeline (router → propose → validate/repair → summarize). Streaming SSE is available at `/api/assistant/message/stream`; non‑streaming at `POST /api/assistant/message`.
 
 ### Environment defaults
-- CONVO_MODEL=llama3.2:3b
-- CODE_MODEL=granite-code:8b
+- CONVO_MODEL=gpt-oss:20b
+- CODE_MODEL=gpt-oss:20b
 - OLLAMA_HOST=127.0.0.1
 - OLLAMA_PORT=11434
 - LLM_TIMEOUT_MS=30000

@@ -18,6 +18,40 @@ export function trimStr(s, _max = 8192) {
   return String(s ?? '');
 }
 
+// Add response sanitization function
+function sanitizeLLMResponse(rawOutput) {
+  try {
+    // Parse the raw output
+    const parsed = JSON.parse(rawOutput);
+    
+    // Extract only the response field, not metadata
+    if (parsed.response) {
+      return parsed.response;
+    }
+    
+    // If no response field, return the whole object but remove sensitive fields
+    const sanitized = { ...parsed };
+    delete sanitized.context;
+    delete sanitized.created_at;
+    delete sanitized.model;
+    delete sanitized.done_reason;
+    
+    return JSON.stringify(sanitized);
+  } catch (e) {
+    // If parsing fails, try to extract JSON from text
+    const jsonMatch = rawOutput.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      try {
+        const extracted = JSON.parse(jsonMatch[0]);
+        return extracted.response || jsonMatch[0];
+      } catch {
+        return rawOutput;
+      }
+    }
+    return rawOutput;
+  }
+}
+
 export function logIO(kind, { model, prompt, output, meta = {} }) {
   const entry = {
     ts: nowIso(),
@@ -35,35 +69,7 @@ export function logIO(kind, { model, prompt, output, meta = {} }) {
   const bytesOut = (entry.output || '').length;
   console.log(`[LLM:${kind}] model=${model} bytesIn=${bytesIn} bytesOut=${bytesOut}`);
   
-  // Extract and pretty-print the JSON response from Ollama output
-  try {
-    const ollamaResponse = JSON.parse(entry.output || '{}');
-    if (ollamaResponse.response) {
-      // Try to parse the inner JSON response
-      try {
-        const innerResponse = JSON.parse(ollamaResponse.response);
-        console.log('📄 Response:', JSON.stringify(innerResponse, null, 2));
-      } catch {
-        // If inner parsing fails, try to extract JSON from the response
-        const responseText = ollamaResponse.response;
-        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          try {
-            const extractedJson = JSON.parse(jsonMatch[0]);
-            console.log('📄 Response:', JSON.stringify(extractedJson, null, 2));
-          } catch {
-            console.log('📄 Response:', responseText);
-          }
-        } else {
-          console.log('📄 Response:', responseText);
-        }
-      }
-    } else {
-      // Fallback: show the full output if no response field
-      console.log('📄 Response:', entry.output);
-    }
-  } catch {
-    // If JSON parsing fails, show the raw output
-    console.log('📄 Response:', entry.output);
-  }
+  // Use sanitized response for console output
+  const sanitized = sanitizeLLMResponse(entry.output || '');
+  console.log('📄 Response:', sanitized);
 }
