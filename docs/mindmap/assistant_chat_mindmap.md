@@ -71,7 +71,7 @@ final res = await api.assistantMessage(
 
 **Router Input Context**:
 ```javascript
-// buildRouterPrompt() creates:
+// buildRouterContext() creates:
 const todayYmd = '2024-01-15'; // Example date
 const snapshots = buildRouterSnapshots(); // Week + backlog data
 const contextJson = JSON.stringify(snapshots);
@@ -79,46 +79,66 @@ const contextJson = JSON.stringify(snapshots);
 
 **Router Prompt** (sent to Ollama):
 ```
-You are an intent router for a todo assistant. Output JSON only with fields:
-decision: one of ["chat", "plan", "clarify"],
-category: one of ["habit", "goal", "task", "event"],
-entities: object, missing: array, confidence: number 0..1, question: string (required when decision=clarify).
+You are an intelligent intent router for a todo assistant.
 
-If the instruction is ambiguous about time/date or target, choose clarify and ask ONE short question. No prose.
-If the user asks to change all items in a clear scope (e.g., "all today", "all of them", "everything this week"), prefer plan.
-If a prior clarify question is present, interpret short answers like "all of them", "yes", "all today" as resolving that question and prefer plan.
-Use the Context section below (this week Mon–Sun anchored to today, backlog sample, completed=false).
+OUTPUT FORMAT: Single JSON object only with these fields:
+- decision: "chat" | "plan" | "clarify"
+- confidence: number (0.0 to 1.0)
+- question: string (only for clarify decisions)
+- where: object (only for plan decisions)
+- delegate: object (only for plan decisions)
+- options: array (only for clarify decisions)
+
+DECISION RULES:
+- "clarify": Use when intent is ambiguous about time/date, target selection, or context
+- "plan": Use when intent is clear and actionable
+- "chat": Use for general questions, status inquiries, or non-actionable requests
+
+CONFIDENCE SCORING:
+- 0.9-1.0: Very clear intent with specific details
+- 0.7-0.8: Clear intent with some ambiguity
+- 0.5-0.6: Somewhat clear but needs context
+- 0.3-0.4: Ambiguous, needs clarification
+- 0.0-0.2: Very ambiguous, definitely needs clarification
 
 Today: 2024-01-15 (America/New_York)
-Transcript (last 3):
-- user: update my task for today
-
-Context (this week, Mon–Sun, master-level, backlog sample, completed=false):
-{
+Current Context: {
   "week": {
     "items": [
-  {"id": 1, "title": "Review project proposal", "scheduledFor": "2024-01-15"},
-  {"id": 2, "title": "Call client", "scheduledFor": "2024-01-15"},
-  {"id": 3, "title": "Prepare presentation", "scheduledFor": "2024-01-16"}
+      {"id": 1, "title": "Review project proposal", "scheduledFor": "2024-01-15"},
+      {"id": 2, "title": "Call client", "scheduledFor": "2024-01-15"},
+      {"id": 3, "title": "Prepare presentation", "scheduledFor": "2024-01-16"}
     ]
   },
   "backlog": [
-  {"id": 4, "title": "Update documentation", "scheduledFor": null}
+    {"id": 4, "title": "Update documentation", "scheduledFor": null}
   ]
 }
 
-User: update my task for today
+Recent Conversation (last 3 turns):
+- user: update my task for today
+
+User Input: update my task for today
+
+Analyze the user's intent carefully. Consider:
+1. What specific action do they want to perform?
+2. Do they have all necessary information (time, target, context)?
+3. Is there ambiguity that needs clarification?
+4. What is their confidence level in their request?
+
+Respond with JSON only:
 ```
 
 **Expected LLM Response**:
 ```json
 {
   "decision": "clarify",
-  "category": "task",
-  "entities": {"date": "today"},
-  "missing": ["specific_task"],
   "confidence": 0.3,
-  "question": "Which task do you want to update?"
+  "question": "Which task do you want to update?",
+  "options": [
+    {"id": 1, "title": "Review project proposal", "scheduledFor": "2024-01-15"},
+    {"id": 2, "title": "Call client", "scheduledFor": "2024-01-15"}
+  ]
 }
 ```
 
@@ -135,7 +155,7 @@ const cands = topClarifyCandidates(instruction, snapshots, 5);
 // Returns tasks matching "task" token
 // Example: [{"id": 1, "title": "Review project proposal", "scheduledFor": "2024-01-15"}]
 
-result.question = "Which task do you want to update? Options: #1 \"Review project proposal\" @2024-01-15; #2 \"Call client\" @2024-01-15.";
+result.question = "Which task do you want to update?";
 result.options = cands.map(c => ({ id: c.id, title: c.title, scheduledFor: c.scheduledFor }));
 ```
 
@@ -144,7 +164,7 @@ result.options = cands.map(c => ({ id: c.id, title: c.title, scheduledFor: c.sch
 **Server Response** (SSE):
 ```javascript
 send('clarify', JSON.stringify({
-  question: "Which task do you want to update? Options: #1 \"Review project proposal\" @2024-01-15; #2 \"Call client\" @2024-01-15.",
+  question: "Which task do you want to update?",
   options: [
     {"id": 1, "title": "Review project proposal", "scheduledFor": "2024-01-15"},
     {"id": 2, "title": "Call client", "scheduledFor": "2024-01-15"}
@@ -175,7 +195,7 @@ Widget _buildClarifySection() {
             ),
           ],
         ),
-  // Date quick-selects
+        // Date quick-selects
       ],
     ),
   );
@@ -224,7 +244,7 @@ const snapshot = { focused: topK, aggregates };
 // Prompt sent to LLM:
 You are an assistant for a todo app. Output ONLY a single JSON object with key "operations" as an array. No prose.
 Each operation MUST include fields: kind (todo|event|goal) and action.
-todo actions: create|update|delete|complete|complete_occurrence.
+todo actions: create|update|delete|set_status.
 For todo/event create/update include recurrence (use {"type":"none"} for non-repeating). If recurrence.type != none, scheduledFor is REQUIRED.
 No bulk operations. Emit independent operations; limit to ≤20 per apply.
 Today's date is 2024-01-15. Do NOT invent invalid IDs. Prefer fewer changes over hallucination.
@@ -240,7 +260,7 @@ Instruction: update my task for today
 Context:
 {
   "todos": [
-  {"id": 1, "title": "Review project proposal", "scheduledFor": "2024-01-15", "recurrence": {"type": "none"}}
+    {"id": 1, "title": "Review project proposal", "scheduledFor": "2024-01-15", "recurrence": {"type": "none"}}
   ]
 }
 
@@ -288,22 +308,18 @@ op.op = 'update'; // Internal operation code
 const errors = [];
 
 // 1. Valid operation type
-if (!['create', 'update', 'delete', 'complete', 'complete_occurrence'].includes('update')) 
+if (!['create', 'update', 'delete', 'set_status', 'complete', 'complete_occurrence'].includes('update')) 
   errors.push('invalid_op');
 
-// 2. Valid priority
-if (!['low','medium','high'].includes('high')) 
-  errors.push('invalid_priority');
-
-// 3. Valid ID
+// 2. Valid ID
 if (!Number.isFinite(1)) 
   errors.push('missing_or_invalid_id');
 
-// 4. Recurrence present (required for update)
+// 3. Recurrence present (required for update)
 if (!(op.recurrence && typeof op.recurrence === 'object' && 'type' in op.recurrence)) 
   errors.push('missing_recurrence');
 
-// 5. Anchor check (not needed for non-repeating)
+// 4. Anchor check (not needed for non-repeating)
 const type = op.recurrence.type; // "none"
 if (type && type !== 'none') {
   // Would check for anchor, but type is "none"
@@ -332,7 +348,6 @@ const compactOps = operations.map((op) => {
   parts.push('#1');
   parts.push('"Review project proposal"');
   parts.push('@2024-01-15');
-  // no priority field
   return `- ${parts.join(' ')}`;
 }).join('\n');
 
@@ -535,12 +550,13 @@ For the query "update my task for today":
 - All operations must include `kind` and `action`
 - Todo/Event create/update require `recurrence` object
 - Repeating items need anchor `scheduledFor`
-- Use `complete_occurrence` for repeating items
+- Use `set_status` for todos (not `complete`/`complete_occurrence`)
 - No bulk operations (max 20 independent ops)
 
 **Operation Types**:
-- **Todos**: `create|update|delete|complete|complete_occurrence`
+- **Todos**: `create|update|delete|set_status`
 - **Events**: `create|update|delete|complete|complete_occurrence`
+- **Habits**: `create|update|delete|complete|complete_occurrence`
 - **Goals**: `create|update|delete|add_items|remove_item|add_child|remove_child`
 
 ### 3. Validation & Repair
@@ -712,7 +728,7 @@ When clarification selection is provided:
 - Main tables: todos, events, habits, goals
 
 ### 2. External Dependencies
-- Ollama local model
+- Ollama local model (gpt-oss:20b)
 - SSE implementation
 - JSON parsing utilities
 

@@ -381,11 +381,17 @@ class _HomePageState extends State<HomePage> {
   // Quick-add controllers
   final TextEditingController _qaTodoTitle = TextEditingController();
   final TextEditingController _qaTodoTime = TextEditingController();
+  final TextEditingController _qaTodoDate = TextEditingController();
+  final TextEditingController _qaTodoNotes = TextEditingController();
+  final TextEditingController _qaTodoInterval = TextEditingController();
   
   final TextEditingController _qaEventTitle = TextEditingController();
   final TextEditingController _qaEventStart = TextEditingController();
   final TextEditingController _qaEventEnd = TextEditingController();
   final TextEditingController _qaEventLocation = TextEditingController();
+  final TextEditingController _qaEventDate = TextEditingController();
+  final TextEditingController _qaEventNotes = TextEditingController();
+  final TextEditingController _qaEventInterval = TextEditingController();
   
   final TextEditingController _qaHabitTitle = TextEditingController();
   final TextEditingController _qaHabitTime = TextEditingController();
@@ -398,6 +404,10 @@ class _HomePageState extends State<HomePage> {
   final TextEditingController _qaGoalUnit = TextEditingController();
   String _qaGoalStatus = 'active';
   bool _addingQuick = false;
+  
+  // FAB dialog state variables
+  String? _qaSelectedContext;
+  String? _qaSelectedRecurrence;
 
   @override
   void initState() {
@@ -474,7 +484,10 @@ class _HomePageState extends State<HomePage> {
   Future<void> _submitQuickAddTodo() async {
     if (_addingQuick) return;
     final title = _qaTodoTitle.text.trim();
+    final date = _qaTodoDate.text.trim();
     final time = _qaTodoTime.text.trim();
+    final notes = _qaTodoNotes.text.trim();
+    
     if (title.isEmpty) {
       ScaffoldMessenger.of(
         context,
@@ -487,22 +500,48 @@ class _HomePageState extends State<HomePage> {
       );
       return;
     }
+    
+    // Validate date format if provided
+    if (date.isNotEmpty) {
+      final dateRegex = RegExp(r'^\d{4}-\d{2}-\d{2}$');
+      if (!dateRegex.hasMatch(date)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Use date format YYYY-MM-DD, e.g. 2024-01-15.')),
+        );
+        return;
+      }
+    }
+    
     setState(() => _addingQuick = true);
     // Request a frame so disabled state is paint-visible on next pump (no timers)
     WidgetsBinding.instance.scheduleFrame();
     try {
       // No extra timers; proceed to API
-  final created = await createTodoFn({
+      final scheduledFor = date.isNotEmpty ? date : anchor;
+      final recurrence = _qaSelectedRecurrence == 'none' 
+          ? {'type': 'none'}
+          : _qaSelectedRecurrence == 'every_n_days'
+              ? {
+                  'type': 'every_n_days',
+                  'intervalDays': int.tryParse(_qaTodoInterval.text.trim()) ?? 1,
+                }
+              : {'type': _qaSelectedRecurrence};
+      
+      final created = await createTodoFn({
         'title': title,
-        'scheduledFor': anchor,
+        'notes': notes,
+        'scheduledFor': scheduledFor,
         'timeOfDay': time.isEmpty ? null : time,
-        'recurrence': {'type': 'none'},
-        'context': selectedContext ?? 'personal',
+        'recurrence': recurrence,
+        'context': _qaSelectedContext ?? 'personal',
       });
-  if (!mounted) return;
+      if (!mounted) return;
       setState(() {
         _qaTodoTitle.clear();
         _qaTodoTime.clear();
+        _qaTodoDate.clear();
+        _qaTodoNotes.clear();
+        _qaTodoInterval.clear();
       });
       if (!TestHooks.skipRefresh) {
         try {
@@ -526,9 +565,12 @@ class _HomePageState extends State<HomePage> {
   Future<void> _submitQuickAddEvent() async {
     if (_addingQuick) return;
     final title = _qaEventTitle.text.trim();
+    final date = _qaEventDate.text.trim();
     final start = _qaEventStart.text.trim();
     final end = _qaEventEnd.text.trim();
     final location = _qaEventLocation.text.trim();
+    final notes = _qaEventNotes.text.trim();
+    
     if (title.isEmpty) {
       ScaffoldMessenger.of(
         context,
@@ -541,26 +583,52 @@ class _HomePageState extends State<HomePage> {
       );
       return;
     }
+    
+    // Validate date format if provided
+    if (date.isNotEmpty) {
+      final dateRegex = RegExp(r'^\d{4}-\d{2}-\d{2}$');
+      if (!dateRegex.hasMatch(date)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Use date format YYYY-MM-DD, e.g. 2024-01-15.')),
+        );
+        return;
+      }
+    }
+    
     setState(() => _addingQuick = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {});
     await Future<void>.delayed(Duration.zero);
     try {
       await Future<void>.delayed(const Duration(milliseconds: 1));
-  await createEventFn({
+      final scheduledFor = date.isNotEmpty ? date : anchor;
+      final recurrence = _qaSelectedRecurrence == 'none' 
+          ? {'type': 'none'}
+          : _qaSelectedRecurrence == 'every_n_days'
+              ? {
+                  'type': 'every_n_days',
+                  'intervalDays': int.tryParse(_qaEventInterval.text.trim()) ?? 1,
+                }
+              : {'type': _qaSelectedRecurrence};
+      
+      await createEventFn({
         'title': title,
-        'scheduledFor': anchor,
+        'notes': notes,
+        'scheduledFor': scheduledFor,
         'startTime': start.isEmpty ? null : start,
         'endTime': end.isEmpty ? null : end,
-  'location': location.isEmpty ? null : location,
-        'recurrence': {'type': 'none'},
-        'context': selectedContext ?? 'personal',
+        'location': location.isEmpty ? null : location,
+        'recurrence': recurrence,
+        'context': _qaSelectedContext ?? 'personal',
       });
-  if (!mounted) return;
-  setState(() {
+      if (!mounted) return;
+      setState(() {
         _qaEventTitle.clear();
         _qaEventStart.clear();
         _qaEventEnd.clear();
         _qaEventLocation.clear();
+        _qaEventDate.clear();
+        _qaEventNotes.clear();
+        _qaEventInterval.clear();
       });
       if (!TestHooks.skipRefresh) await _refreshAll();
     } catch (e) {
@@ -685,10 +753,16 @@ class _HomePageState extends State<HomePage> {
     _removeSearchOverlay();
     _qaTodoTitle.dispose();
     _qaTodoTime.dispose();
+    _qaTodoDate.dispose();
+    _qaTodoNotes.dispose();
+    _qaTodoInterval.dispose();
     _qaEventTitle.dispose();
     _qaEventStart.dispose();
     _qaEventEnd.dispose();
     _qaEventLocation.dispose();
+    _qaEventDate.dispose();
+    _qaEventNotes.dispose();
+    _qaEventInterval.dispose();
     _qaHabitTitle.dispose();
     _qaHabitTime.dispose();
     super.dispose();
@@ -1643,6 +1717,7 @@ class _HomePageState extends State<HomePage> {
     String recurType = (t.recurrence != null && t.recurrence!['type'] is String)
         ? (t.recurrence!['type'] as String)
         : 'none';
+    String selectedContext = t.context ?? 'personal';
     final ok = await showDialog<bool>(
       context: context,
       builder: (c) => StatefulBuilder(
@@ -1673,6 +1748,17 @@ class _HomePageState extends State<HomePage> {
                     decoration: const InputDecoration(
                       labelText: 'Time (HH:MM or empty)',
                     ),
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    value: selectedContext,
+                    decoration: const InputDecoration(labelText: 'Context'),
+                    items: const [
+                      DropdownMenuItem(value: 'personal', child: Text('Personal')),
+                      DropdownMenuItem(value: 'work', child: Text('Work')),
+                      DropdownMenuItem(value: 'school', child: Text('School')),
+                    ],
+                    onChanged: (v) => setDlgState(() => selectedContext = v ?? 'personal'),
                   ),
                   const SizedBox(height: 8),
                   const SizedBox.shrink(),
@@ -1740,6 +1826,7 @@ class _HomePageState extends State<HomePage> {
     final patch = <String, dynamic>{};
     if (titleCtrl.text != t.title) patch['title'] = titleCtrl.text;
     if (notesCtrl.text != t.notes) patch['notes'] = notesCtrl.text;
+    if (selectedContext != t.context) patch['context'] = selectedContext;
     final sched = dateCtrl.text.trim();
     final normalized = sched.isEmpty ? null : sched;
     if (normalized != (t.scheduledFor ?? '')) {
@@ -1813,6 +1900,7 @@ class _HomePageState extends State<HomePage> {
     String recurType = (t.recurrence != null && t.recurrence!['type'] is String)
         ? (t.recurrence!['type'] as String)
         : 'none';
+    String selectedContext = t.context ?? 'personal';
     final intervalCtrl = TextEditingController(
       text: (t.recurrence != null && t.recurrence!['intervalDays'] != null)
           ? '${t.recurrence!['intervalDays']}'
@@ -1869,6 +1957,17 @@ class _HomePageState extends State<HomePage> {
                     decoration: const InputDecoration(labelText: 'Location'),
                   ),
                   const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    value: selectedContext,
+                    decoration: const InputDecoration(labelText: 'Context'),
+                    items: const [
+                      DropdownMenuItem(value: 'personal', child: Text('Personal')),
+                      DropdownMenuItem(value: 'work', child: Text('Work')),
+                      DropdownMenuItem(value: 'school', child: Text('School')),
+                    ],
+                    onChanged: (v) => setDlgState(() => selectedContext = v ?? 'personal'),
+                  ),
+                  const SizedBox(height: 8),
                   const SizedBox.shrink(),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
@@ -1922,6 +2021,7 @@ class _HomePageState extends State<HomePage> {
     final patch = <String, dynamic>{};
     if (titleCtrl.text != t.title) patch['title'] = titleCtrl.text;
     if (notesCtrl.text != t.notes) patch['notes'] = notesCtrl.text;
+    if (selectedContext != t.context) patch['context'] = selectedContext;
     final date = dateCtrl.text.trim();
     final normalized = date.isEmpty ? null : date;
     if (normalized != (t.scheduledFor ?? '')) {
@@ -2334,85 +2434,193 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _showQuickAddTodo() {
+    // Reset state variables
+    _qaSelectedContext = selectedContext ?? 'personal';
+    _qaSelectedRecurrence = 'none';
+    
     showDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add Task'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _qaTodoTitle,
-              decoration: const InputDecoration(labelText: 'Title *'),
-              autofocus: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Add Task'),
+          content: SizedBox(
+            width: 480,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: _qaTodoTitle,
+                    decoration: const InputDecoration(labelText: 'Title *'),
+                    autofocus: true,
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _qaTodoDate,
+                    decoration: const InputDecoration(labelText: 'Date (YYYY-MM-DD)'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _qaTodoTime,
+                    decoration: const InputDecoration(labelText: 'Time (HH:MM)'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _qaTodoNotes,
+                    decoration: const InputDecoration(labelText: 'Notes'),
+                    maxLines: 3,
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    value: _qaSelectedContext,
+                    decoration: const InputDecoration(labelText: 'Context'),
+                    items: const [
+                      DropdownMenuItem(value: 'personal', child: Text('Personal')),
+                      DropdownMenuItem(value: 'work', child: Text('Work')),
+                      DropdownMenuItem(value: 'school', child: Text('School')),
+                    ],
+                    onChanged: (v) => setDialogState(() => _qaSelectedContext = v),
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    value: _qaSelectedRecurrence,
+                    decoration: const InputDecoration(labelText: 'Recurrence'),
+                    items: const [
+                      DropdownMenuItem(value: 'none', child: Text('None')),
+                      DropdownMenuItem(value: 'daily', child: Text('Daily')),
+                      DropdownMenuItem(value: 'weekdays', child: Text('Weekdays')),
+                      DropdownMenuItem(value: 'weekly', child: Text('Weekly')),
+                      DropdownMenuItem(value: 'every_n_days', child: Text('Every N days')),
+                    ],
+                    onChanged: (v) => setDialogState(() => _qaSelectedRecurrence = v),
+                  ),
+                  if (_qaSelectedRecurrence == 'every_n_days')
+                    TextField(
+                      controller: _qaTodoInterval,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Every N days (>=1)',
+                      ),
+                    ),
+                ],
+              ),
             ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _qaTodoTime,
-              decoration: const InputDecoration(labelText: 'Time (HH:MM)'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                Navigator.of(context).pop();
+                await _submitQuickAddTodo();
+              },
+              child: const Text('Add'),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              Navigator.of(context).pop();
-              await _submitQuickAddTodo();
-            },
-            child: const Text('Add'),
-          ),
-        ],
       ),
     );
   }
 
   void _showQuickAddEvent() {
+    // Reset state variables
+    _qaSelectedContext = selectedContext ?? 'personal';
+    _qaSelectedRecurrence = 'none';
+    
     showDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add Event'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _qaEventTitle,
-              decoration: const InputDecoration(labelText: 'Title *'),
-              autofocus: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Add Event'),
+          content: SizedBox(
+            width: 480,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: _qaEventTitle,
+                    decoration: const InputDecoration(labelText: 'Title *'),
+                    autofocus: true,
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _qaEventDate,
+                    decoration: const InputDecoration(labelText: 'Date (YYYY-MM-DD)'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _qaEventStart,
+                    decoration: const InputDecoration(labelText: 'Start Time (HH:MM)'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _qaEventEnd,
+                    decoration: const InputDecoration(labelText: 'End Time (HH:MM)'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _qaEventLocation,
+                    decoration: const InputDecoration(labelText: 'Location'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _qaEventNotes,
+                    decoration: const InputDecoration(labelText: 'Notes'),
+                    maxLines: 3,
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    value: _qaSelectedContext,
+                    decoration: const InputDecoration(labelText: 'Context'),
+                    items: const [
+                      DropdownMenuItem(value: 'personal', child: Text('Personal')),
+                      DropdownMenuItem(value: 'work', child: Text('Work')),
+                      DropdownMenuItem(value: 'school', child: Text('School')),
+                    ],
+                    onChanged: (v) => setDialogState(() => _qaSelectedContext = v),
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    value: _qaSelectedRecurrence,
+                    decoration: const InputDecoration(labelText: 'Recurrence'),
+                    items: const [
+                      DropdownMenuItem(value: 'none', child: Text('None')),
+                      DropdownMenuItem(value: 'daily', child: Text('Daily')),
+                      DropdownMenuItem(value: 'weekdays', child: Text('Weekdays')),
+                      DropdownMenuItem(value: 'weekly', child: Text('Weekly')),
+                      DropdownMenuItem(value: 'every_n_days', child: Text('Every N days')),
+                    ],
+                    onChanged: (v) => setDialogState(() => _qaSelectedRecurrence = v),
+                  ),
+                  if (_qaSelectedRecurrence == 'every_n_days')
+                    TextField(
+                      controller: _qaEventInterval,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Every N days (>=1)',
+                      ),
+                    ),
+                ],
+              ),
             ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _qaEventStart,
-              decoration: const InputDecoration(labelText: 'Start Time (HH:MM)'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
             ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _qaEventEnd,
-              decoration: const InputDecoration(labelText: 'End Time (HH:MM)'),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _qaEventLocation,
-              decoration: const InputDecoration(labelText: 'Location'),
+            FilledButton(
+              onPressed: () async {
+                Navigator.of(context).pop();
+                await _submitQuickAddEvent();
+              },
+              child: const Text('Add'),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              Navigator.of(context).pop();
-              await _submitQuickAddEvent();
-            },
-            child: const Text('Add'),
-          ),
-        ],
       ),
     );
   }

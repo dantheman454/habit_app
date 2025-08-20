@@ -1,36 +1,178 @@
 ## Glossary
 
-- Anchor (date): The `scheduledFor` date on a repeating master that determines recurrence alignment. Required when `recurrence.type != 'none'`.
+This glossary defines key terms and concepts used throughout the Habit App system. Each term includes a definition, usage context, and references to relevant documentation sections.
 
-- Occurrence: A per-day instance expanded from a repeating master within a range. Has `masterId = id`, `scheduledFor = occurrence date`, `completed` derived from `completedDates`.
+### Core Data Concepts
 
-- CompletedDates: Array of `YYYY-MM-DD` on repeating masters marking which occurrences were completed. Toggled by `/api/*/:id/occurrence` and by `complete_occurrence` in apply.
+**Anchor (date)**: The `scheduledFor` date on a repeating master that determines recurrence alignment. Required when `recurrence.type != 'none'`. This date serves as the reference point for calculating all future occurrences of a repeating item.
 
-- Backlog: Todos with `scheduledFor = null`. Served by `/api/todos/backlog`; also used in router snapshots.
+- **Usage**: Used in recurrence expansion algorithms to determine which dates match the recurrence rule
+- **Example**: A weekly todo with anchor `2024-01-15` (Monday) will occur every Monday
+- **Reference**: See [Data Model](./data_model.md#recurrence-system) for detailed recurrence rules
 
-- Unified schedule: Range-based view that merges todos, events, and habits. Items carry `kind` and kind-specific time fields; repeating are expanded within `[from,to]`.
+**Occurrence**: A per-day instance expanded from a repeating master within a range. Has `masterId = id`, `scheduledFor = occurrence date`, `completed` derived from `completedDates`. Occurrences are view constructs that represent individual instances of repeating items.
 
-- Bulk operations: Not supported. Proposals attempting `bulk_*` are rejected with `bulk_operations_removed`.
+- **Usage**: Generated on-demand when listing items with date ranges
+- **Example**: A daily habit creates 7 occurrences when viewing a week range
+- **Reference**: See [Data Model](./data_model.md#occurrence-expansion) for expansion algorithm
 
-- Router: Auto-mode decision step returning `{ decision, confidence, question? }`; may ask to clarify and includes `options` for disambiguation.
+**CompletedDates**: Array of `YYYY-MM-DD` on repeating masters marking which occurrences were completed. Toggled by `/api/*/:id/occurrence` and by `set_status`/`complete_occurrence` in apply operations.
 
-- Clarify options: Structured list `{ id, title, scheduledFor|null }[]` to guide selection. The client may return a `selection` object `{ ids?, date? }` to bias planning.
+- **Usage**: Tracks completion state for individual occurrences of repeating items
+- **Example**: `["2024-01-15", "2024-01-17"]` indicates occurrences on those dates were completed
+- **Reference**: See [API Surface](./api_surface.md#update-todo-occurrence) for endpoint usage
 
-- Idempotency: MCP tool calls deduplicate by `Idempotency-Key` + request hash to avoid re-applying the same changes.
+**Backlog**: Todos with `scheduledFor = null`. Served by `/api/todos/backlog`; also used in router snapshots for assistant context.
 
-- Audit log: Append-only records of assistant and CRUD actions written during MCP tool execution.
+- **Usage**: Represents unscheduled tasks that need to be assigned dates
+- **Example**: "Write documentation" with no scheduled date appears in backlog
+- **Reference**: See [Client Architecture](./client_architecture.md#data-loading-patterns) for loading patterns
 
-- Habits: Repeating-only items (recurrence must not be `none`) with optional `timeOfDay` and derived stats `currentStreak`, `longestStreak`, `weekHeatmap` when listed with a range.
+### System Architecture Terms
 
-- Goals: High-level objectives with optional progress fields and links to todos/events and child goals.
+**Unified schedule**: Range-based view that merges todos, events, and habits. Items carry `kind` and kind-specific time fields; repeating items are expanded within `[from,to]` range.
 
-- SSE events: Streaming assistant emits `stage`, `clarify`, `ops`, `summary`, `result`, periodic `heartbeat`, and `done`.
+- **Usage**: Provides a single view of all scheduled items across types
+- **Example**: Shows todos, events, and habits together in chronological order
+- **Reference**: See [API Surface](./api_surface.md#unified-schedule) for endpoint details
 
+**Bulk operations**: Not supported. Proposals attempting `bulk_*` are rejected with `bulk_operations_removed` error.
 
+- **Usage**: Safety measure to prevent accidental mass changes
+- **Example**: `bulk_delete` or `bulk_update` operations are rejected
+- **Reference**: See [Backend Algorithms](./backend_algorithms.md#operation-level-validation) for validation rules
 
-- Time formats: Dates are `YYYY-MM-DD`; `timeOfDay`, `startTime`, `endTime` are `HH:MM` or null.
+**Router**: Auto-mode decision step returning `{ decision, confidence, question?, options?, where?, delegate? }`; may ask to clarify and includes `options` for disambiguation.
 
-- Recurrence: `{ type: 'none'|'daily'|'weekdays'|'weekly'|'every_n_days', intervalDays?, until? }`; for repeating, anchor required and `until` may be null (no cap).
+- **Usage**: Determines how to handle user input in assistant chat
+- **Example**: Routes "update my task" to clarification if multiple tasks exist
+- **Reference**: See [Assistant Chat Mindmap](./assistant_chat_mindmap.md#router-decision-algorithm) for detailed flow
+
+**Clarify options**: Structured list `{ id, title, scheduledFor|null }[]` to guide selection. The client may return a `selection` object `{ ids?, date? }` to bias planning.
+
+- **Usage**: Helps disambiguate user intent when multiple items match
+- **Example**: Shows list of tasks when user says "update my task"
+- **Reference**: See [Client Architecture](./client_architecture.md#clarification-ui) for UI implementation
+
+### Data Integrity and Safety
+
+**Idempotency**: MCP tool calls deduplicate by `Idempotency-Key` + request hash to avoid re-applying the same changes.
+
+- **Usage**: Prevents duplicate operations from network retries or user double-clicks
+- **Example**: Same operation with same key returns cached result
+- **Reference**: See [Backend Algorithms](./backend_algorithms.md#idempotency-implementation) for implementation
+
+**Audit log**: Append-only records of assistant and CRUD actions written during MCP tool execution.
+
+- **Usage**: Provides transparency and debugging for all system changes
+- **Example**: Logs every todo creation, update, and deletion
+- **Reference**: See [Data Model](./data_model.md#supporting-tables) for schema details
+
+### Entity Types
+
+**Habits**: Repeating-only items (recurrence must not be `none`) with optional `timeOfDay` and derived stats `currentStreak`, `longestStreak`, `weekHeatmap` when listed with a range.
+
+- **Usage**: Track behaviors that should be performed regularly
+- **Example**: "Daily exercise" with streak tracking and completion heatmap
+- **Reference**: See [Data Model](./data_model.md#habit-schema) for schema details
+
+**Goals**: High-level objectives with optional progress fields and links to todos/events and child goals.
+
+- **Usage**: Organize related tasks and track progress toward objectives
+- **Example**: "Learn Flutter" goal with linked todos and sub-goals
+- **Reference**: See [Data Model](./data_model.md#goal-schema) for schema details
+
+**Context**: Categorization field for todos, events, and habits. Values: 'school', 'personal', 'work' with 'personal' as default. Goals do not have context.
+
+- **Usage**: Filter and organize items by life area
+- **Example**: Work todos vs personal todos for different focus modes
+- **Reference**: See [API Surface](./api_surface.md#validation-rules) for validation rules
+
+### Communication Protocols
+
+**SSE events**: Streaming assistant emits `stage`, `clarify`, `ops`, `summary`, `result`, periodic `heartbeat`, and `done`.
+
+- **Usage**: Real-time communication between server and client during assistant interactions
+- **Example**: `stage: "proposing"` followed by `ops: [...]` with operations
+- **Reference**: See [Assistant Chat Mindmap](./assistant_chat_mindmap.md#sse-stream-handling) for implementation
+
+**Operation types**: 
+- **Todos**: `create|update|delete|set_status` (use `set_status` instead of `complete`/`complete_occurrence`)
+- **Events**: `create|update|delete|complete|complete_occurrence`
+- **Habits**: `create|update|delete|complete|complete_occurrence`
+- **Goals**: `create|update|delete|add_items|remove_item|add_child|remove_child`
+
+- **Usage**: Define what actions can be performed on each entity type
+- **Example**: `{"kind": "todo", "action": "set_status", "id": 1, "status": "completed"}`
+- **Reference**: See [Backend Algorithms](./backend_algorithms.md#operation-validation) for validation rules
+
+### Data Formats
+
+**Time formats**: 
+- **Dates**: `YYYY-MM-DD` format (e.g., "2024-01-15")
+- **Times**: `timeOfDay`, `startTime`, `endTime` are `HH:MM` or null (e.g., "14:30" or null for all-day)
+
+- **Usage**: Standardized format for all date/time fields
+- **Example**: `scheduledFor: "2024-01-15", timeOfDay: "09:00"`
+- **Reference**: See [Backend Algorithms](./backend_algorithms.md#primitive-validators) for validation
+
+**Recurrence**: `{ type: 'none'|'daily'|'weekdays'|'weekly'|'every_n_days', intervalDays?, until? }`; for repeating, anchor required and `until` may be null (no cap).
+
+- **Usage**: Define how often an item repeats
+- **Example**: `{"type": "daily", "until": "2024-12-31"}` for daily until year end
+- **Reference**: See [Data Model](./data_model.md#recurrence-system) for detailed types and rules
+
+### Performance and Optimization
+
+**FTS5**: Full-Text Search version 5, SQLite's built-in search engine used for searching todos, events, and habits.
+
+- **Usage**: Provides fast text search across titles, notes, and locations
+- **Example**: Search "meeting" finds todos and events containing that word
+- **Reference**: See [Data Model](./data_model.md#fts5-virtual-tables) for implementation
+
+**WAL mode**: Write-Ahead Logging, SQLite's journaling mode that enables concurrent read/write access.
+
+- **Usage**: Allows multiple database connections without blocking
+- **Example**: Server can read data while writing audit logs
+- **Reference**: See [Data Model](./data_model.md#database-configuration) for configuration
+
+### Error Handling
+
+**Validation errors**: Server-side checks that ensure data integrity and business rule compliance.
+
+- **Usage**: Prevent invalid data from entering the system
+- **Example**: `missing_recurrence` when creating todo without recurrence object
+- **Reference**: See [Backend Algorithms](./backend_algorithms.md#error-messages-catalog) for complete list
+
+**Repair attempts**: Single LLM-powered attempt to fix invalid operations before rejecting them.
+
+- **Usage**: Improve user experience by automatically correcting common mistakes
+- **Example**: Fixing malformed recurrence objects or missing required fields
+- **Reference**: See [Backend Algorithms](./backend_algorithms.md#repair-algorithm) for implementation
+
+### Development and Testing
+
+**Test hooks**: Development-only flags that control system behavior for testing purposes.
+
+- **Usage**: Enable/disable features during development and testing
+- **Example**: `TestHooks.skipRefresh` to prevent data loading during tests
+- **Reference**: See [Client Architecture](./client_architecture.md#test-hooks) for available hooks
+
+**Debug panel**: Development-only UI component that shows system state and provides testing controls.
+
+- **Usage**: Monitor application state and trigger actions during development
+- **Example**: Shows current view mode, context, and item counts
+- **Reference**: See [Client Architecture](./client_architecture.md#development-tools) for implementation
+
+### Cross-References
+
+For detailed implementation information, see:
+- [API Surface](./api_surface.md) - Endpoint specifications and usage
+- [Data Model](./data_model.md) - Database schema and relationships
+- [Backend Algorithms](./backend_algorithms.md) - Server-side logic and validation
+- [Assistant Chat Mindmap](./assistant_chat_mindmap.md) - LLM integration and conversation flow
+- [Client Architecture](./client_architecture.md) - Flutter implementation and UI patterns
+- [ER Diagram](./er_diagram.md) - Visual database structure representation
 
 
 

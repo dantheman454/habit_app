@@ -4,112 +4,493 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 
 ### Cross-cutting concerns
 
-- Requests/Responses: JSON; body limit 256kb
-- CORS enabled; `x-powered-by` disabled
-- Static assets (Flutter Web build) are mounted after API routes from `STATIC_DIR`
+- **Requests/Responses**: JSON; body limit 256kb
+- **CORS enabled**: `x-powered-by` disabled
+- **Static assets**: Flutter Web build mounted after API routes from `STATIC_DIR`
+- **Error responses**: All errors return `{ error: string }` with appropriate HTTP status codes
+- **Validation**: Server-side validation with detailed error messages
+- **Timezone**: All date operations use `America/New_York` (configurable via `TZ_NAME`)
 
 ### Endpoints (server)
 
-- Health
-  - GET `/health` → `{ ok: true }`
+#### Health Check
+- **GET** `/health` → `{ ok: true }`
+  - Simple health check for load balancers and monitoring
+  - No authentication required
 
-- Todos
-  - GET `/api/todos`
-    - Query: `from?: YYYY-MM-DD`, `to?: YYYY-MM-DD`, `completed?: true|false`
-    - When both `from` and `to` are provided, repeating todos are expanded into per-day occurrences over `[from, to+1d)`; otherwise returns scheduled masters (optionally filtered)
-    - Response: `{ todos: Todo[] }`
-  - GET `/api/todos/backlog` → `{ todos: Todo[] }` (unscheduled only)
-  - GET `/api/todos/search?query=<text>&completed=true|false` → `{ todos: Todo[] }`
-  - GET `/api/todos/:id` → `{ todo: Todo }`
-  - POST `/api/todos`
-    - Body: `{ title: string, notes?: string, scheduledFor?: YYYY-MM-DD|null, timeOfDay?: 'HH:MM'|null, recurrence: Recurrence }`
-    - Strict: `recurrence` object is required; use `{ type: 'none' }` for non-repeating. If repeating, `scheduledFor` anchor is required.
-    - Response: `{ todo: Todo }`
-  - PATCH `/api/todos/:id`
-    - Partial body: `title?`, `notes?`, `scheduledFor?`, `completed?`, `timeOfDay?`, `recurrence?`
-    - Strict: `recurrence` object is required on update; if repeating, an anchor date must exist (patch or existing)
-    - Response: `{ todo: Todo }`
-  - PATCH `/api/todos/:id/occurrence` with `{ occurrenceDate: YYYY-MM-DD, completed?: boolean }` → `{ todo: Todo }`
-  - DELETE `/api/todos/:id` → `{ ok: true }`
+#### Todos
 
-- Events
-  - GET `/api/events` with same query/filter semantics as todos; expands when both `from`/`to` provided → `{ events: Event[] }`
-  - GET `/api/events/:id` → `{ event: Event }`
-  - POST `/api/events` → `{ event: Event }`
-    - Query: `from?: YYYY-MM-DD`, `to?: YYYY-MM-DD`, `status?: pending|completed|skipped` (todos only; `completed` boolean is deprecated and kept for back-compat)
-  - PATCH `/api/events/:id` → `{ event: Event }`
-  - PATCH `/api/events/:id/occurrence` with `{ occurrenceDate, completed? }` → `{ event: Event }`
-  - DELETE `/api/events/:id` → `{ ok: true }`
-  - GET `/api/todos/search?query=<text>&status=pending|completed|skipped` → `{ todos: Todo[] }`
-- Habits
-  - GET `/api/habits` with optional `from`/`to`/`completed`
-    - Returns scheduled masters and, when both `from`/`to` are provided, includes derived stats: `currentStreak`, `longestStreak`, `weekHeatmap`
-  - GET `/api/habits/search?query=<text>&completed=...` → `{ habits: Habit[] }`
-  - GET `/api/habits/:id` → `{ habit: Habit }`
-  - POST `/api/habits` (must be repeating) → `{ habit: Habit }`
-  - PATCH `/api/habits/:id` → `{ habit: Habit }`
-  - PATCH `/api/habits/:id/occurrence` with `{ occurrenceDate, completed? }` → `{ habit: Habit }`
-  - POST `/api/habits/:id/items` with `{ todos?: number[], events?: number[] }` (link items) → 204
-  - DELETE `/api/habits/:id/items/todo/:todoId` → 204; DELETE `/api/habits/:id/items/event/:eventId` → 204
-  - PATCH `/api/todos/:id/occurrence` with `{ occurrenceDate: YYYY-MM-DD, status?: 'pending'|'completed'|'skipped' }` (boolean `completed` accepted for back-compat) → `{ todo: Todo }`
-  - PATCH `/api/todos/:id/occurrence` with `{ occurrenceDate: YYYY-MM-DD, status?: 'pending'|'completed'|'skipped' }` (boolean `completed` accepted for back-compat) → `{ todo: Todo }`
-  - GET `/api/goals?status=active|completed|archived` → `{ goals: Goal[] }`
-  - GET `/api/schedule?from=YYYY-MM-DD&to=YYYY-MM-DD&kinds=todo,event,habit&completed=...&status_todo=pending|completed|skipped`
-  - GET `/api/goals/:id?includeItems=true&includeChildren=true` → `{ goal }`
-  - POST `/api/goals` → `{ goal }`; PATCH `/api/goals/:id` → `{ goal }`; DELETE `/api/goals/:id` → `{ ok: true }`
-  - POST `/api/goals/:id/items` with `{ todos?: number[], events?: number[] }` → `{ ok: true }`
-  - POST `/api/goals/:id/children` with `[childId, ...]` → `{ ok: true }`; DELETE `/api/goals/:parentId/children/:childId` → `{ ok: true }`
+**List Todos**
+- **GET** `/api/todos`
+  - **Query Parameters**:
+    - `from?: YYYY-MM-DD` - Start date for range filtering
+    - `to?: YYYY-MM-DD` - End date for range filtering  
+    - `completed?: true|false` - Filter by completion status
+    - `status?: pending|completed|skipped` - Filter by todo status
+    - `context?: school|personal|work` - Filter by context
+  - **Behavior**: When both `from` and `to` provided, repeating todos expanded into per-day occurrences over `[from, to+1d)`; otherwise returns scheduled masters
+  - **Response**: `{ todos: Todo[] }`
+  - **Example**: `GET /api/todos?from=2024-01-15&to=2024-01-21&status=pending`
 
-  - Todos use `set_status` operations for masters or occurrences: `{ kind:'todo', action:'set_status', id, status, occurrenceDate? }`. For todos, `complete`/`complete_occurrence` are rejected with `use_set_status`.
-- Unified schedule
-  - GET `/api/schedule?from=YYYY-MM-DD&to=YYYY-MM-DD&kinds=todo,event,habit&completed=...`
-  - Expands todos/events/habits into per-day items; each item has `kind: 'todo'|'event'|'habit'`
- - Common errors: `invalid_title`, `missing_recurrence`, `invalid_notes`, `invalid_scheduledFor`, `invalid_timeOfDay`, `invalid_recurrence`, `missing_anchor_for_recurrence`, `invalid_completed`, `invalid_status`, `invalid_id`, `not_found`, `not_repeating`, `invalid_occurrenceDate`, `use_set_status`
-  - GET `/api/assistant/message/stream` → SSE: emits `stage`, `clarify`, `ops`, `summary`, `result`, `heartbeat`, `done`
+**Backlog (Unscheduled)**
+- **GET** `/api/todos/backlog`
+  - **Query Parameters**:
+    - `context?: school|personal|work` - Filter by context
+  - **Response**: `{ todos: Todo[] }` (unscheduled only)
+  - **Example**: `GET /api/todos/backlog?context=work`
 
-- Assistant and LLM
-  - POST `/api/assistant/message` → `{ text, operations, steps, tools, notes, correlationId }`
-  - GET `/api/assistant/message/stream` → SSE stream with same events as above
-  - POST `/api/llm/message` → `{ ok: true, text, correlationId }` (minimal conversation endpoint)
-  - GET `/api/llm/health` → `{ ok: true, models, configured, convoPresent, codePresent }`
+**Search Todos**
+- **GET** `/api/todos/search`
+  - **Query Parameters**:
+    - `query: string` - Search text (required, min 1 character)
+    - `status?: pending|completed|skipped` - Filter by status
+    - `context?: school|personal|work` - Filter by context
+  - **Response**: `{ todos: Todo[] }`
+  - **Features**: FTS5 full-text search on title and notes
+  - **Example**: `GET /api/todos/search?query=meeting&status=pending`
 
-- MCP Tools (for operation execution)
-  - GET `/api/mcp/tools` → `{ tools: Tool[] }`
-  - GET `/api/mcp/resources` → `{ resources: Resource[] }`
-  - GET `/api/mcp/resources/:type/:name` → `{ uri, content }`
-  - POST `/api/mcp/tools/call` with `{ name, arguments }` → `{ content, isError }`
+**Get Single Todo**
+- **GET** `/api/todos/:id`
+  - **Response**: `{ todo: Todo }`
+  - **Errors**: `404 not_found` if todo doesn't exist
 
-- Todos: `recurrence` is required on create and update; if repeating, `scheduledFor` is required
-- Events/Habits: similar shape checks; habits must be repeating when `recurrence` provided
-- Operations are executed via MCP tool calls rather than direct apply/dryrun endpoints
+**Create Todo**
+- **POST** `/api/todos`
+  - **Body**:
+    ```json
+    {
+      "title": "string (required)",
+      "notes": "string (optional)",
+      "scheduledFor": "YYYY-MM-DD|null (optional)",
+      "timeOfDay": "HH:MM|null (optional)",
+      "recurrence": {
+        "type": "none|daily|weekdays|weekly|every_n_days (required)",
+        "intervalDays": "number>=1 (for every_n_days)",
+        "until": "YYYY-MM-DD|null (optional)"
+      },
+      "context": "school|personal|work (optional, defaults to personal)"
+    }
+    ```
+  - **Validation**: `recurrence` object required; if repeating, `scheduledFor` anchor required
+  - **Response**: `{ todo: Todo }`
+  - **Example**:
+    ```json
+    {
+      "title": "Daily standup",
+      "recurrence": {"type": "daily"},
+      "scheduledFor": "2024-01-15",
+      "context": "work"
+    }
+    ```
 
-- Todos: `fetchScheduled`, `fetchScheduledAllTime`, `fetchBacklog`, `searchTodos`, CRUD + `setTodoOccurrenceStatus`
-- Events: `listEvents`, `searchEvents`, CRUD + `toggleEventOccurrence`
-- Habits: `listHabits` (range adds stats), CRUD + `toggleHabitOccurrence`, linking helpers
-- Goals: `listGoals`, `getGoal`, CRUD, link/unlink items, add/remove child
-- Unified: `fetchSchedule({ from, to, kinds, completed })`
- - Assistant: `assistantMessage()` supports SSE or POST fallback; `applyOperationsMCP`, `dryRunOperationsMCP` via MCP tools. Note: the server does not expose dedicated `/api/llm/apply` or `/api/llm/dryrun` endpoints; operations are executed through MCP tool calls.
+**Update Todo**
+- **PATCH** `/api/todos/:id`
+  - **Body**: Partial update with any of: `title?`, `notes?`, `scheduledFor?`, `status?`, `timeOfDay?`, `recurrence?`, `context?`
+  - **Validation**: `recurrence` object required on update; if repeating, anchor date must exist
+  - **Response**: `{ todo: Todo }`
+  - **Example**:
+    ```json
+    {
+      "status": "completed",
+      "notes": "Finished early"
+    }
+    ```
+
+**Update Todo Occurrence**
+- **PATCH** `/api/todos/:id/occurrence`
+  - **Body**:
+    ```json
+    {
+      "occurrenceDate": "YYYY-MM-DD (required)",
+      "status": "pending|completed|skipped (optional, defaults to completed)"
+    }
+    ```
+  - **Response**: `{ todo: Todo }`
+  - **Errors**: `400 not_repeating` if todo is not repeating
+
+**Delete Todo**
+- **DELETE** `/api/todos/:id`
+  - **Response**: `{ ok: true }`
+  - **Cascade**: Removes from linked habits and goals
+
+#### Events
+
+**List Events**
+- **GET** `/api/events`
+  - **Query Parameters**: Same as todos (`from`, `to`, `completed`, `context`)
+  - **Behavior**: Expands repeating events when both `from`/`to` provided
+  - **Response**: `{ events: Event[] }`
+
+**Search Events**
+- **GET** `/api/events/search`
+  - **Query Parameters**:
+    - `query: string` - Search text
+    - `completed?: true|false` - Filter by completion
+    - `context?: school|personal|work` - Filter by context
+  - **Response**: `{ events: Event[] }`
+
+**Create Event**
+- **POST** `/api/events`
+  - **Body**:
+    ```json
+    {
+      "title": "string (required)",
+      "notes": "string (optional)",
+      "scheduledFor": "YYYY-MM-DD|null (optional)",
+      "startTime": "HH:MM|null (optional)",
+      "endTime": "HH:MM|null (optional)",
+      "location": "string (optional)",
+      "recurrence": {
+        "type": "none|daily|weekdays|weekly|every_n_days (required)",
+        "intervalDays": "number>=1 (for every_n_days)",
+        "until": "YYYY-MM-DD|null (optional)"
+      },
+      "context": "school|personal|work (optional, defaults to personal)"
+    }
+    ```
+  - **Response**: `{ event: Event }`
+
+**Update Event Occurrence**
+- **PATCH** `/api/events/:id/occurrence`
+  - **Body**:
+    ```json
+    {
+      "occurrenceDate": "YYYY-MM-DD (required)",
+      "completed": "boolean (optional)"
+    }
+    ```
+  - **Response**: `{ event: Event }`
+
+#### Habits
+
+**List Habits**
+- **GET** `/api/habits`
+  - **Query Parameters**: `from?`, `to?`, `completed?`, `context?`
+  - **Stats**: When both `from`/`to` provided, includes derived stats: `currentStreak`, `longestStreak`, `weekHeatmap`
+  - **Response**: `{ habits: Habit[] }`
+
+**Create Habit**
+- **POST** `/api/habits`
+  - **Validation**: Must be repeating (recurrence.type cannot be 'none')
+  - **Body**: Same as events but with `timeOfDay` instead of `startTime`/`endTime`
+  - **Response**: `{ habit: Habit }`
+
+**Link Items to Habit**
+- **POST** `/api/habits/:id/items`
+  - **Body**:
+    ```json
+    {
+      "todos": [1, 2, 3],
+      "events": [4, 5, 6]
+    }
+    ```
+  - **Response**: `204 No Content`
+
+#### Goals
+
+**List Goals**
+- **GET** `/api/goals`
+  - **Query Parameters**:
+    - `status?: active|completed|archived` - Filter by status
+  - **Response**: `{ goals: Goal[] }`
+
+**Get Goal with Details**
+- **GET** `/api/goals/:id`
+  - **Query Parameters**:
+    - `includeItems?: boolean` - Include linked todos/events
+    - `includeChildren?: boolean` - Include child goals
+  - **Response**: `{ goal: Goal }`
+
+**Create Goal**
+- **POST** `/api/goals`
+  - **Body**:
+    ```json
+    {
+      "title": "string (required)",
+      "notes": "string (optional)",
+      "status": "active|completed|archived (optional, defaults to active)",
+      "currentProgressValue": "number (optional)",
+      "targetProgressValue": "number (optional)",
+      "progressUnit": "string (optional)"
+    }
+    ```
+  - **Response**: `{ goal: Goal }`
+
+**Link Items to Goal**
+- **POST** `/api/goals/:id/items`
+  - **Body**:
+    ```json
+    {
+      "todos": [1, 2, 3],
+      "events": [4, 5, 6]
+    }
+    ```
+  - **Response**: `{ ok: true }`
+
+**Add Child Goals**
+- **POST** `/api/goals/:id/children`
+  - **Body**: `[childId1, childId2, ...]`
+  - **Response**: `{ ok: true }`
+
+#### Unified Schedule
+
+**Get Unified Schedule**
+- **GET** `/api/schedule`
+  - **Query Parameters**:
+    - `from: YYYY-MM-DD` - Start date (required)
+    - `to: YYYY-MM-DD` - End date (required)
+    - `kinds: string` - Comma-separated list: `todo,event,habit`
+    - `completed?: true|false` - Filter by completion
+    - `status_todo?: pending|completed|skipped` - Filter todos by status
+  - **Response**: `{ items: Array }` with unified items containing `kind: 'todo'|'event'|'habit'`
+  - **Behavior**: Expands repeating items into per-day occurrences
+
+#### Unified Search
+
+**Search Across All Types**
+- **GET** `/api/search`
+  - **Query Parameters**:
+    - `q: string` - Search query (required)
+    - `scope?: todo|event|habit|all` - Search scope (default: all)
+    - `completed?: true|false` - Filter by completion
+    - `status_todo?: pending|completed|skipped` - Filter todos by status
+    - `limit?: number` - Result limit (default: 30)
+  - **Response**: `{ items: Array }` with unified items
+  - **Features**: FTS5 search across todos, events, and habits
+
+#### Assistant and LLM
+
+**Assistant Message (POST)**
+- **POST** `/api/assistant/message`
+  - **Body**:
+    ```json
+    {
+      "message": "string (required)",
+      "transcript": "Array (optional)",
+      "options": {
+        "clarify": {
+          "selection": {
+            "ids": [1, 2, 3],
+            "date": "2024-01-15"
+          }
+        }
+      }
+    }
+    ```
+  - **Response**: `{ text, operations, steps, tools, notes, correlationId }`
+
+**Assistant Message (SSE Stream)**
+- **GET** `/api/assistant/message/stream`
+  - **Query Parameters**: Same as POST endpoint
+  - **Response**: Server-Sent Events stream with events:
+    - `stage`: Current processing stage
+    - `clarify`: Clarification question and options
+    - `ops`: Proposed operations with validation
+    - `summary`: Human-readable summary
+    - `result`: Final result
+    - `heartbeat`: Keep-alive (every 10s)
+    - `done`: Stream completion
+
+**LLM Health Check**
+- **GET** `/api/llm/health`
+  - **Response**: `{ ok: true, models, configured, convoPresent, codePresent }`
+
+#### MCP Tools
+
+**List Available Tools**
+- **GET** `/api/mcp/tools`
+  - **Response**: `{ tools: Tool[] }`
+
+**List Resources**
+- **GET** `/api/mcp/resources`
+  - **Response**: `{ resources: Resource[] }`
+
+**Get Resource Content**
+- **GET** `/api/mcp/resources/:type/:name`
+  - **Response**: `{ uri, content }`
+
+**Execute Tool**
+- **POST** `/api/mcp/tools/call`
+  - **Body**:
+    ```json
+    {
+      "name": "string (required)",
+      "arguments": "object (required)"
+    }
+    ```
+  - **Response**: `{ content, isError }`
+  - **Features**: Idempotency support via `Idempotency-Key` header
+
+### Validation Rules
+
+**Todo Validation**:
+- `recurrence` object required on create and update
+- If repeating (`type != 'none'`), `scheduledFor` anchor required
+- `status` must be one of: `pending`, `completed`, `skipped`
+- `context` must be one of: `school`, `personal`, `work`
+
+**Event Validation**:
+- `recurrence` object required on create and update
+- If repeating, `scheduledFor` anchor required
+- `startTime` and `endTime` must be valid `HH:MM` format
+- `endTime` must be after `startTime` if both provided
+
+**Habit Validation**:
+- Must be repeating (recurrence.type cannot be 'none')
+- `recurrence` object required on create and update
+- Anchor date required for repeating habits
+
+**General Validation**:
+- All dates must be `YYYY-MM-DD` format
+- All times must be `HH:MM` format or null
+- IDs must be positive integers
+- Titles cannot be empty strings
+
+### Client API Functions (Flutter api.dart)
+
+**Todo Operations**:
+- `fetchScheduled({ from, to, status?, context? })` → `List<Todo>`
+- `fetchScheduledAllTime({ status?, context? })` → `List<Todo>`
+- `fetchBacklog({ status?, context? })` → `List<Todo>`
+- `searchTodos(query, { status?, context?, cancelToken? })` → `List<Todo>`
+- `createTodo(data)` → `Todo`
+- `updateTodo(id, patch)` → `Todo`
+- `setTodoOccurrenceStatus(id, occurrenceDate, status)` → `Todo`
+- `deleteTodo(id)` → `void`
+
+**Event Operations**:
+- `listEvents({ context? })` → `List<Event>`
+- `searchEvents(query, { completed?, context?, cancelToken? })` → `List<Event>`
+- `createEvent(data)` → `Event`
+- `updateEvent(id, patch)` → `Event`
+- `toggleEventOccurrence(id, occurrenceDate, completed)` → `Event`
+- `deleteEvent(id)` → `void`
+
+**Habit Operations**:
+- `listHabits({ from?, to?, context? })` → `List<Habit>` (with stats)
+- `searchHabits(query, { completed?, context?, cancelToken? })` → `List<Habit>`
+- `createHabit(data)` → `Habit`
+- `updateHabit(id, patch)` → `Habit`
+- `toggleHabitOccurrence(id, occurrenceDate, completed)` → `Habit`
+- `linkHabitItems(habitId, { todos?, events? })` → `void`
+- `unlinkHabitTodo(habitId, todoId)` → `void`
+- `unlinkHabitEvent(habitId, eventId)` → `void`
+
+**Goal Operations**:
+- `listGoals({ status? })` → `List<Goal>`
+- `getGoal(id, { includeItems?, includeChildren? })` → `Goal`
+- `createGoal(data)` → `Goal`
+- `updateGoal(id, patch)` → `Goal`
+- `deleteGoal(id)` → `void`
+- `addGoalItems(goalId, { todos?, events? })` → `void`
+- `removeGoalTodoItem(goalId, todoId)` → `void`
+- `removeGoalEventItem(goalId, eventId)` → `void`
+- `addGoalChild(goalId, childIds)` → `void`
+- `removeGoalChild(parentId, childId)` → `void`
+
+**Unified Operations**:
+- `fetchSchedule({ from, to, kinds, completed?, statusTodo? })` → `List<dynamic>`
+- `searchUnified(query, { scope?, completed?, statusTodo?, limit?, cancelToken? })` → `List<dynamic>`
+
+**Assistant Operations**:
+- `assistantMessage(message, { transcript?, streamSummary?, onSummary?, onClarify?, onStage?, onOps? })` → `Map<String, dynamic>`
+- `applyOperationsMCP(operations)` → `List<Map<String, dynamic>>`
+- `dryRunOperationsMCP(operations)` → `List<Map<String, dynamic>>`
+
+### Error Handling
+
+**Common Error Codes**:
+- `invalid_title` - Title is missing or invalid
+- `missing_recurrence` - Recurrence object is required
+- `invalid_notes` - Notes field is invalid
+- `invalid_scheduledFor` - Date format is invalid
+- `invalid_timeOfDay` - Time format is invalid
+- `invalid_recurrence` - Recurrence object is malformed
+- `missing_anchor_for_recurrence` - Anchor date required for repeating items
+- `invalid_completed` - Completed field is invalid
+- `invalid_status` - Status value is invalid
+- `invalid_id` - ID is missing or invalid
+- `not_found` - Resource not found
+- `not_repeating` - Item is not repeating (for occurrence operations)
+- `invalid_occurrenceDate` - Occurrence date is invalid
+- `use_set_status` - Use set_status instead of complete for todos
+- `invalid_context` - Context value is invalid
+- `invalid_from` - From date is invalid
+- `invalid_to` - To date is invalid
+- `invalid_query` - Search query is invalid
+
+**HTTP Status Codes**:
+- `200` - Success
+- `204` - Success (no content)
+- `400` - Bad request (validation errors)
+- `404` - Not found
+- `500` - Internal server error
 
 ### Types
 
-- Todo/Event/Habit/Goal shapes: see [Data Model](./data_model.md)
-- Recurrence: `{ type: 'none'|'daily'|'weekdays'|'weekly'|'every_n_days', intervalDays?: number>=1, until?: YYYY-MM-DD|null }`
-- LlmOperation: `create|update|delete|complete|complete_occurrence` for todos/events/habits; `goal_*` for goals
+**Recurrence Object**:
+```typescript
+{
+  type: 'none' | 'daily' | 'weekdays' | 'weekly' | 'every_n_days',
+  intervalDays?: number, // >= 1, required for every_n_days
+  until?: string | null  // YYYY-MM-DD or null
+}
+```
 
-### Endpoint → Client usage map
+**LlmOperation**:
+```typescript
+{
+  kind: 'todo' | 'event' | 'habit' | 'goal',
+  action: 'create' | 'update' | 'delete' | 'set_status' | 'complete' | 'complete_occurrence' | 'goal_create' | 'goal_update' | 'goal_delete' | 'goal_add_items' | 'goal_remove_item' | 'goal_add_child' | 'goal_remove_child',
+  id?: number,
+  title?: string,
+  notes?: string,
+  scheduledFor?: string | null,
+  timeOfDay?: string | null,
+  recurrence?: Recurrence,
+  status?: string,
+  occurrenceDate?: string,
+  // ... other fields
+}
+```
 
-- `/api/todos` → `fetchScheduled`, `fetchScheduledAllTime`
-- `/api/todos/backlog` → `fetchBacklog`
-- `/api/todos/search` → `searchTodos`
-- `/api/todos` (POST) → `createTodo`
-- `/api/todos/:id` (PATCH) → `updateTodo`
-- `/api/todos/:id/occurrence` (PATCH) → `setTodoOccurrenceStatus`
-- `/api/todos/:id` (DELETE) → `deleteTodo`
-- `/api/events*` → `listEvents`, `createEvent`, `updateEvent`, `deleteEvent`, `searchEvents`, `toggleEventOccurrence`
-- `/api/habits*` → `listHabits`, `createHabit`, `updateHabit`, `deleteHabit`, `searchHabits`, `toggleHabitOccurrence`, `linkHabitItems`, `unlinkHabitTodo`, `unlinkHabitEvent`
-- `/api/goals*` → `listGoals`, `getGoal`, `createGoal`, `updateGoal`, `deleteGoal`, `addGoalItems`, `removeGoalTodoItem`, `removeGoalEventItem`, `addGoalChild`, `removeGoalChild`
-- `/api/schedule` → `fetchSchedule`
-- `/api/assistant/message` and `/api/assistant/message/stream` → `assistantMessage`
-- `/api/mcp/tools/call` → `applyOperationsMCP`, `dryRunOperationsMCP`
+### Endpoint → Client Usage Map
+
+| Endpoint | Client Function | Notes |
+|----------|----------------|-------|
+| `GET /api/todos` | `fetchScheduled`, `fetchScheduledAllTime` | Range vs all-time |
+| `GET /api/todos/backlog` | `fetchBacklog` | Unscheduled only |
+| `GET /api/todos/search` | `searchTodos` | FTS5 search |
+| `POST /api/todos` | `createTodo` | Requires recurrence |
+| `PATCH /api/todos/:id` | `updateTodo` | Partial updates |
+| `PATCH /api/todos/:id/occurrence` | `setTodoOccurrenceStatus` | For repeating todos |
+| `DELETE /api/todos/:id` | `deleteTodo` | Cascade deletes |
+| `GET /api/events` | `listEvents` | With optional expansion |
+| `GET /api/events/search` | `searchEvents` | FTS5 search |
+| `POST /api/events` | `createEvent` | Requires recurrence |
+| `PATCH /api/events/:id` | `updateEvent` | Partial updates |
+| `PATCH /api/events/:id/occurrence` | `toggleEventOccurrence` | For repeating events |
+| `DELETE /api/events/:id` | `deleteEvent` | Cascade deletes |
+| `GET /api/habits` | `listHabits` | With stats when range provided |
+| `GET /api/habits/search` | `searchHabits` | FTS5 search |
+| `POST /api/habits` | `createHabit` | Must be repeating |
+| `PATCH /api/habits/:id` | `updateHabit` | Partial updates |
+| `PATCH /api/habits/:id/occurrence` | `toggleHabitOccurrence` | For repeating habits |
+| `POST /api/habits/:id/items` | `linkHabitItems` | Link todos/events |
+| `DELETE /api/habits/:id/items/*` | `unlinkHabitTodo`, `unlinkHabitEvent` | Unlink items |
+| `GET /api/goals` | `listGoals` | With status filtering |
+| `GET /api/goals/:id` | `getGoal` | With optional includes |
+| `POST /api/goals` | `createGoal` | No recurrence required |
+| `PATCH /api/goals/:id` | `updateGoal` | Partial updates |
+| `DELETE /api/goals/:id` | `deleteGoal` | Cascade deletes |
+| `POST /api/goals/:id/items` | `addGoalItems` | Link todos/events |
+| `DELETE /api/goals/:id/items/*` | `removeGoalTodoItem`, `removeGoalEventItem` | Unlink items |
+| `POST /api/goals/:id/children` | `addGoalChild` | Add child goals |
+| `DELETE /api/goals/:id/children/*` | `removeGoalChild` | Remove child goals |
+| `GET /api/schedule` | `fetchSchedule` | Unified schedule view |
+| `GET /api/search` | `searchUnified` | Cross-type search |
+| `POST /api/assistant/message` | `assistantMessage` | Non-streaming |
+| `GET /api/assistant/message/stream` | `assistantMessage` | SSE streaming |
+| `POST /api/mcp/tools/call` | `applyOperationsMCP`, `dryRunOperationsMCP` | Tool execution |
 
 

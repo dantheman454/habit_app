@@ -6,28 +6,31 @@ This hub aligns the docs with the current implementation. It's the quickest path
 
 ```mermaid
 graph TD
-  subgraph "Client"
-    A["Flutter Web UI\napps/web/flutter_app/lib/main.dart"]
-    A2["API wrapper\napps/web/flutter_app/lib/api.dart"]
+  subgraph "Client (Flutter Web)"
+    A["Flutter Web UI\napps/web/flutter_app/lib/main.dart\nState: ViewMode, MainView, SmartList"]
+    A2["API wrapper\napps/web/flutter_app/lib/api.dart\nDio client, SSE support"]
+    A3["Widgets\nassistant_panel.dart, sidebar.dart\nReal-time updates"]
   end
-  subgraph "Server"
-    B["Express API\napps/server/server.js"]
-    B2["MCP Server\napps/server/mcp/mcp_server.js"]
+  subgraph "Server (Express.js)"
+    B["Express API\napps/server/server.js\nREST endpoints, SSE streaming"]
+    B2["MCP Server\napps/server/mcp/mcp_server.js\nTool execution, validation"]
+    B3["LLM Pipeline\nrouter.js, ops_agent.js\nConversationAgent, OpsAgent"]
   end
-  subgraph "Persistence"
-    P[("SQLite (data/app.db)\nTables: todos, events, habits, goals, audit_log, idempotency")]
+  subgraph "Persistence (SQLite)"
+    P[("SQLite (data/app.db)\nTables: todos, events, habits, goals\nLinking tables, audit_log, idempotency\nFTS5 virtual tables")]
   end
-  subgraph "LLM"
-    F[["Ollama local model\nconfigurable (defaults: convo=llama3.2:3b, code=granite-code:8b)"]]
+  subgraph "LLM (Ollama)"
+    F[["Ollama local model\nconfigurable (defaults: convo=gpt-oss:20b, code=gpt-oss:20b)\nHarmony prompt formatting"]]
   end
 
   A --> A2
-  A2 -->|"HTTP JSON"| B
-  A2 -->|"MCP tools"| B2
+  A2 -->|"HTTP JSON + SSE"| B
+  A2 -->|"MCP tool calls"| B2
   B -->|"CRUD/search/schedule"| P
   B -->|"assistant apply + audit + idempotency"| P
   B -->|"router/propose/repair/summarize"| F
-  B2 -->|"tool execution"| P
+  B2 -->|"tool execution + transactions"| P
+  B3 -->|"structured prompts"| F
 ```
 
 ### End-to-end trace (happy path)
@@ -40,18 +43,48 @@ sequenceDiagram
   participant DB as "SQLite data/app.db"
   participant LLM as "Ollama model"
 
-  UI->>API: POST /api/todos (create)
-  API->>DB: insert todo
-  API-->>UI: {todo}
+  Note over UI,LLM: Create Todo Flow
+  UI->>API: POST /api/todos {title, recurrence, context}
+  API->>DB: INSERT with validation
+  API-->>UI: {todo} with generated id
 
-  UI->>API: GET /api/assistant/message/stream
-  API->>LLM: router / propose / summarize
-  API-->>UI: stage/clarify/ops/summary/result/done
-
-  UI->>MCP: POST /api/mcp/tools/call
-  MCP->>DB: execute operations
-  MCP-->>UI: results
+  Note over UI,LLM: Assistant Chat Flow
+  UI->>API: GET /api/assistant/message/stream?message="update task"
+  API->>LLM: runConversationAgent (router decision)
+  LLM-->>API: {decision: "clarify", confidence: 0.3}
+  API-->>UI: SSE: clarify event with options
+  
+  UI->>API: GET /api/assistant/message/stream (with selection)
+  API->>LLM: runOpsAgentWithProcessor (proposal generation)
+  LLM-->>API: {operations: [{kind: "todo", action: "update"}]}
+  API-->>UI: SSE: ops event with validation results
+  
+  UI->>MCP: POST /api/mcp/tools/call {name: "todo.update"}
+  MCP->>DB: Execute with transaction + audit
+  MCP-->>UI: {content: {todo}, isError: false}
 ```
+
+### Architecture Principles
+
+**Single Responsibility**: Each component has a clear, focused purpose
+- **Client**: State management, UI rendering, user interaction
+- **Server**: API routing, validation, business logic orchestration
+- **MCP Server**: Tool execution, transaction management
+- **LLM Pipeline**: Intent understanding, operation generation
+- **Database**: Data persistence, relationships, search
+
+**Loose Coupling**: Components communicate through well-defined interfaces
+- HTTP JSON APIs for client-server communication
+- MCP protocol for tool execution
+- Structured prompts for LLM interaction
+- SQLite for data persistence
+
+**Safety First**: Multiple layers of validation and error handling
+- Client-side input validation
+- Server-side schema validation
+- LLM response parsing and repair
+- Database constraints and transactions
+- Idempotency for operation safety
 
 ### Contents
 - [API Surface](./api_surface.md): Endpoints, shapes, errors, and Flutter API coupling.
@@ -62,23 +95,66 @@ sequenceDiagram
 - [Glossary](./glossary.md): Domain terms aligned with code.
 
 ### Constraints and assumptions
-- Single-user, single-process server; SQLite in `data/app.db`.
-- No auth; Ollama runs locally.
-- Strict recurrence policy: recurrence object required on create/update; anchor required when repeating.
-- Assistant safety: validation + single repair; no bulk operations.
-- Operations executed via MCP tools rather than direct apply/dryrun endpoints.
+- **Single-user, single-process server**: No multi-tenancy or clustering
+- **SQLite persistence**: `data/app.db` with WAL mode enabled
+- **No authentication**: Local development focus
+- **Ollama local model**: Requires local Ollama instance running
+- **Strict recurrence policy**: Recurrence object required on create/update; anchor required when repeating
+- **Assistant safety**: Validation + single repair attempt; no bulk operations
+- **Operations via MCP tools**: No direct apply/dryrun endpoints
+- **Context field support**: 'school', 'personal', 'work' with 'personal' as default
+- **Timezone handling**: Fixed to `America/New_York` (configurable via `TZ_NAME`)
 
 ### Invariants and contracts
-- Repeating items track per-day completion via `completedDates`; use `/api/*/:id/occurrence` or `complete_occurrence`.
-- Changing repeating→none clears `completedDates`.
-- Times are `HH:MM` or null; dates are `YYYY-MM-DD`.
-- Assistant operations are executed through MCP tool calls; all actions are audited.
+- **Recurrence semantics**: Repeating items track per-day completion via `completedDates`; use `/api/*/:id/occurrence` or `complete_occurrence`
+- **State transitions**: Changing repeating→none clears `completedDates`
+- **Time formats**: Times are `HH:MM` or null; dates are `YYYY-MM-DD`
+- **Audit trail**: Assistant operations executed through MCP tool calls; all actions logged
+- **Status fields**: Todos use `status` field ('pending'|'completed'|'skipped'); events/habits use `completed` boolean
+- **Search capabilities**: FTS5 virtual tables provide full-text search for todos, events, and habits
+- **Idempotency**: MCP tool calls deduplicate by `Idempotency-Key` + request hash
 
-### Key files
-- Server: `apps/server/server.js`
-- MCP Server: `apps/server/mcp/mcp_server.js`
-- Client app: `apps/web/flutter_app/lib/main.dart`
-- Client API: `apps/web/flutter_app/lib/api.dart`
-- Docs hub: this folder.
+### Key files and their responsibilities
+
+**Server Layer**:
+- `apps/server/server.js`: Express app, REST endpoints, SSE streaming, request validation
+- `apps/server/mcp/mcp_server.js`: MCP protocol implementation, tool registry, execution engine
+- `apps/server/database/DbService.js`: Database operations, connection management
+- `apps/server/database/schema.sql`: SQLite schema definition, constraints, indexes
+
+**LLM Pipeline**:
+- `apps/server/llm/clients.js`: Ollama client wrappers, model configuration
+- `apps/server/llm/router.js`: Intent routing, decision making, confidence scoring
+- `apps/server/llm/ops_agent.js`: Operation generation, validation, repair
+- `apps/server/llm/conversation_agent.js`: Conversation orchestration, audit logging
+
+**Client Layer**:
+- `apps/web/flutter_app/lib/main.dart`: Main app state, navigation, data loading
+- `apps/web/flutter_app/lib/api.dart`: HTTP client, SSE handling, API abstraction
+- `apps/web/flutter_app/lib/widgets/assistant_panel.dart`: Assistant UI, real-time updates
+- `apps/web/flutter_app/lib/models.dart`: Shared enums and data structures
+
+**Documentation**:
+- `docs/mindmap/`: This comprehensive documentation hub
+
+### Development workflow
+
+**Local Setup**:
+1. Install dependencies: `npm install` (server), `flutter pub get` (client)
+2. Start Ollama: `ollama serve` (requires gpt-oss:20b model)
+3. Start server: `npm start` (runs on port 3000)
+4. Build client: `flutter build web` (served by Express)
+
+**Key Environment Variables**:
+- `CONVO_MODEL`: Conversation LLM (default: gpt-oss:20b)
+- `CODE_MODEL`: Code generation LLM (default: gpt-oss:20b)
+- `OLLAMA_HOST`: Ollama host (default: 127.0.0.1)
+- `OLLAMA_PORT`: Ollama port (default: 11434)
+- `TZ_NAME`: Timezone (default: America/New_York)
+
+**Testing**:
+- Unit tests: `npm test` (server), `flutter test` (client)
+- Integration tests: `tests/run.js`
+- Manual testing: Full-stack development server
 
 

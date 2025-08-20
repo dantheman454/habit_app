@@ -21,6 +21,7 @@ erDiagram
         string recurrence "JSON"
         string completed_dates "JSON or NULL"
         string skipped_dates "JSON or NULL"
+        string context "school|personal|work"
         string created_at
         string updated_at
     }
@@ -36,6 +37,7 @@ erDiagram
         int completed "0|1"
         string recurrence "JSON"
         string completed_dates "JSON or NULL"
+        string context "school|personal|work"
         string created_at
         string updated_at
     }
@@ -49,6 +51,7 @@ erDiagram
         int completed "0|1"
         string recurrence "JSON"
         string completed_dates "JSON or NULL"
+        string context "school|personal|work"
         string created_at
         string updated_at
     }
@@ -128,3 +131,4 @@ erDiagram
 - FTS5 virtual tables (`*_fts`) and their triggers are omitted from the ERD for clarity.
 - `recurrence` and `completed_dates` are stored as JSON strings in the SQLite tables.
 - The server enforces additional rules (e.g., habits should be repeating) at the API level.
+- `context` field defaults to 'personal' for todos, events, and habits; goals do not have a context field.

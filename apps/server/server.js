@@ -989,7 +989,7 @@ app.get('/api/events/:id', (req, res) => {
 app.patch('/api/events/:id', (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
-  const { title, notes, scheduledFor, startTime, endTime, location, completed, recurrence } = req.body || {};
+  const { title, notes, scheduledFor, startTime, endTime, location, completed, recurrence, context } = req.body || {};
   if (title !== undefined && typeof title !== 'string') return res.status(400).json({ error: 'invalid_title' });
   if (notes !== undefined && typeof notes !== 'string') return res.status(400).json({ error: 'invalid_notes' });
   if (!(scheduledFor === undefined || scheduledFor === null || isYmdString(scheduledFor))) return res.status(400).json({ error: 'invalid_scheduledFor' });
@@ -998,12 +998,13 @@ app.patch('/api/events/:id', (req, res) => {
   if (endTime !== undefined && !(endTime === null || /^([01]\d|2[0-3]):[0-5]\d$/.test(String(endTime)))) return res.status(400).json({ error: 'invalid_end_time' });
   if (startTime && endTime && String(endTime) < String(startTime)) return res.status(400).json({ error: 'invalid_time_range' });
   if (recurrence !== undefined && typeof recurrence !== 'object') return res.status(400).json({ error: 'invalid_recurrence' });
+  if (context !== undefined && !['school','personal','work'].includes(String(context))) return res.status(400).json({ error: 'invalid_context' });
   if (recurrence && recurrence.type && recurrence.type !== 'none') {
     const anchor = (scheduledFor !== undefined) ? scheduledFor : (db.getEventById(id)?.scheduledFor ?? null);
     if (!(anchor !== null && isYmdString(anchor))) return res.status(400).json({ error: 'missing_anchor_for_recurrence' });
   }
   try {
-  const ev = db.updateEvent(id, { title, notes, scheduledFor, startTime, endTime, location, completed, recurrence });
+  const ev = db.updateEvent(id, { title, notes, scheduledFor, startTime, endTime, location, completed, recurrence, context });
     return res.json({ event: ev });
   } catch (e) {
     const msg = String(e && e.message ? e.message : e);
@@ -1431,7 +1432,7 @@ app.delete('/api/goals/:parentId/children/:childId', (req, res) => {
 app.patch('/api/todos/:id', (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
-  const { title, notes, scheduledFor, status, timeOfDay, recurrence } = req.body || {};
+  const { title, notes, scheduledFor, status, timeOfDay, recurrence, context } = req.body || {};
   if (title !== undefined && typeof title !== 'string') return res.status(400).json({ error: 'invalid_title' });
   if (notes !== undefined && typeof notes !== 'string') return res.status(400).json({ error: 'invalid_notes' });
   if (!(scheduledFor === undefined || scheduledFor === null || isYmdString(scheduledFor))) {
@@ -1445,6 +1446,9 @@ app.patch('/api/todos/:id', (req, res) => {
   }
   if (recurrence !== undefined && !isValidRecurrence(recurrence)) {
     return res.status(400).json({ error: 'invalid_recurrence' });
+  }
+  if (context !== undefined && !['school','personal','work'].includes(String(context))) {
+    return res.status(400).json({ error: 'invalid_context' });
   }
   // Strict: require recurrence object to be present on update as a policy
   if (!(recurrence && typeof recurrence === 'object' && typeof recurrence.type === 'string')) {
@@ -1466,6 +1470,7 @@ app.patch('/api/todos/:id', (req, res) => {
   // priority removed
   if (status !== undefined) t.status = status;
   if (timeOfDay !== undefined) t.timeOfDay = (timeOfDay === '' ? null : timeOfDay);
+  if (context !== undefined) t.context = context;
   if (recurrence !== undefined) { applyRecurrenceMutation(t, recurrence); }
   t.updatedAt = now;
   try { const updated = db.updateTodo(id, t); res.json({ todo: updated }); } catch { res.json({ todo: t }); }

@@ -2,12 +2,12 @@ Keep in mind:
 -Have full functionality (BEFORE SCHOOL STARTS)so I can get my actual todos and events in
     *if not, MUST have better way to do google calendar and reminders app using notebookLM or something else (not ideal but fallback)
 
--USE HARMONY TO PROMPT GPT-OSS
 
+ASAP:
+-Change to qwen
 
 Get done Week of 8/17:
     -Get fundamental functions of tasks and events working
-        *search bar
         *add tasks and events
         *views working properly
     -Clean up UI
