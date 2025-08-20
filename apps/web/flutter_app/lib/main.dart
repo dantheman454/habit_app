@@ -924,11 +924,7 @@ class _HomePageState extends State<HomePage> {
       } catch (_) {}
       _searchCancelToken = CancelToken();
       setState(() => _searching = true);
-      final scope = () {
-        if (mainView == MainView.habits) return 'habit';
-        if (_kindFilter.length == 1 && _kindFilter.contains('event')) return 'event';
-        return 'todo';
-      }();
+      final scope = 'all'; // Always search both todos and events
       final raw = await api.searchUnified(
         q,
         // exclude habits for now per requirements
@@ -1079,8 +1075,7 @@ class _HomePageState extends State<HomePage> {
                                                               'unscheduled'),
                                                         ),
                                                         
-                                                        if ((t.kind ?? '').isNotEmpty)
-                                                          _chip(t.kind ?? ''),
+                                                        _buildKindChip(t.kind ?? 'todo'),
                                                       ],
                                                     ),
                                                   ],
@@ -1136,6 +1131,53 @@ class _HomePageState extends State<HomePage> {
       child: Text(
         text,
         style: const TextStyle(fontSize: 12, color: Colors.black87),
+      ),
+    );
+  }
+
+  Widget _buildKindChip(String kind) {
+    IconData icon;
+    Color color;
+    
+    switch (kind) {
+      case 'event':
+        icon = Icons.event;
+        color = Colors.green;
+        break;
+      case 'todo':
+        icon = Icons.task;
+        color = Colors.blue;
+        break;
+      case 'habit':
+        icon = Icons.repeat;
+        color = Colors.purple;
+        break;
+      default:
+        icon = Icons.circle;
+        color = Colors.grey;
+    }
+    
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.3), width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(
+            kind.substring(0, 1).toUpperCase() + kind.substring(1),
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w500,
+              color: color,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -2391,7 +2433,7 @@ class _HomePageState extends State<HomePage> {
                   children: [
                     // Logo
                     const sb.HabitusLogo(),
-                    const SizedBox(width: 16),
+                    const VerticalDivider(width: 1),
                     // Search box
                     Expanded(
                       child: ConstrainedBox(
@@ -2525,7 +2567,7 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 16),
+                    const VerticalDivider(width: 1),
                     // Assistant toggle
                     TextButton.icon(
                       onPressed: () => setState(() => assistantCollapsed = !assistantCollapsed),

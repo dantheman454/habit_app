@@ -84,6 +84,8 @@ class TodoRow extends StatelessWidget {
                       const SizedBox(width: 6),
                       extraBadge!,
                     ],
+                    const SizedBox(width: 6),
+                    _buildKindBadge(todo.kind ?? 'todo'),
                     if (todo.context != null) ...[
                       const SizedBox(width: 6),
                       _buildContextBadge(todo.context!),
@@ -274,6 +276,53 @@ class TodoRow extends StatelessWidget {
           const SizedBox(width: 4),
           Text(
             context.substring(0, 1).toUpperCase() + context.substring(1),
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w500,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildKindBadge(String kind) {
+    IconData icon;
+    Color color;
+    
+    switch (kind) {
+      case 'event':
+        icon = Icons.event;
+        color = Colors.green;
+        break;
+      case 'todo':
+        icon = Icons.task;
+        color = Colors.blue;
+        break;
+      case 'habit':
+        icon = Icons.repeat;
+        color = Colors.purple;
+        break;
+      default:
+        icon = Icons.circle;
+        color = Colors.grey;
+    }
+    
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.3), width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(
+            kind.substring(0, 1).toUpperCase() + kind.substring(1),
             style: TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.w500,
