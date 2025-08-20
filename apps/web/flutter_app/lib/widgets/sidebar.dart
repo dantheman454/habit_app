@@ -33,33 +33,29 @@ class HabitusLogo extends StatelessWidget {
 }
 
 class Sidebar extends StatelessWidget {
-  final String selectedKey; // 'today' | 'all'
-  final void Function(String) onSelect;
   final Map<String, int> counters;
-  final ViewMode currentView; // Add view parameter
-  final void Function(ViewMode) onViewChanged; // Add view change callback
-  final String? selectedContext; // Add context parameter
-  final void Function(String?) onContextChanged; // Add context change callback
-  final VoidCallback? onDatePrev; // NEW
-  final VoidCallback? onDateNext; // NEW
-  final VoidCallback? onDateToday; // NEW
-  final bool showCompleted; // Add this prop
-  final void Function(bool) onShowCompletedChanged; // Add this prop
+  final ViewMode currentView;
+  final void Function(ViewMode) onViewChanged;
+  final String? selectedContext;
+  final void Function(String?) onContextChanged;
+  final VoidCallback? onDatePrev;
+  final VoidCallback? onDateNext;
+  final VoidCallback? onDateToday;
+  final bool showCompleted;
+  final void Function(bool) onShowCompletedChanged;
 
   const Sidebar({
     super.key,
-    required this.selectedKey,
-    required this.onSelect,
     required this.currentView,
     required this.onViewChanged,
     required this.selectedContext,
     required this.onContextChanged,
     this.counters = const <String, int>{},
-    this.onDatePrev, // NEW
-    this.onDateNext, // NEW
-    this.onDateToday, // NEW
-    required this.showCompleted, // Add this
-    required this.onShowCompletedChanged, // Add this
+    this.onDatePrev,
+    this.onDateNext,
+    this.onDateToday,
+    required this.showCompleted,
+    required this.onShowCompletedChanged,
   });
 
   @override
@@ -89,28 +85,29 @@ class Sidebar extends StatelessWidget {
           ),
         ),
         const Divider(height: 1),
-        // Date Navigation
+        
+        // Date Navigation (centered)
         if (onDatePrev != null && onDateNext != null && onDateToday != null)
           Padding(
             padding: const EdgeInsets.all(12),
-            child: DateNavigation(
-              onPrev: onDatePrev!,
-              onNext: onDateNext!,
-              onToday: onDateToday!,
+            child: Center(
+              child: DateNavigation(
+                onPrev: onDatePrev!,
+                onNext: onDateNext!,
+                onToday: onDateToday!,
+              ),
             ),
           ),
         if (onDatePrev != null && onDateNext != null && onDateToday != null)
           const Divider(height: 1),
-        // Smart lists
+        
+        // Context filters
         Expanded(
           child: Column(
             children: [
               Expanded(
                 child: ListView(
                   children: [
-                    _tile('Today', 'today', Icons.today, count: counters['today']),
-                    _tile('All', 'all', Icons.inbox, count: counters['all']),
-                    const SizedBox(height: 8),
                     // Context filters section
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -141,28 +138,7 @@ class Sidebar extends StatelessWidget {
             ],
           ),
         ),
-
       ],
-    );
-  }
-
-  Widget _tile(String label, String key, IconData icon, {int? count}) {
-    final active = selectedKey == key;
-    return ListTile(
-      leading: Icon(icon, size: 20),
-      title: Text(label),
-      trailing: (count == null)
-          ? null
-          : Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: Colors.black12,
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text(_formatCount(count)),
-            ),
-      selected: active,
-      onTap: () => onSelect(key),
     );
   }
 

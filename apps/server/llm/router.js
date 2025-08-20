@@ -134,11 +134,11 @@ Respond with JSON only:`
     const addDays = (d, n) => { const t = new Date(d.getTime()); t.setDate(t.getDate() + n); return t; };
     const getWeekRange = (d) => {
       const day = d.getDay(); // 0=Sun..6=Sat
-      // Make Monday the start of week
-      const deltaToMon = (day === 0 ? -6 : 1 - day);
-      const monday = addDays(d, deltaToMon);
-      const sunday = addDays(monday, 6);
-      return { from: ymd(monday), to: ymd(sunday) };
+      // NEW: Make Sunday the start of week
+      const deltaToSun = day; // 0=Sun->0, 1=Mon->1, 2=Tue->2, etc.
+      const sunday = addDays(d, -deltaToSun);
+      const saturday = addDays(sunday, 6);
+      return { from: ymd(sunday), to: ymd(saturday) };
     };
 
     let forcedPlan = false;

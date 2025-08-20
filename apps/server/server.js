@@ -75,7 +75,7 @@ function ymdInTimeZone(date, tz) {
   }
 }
 
-// Compute Monday–Sunday week range anchored to today in the given timezone
+// Compute Sunday–Saturday week range anchored to today in the given timezone
 function weekRangeFromToday(tz) {
   const now = new Date();
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -88,11 +88,12 @@ function weekRangeFromToday(tz) {
   const d = parseInt(map.day, 10);
   const today = new Date(y, m - 1, d);
   const jsWeekday = today.getDay(); // 0=Sun..6=Sat
-  const daysFromMonday = (jsWeekday + 6) % 7; // Mon->0, Sun->6
-  const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - daysFromMonday);
-  const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
+  // NEW: Sunday-based calculation
+  const daysFromSunday = jsWeekday; // Sun->0, Mon->1, Tue->2, etc.
+  const sunday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - daysFromSunday);
+  const saturday = new Date(sunday.getFullYear(), sunday.getMonth(), sunday.getDate() + 6);
   const ymd = (dt) => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
-  return { fromYmd: ymd(monday), toYmd: ymd(sunday) };
+  return { fromYmd: ymd(sunday), toYmd: ymd(saturday) };
 }
 
 // DB-backed helpers

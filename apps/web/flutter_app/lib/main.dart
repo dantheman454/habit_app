@@ -286,10 +286,11 @@ DateRange rangeForView(String anchor, ViewMode view) {
     final s = ymd(a);
     return DateRange(from: s, to: s);
   } else if (view == ViewMode.week) {
+    // NEW: Sunday-based calculation
     final weekday = a.weekday; // 1=Mon..7=Sun
-    final monday = a.subtract(Duration(days: weekday - 1));
-    final sunday = monday.add(const Duration(days: 6));
-    return DateRange(from: ymd(monday), to: ymd(sunday));
+    final sunday = a.subtract(Duration(days: weekday % 7)); // Sunday = 7, so 7%7=0, Monday=1, so 1%7=1, etc.
+    final saturday = sunday.add(const Duration(days: 6));
+    return DateRange(from: ymd(sunday), to: ymd(saturday));
   } else {
     final first = DateTime(a.year, a.month, 1);
     final last = DateTime(a.year, a.month + 1, 0);
@@ -324,7 +325,6 @@ class _HomePageState extends State<HomePage> {
   final Map<int, GlobalKey> _rowKeys = {};
 
   // Sidebar state
-  SmartList selected = SmartList.today;
   MainView mainView = MainView.tasks;
   
   String? _goalsStatusFilter; // null=all | 'active'|'completed'|'archived'
@@ -1158,7 +1158,6 @@ class _HomePageState extends State<HomePage> {
           if (!_kindFilter.contains('event')) {
             _kindFilter = <String>{'todo', 'event'};
           }
-          selected = SmartList.all;
         });
         await _refreshAll();
       }
@@ -1170,7 +1169,6 @@ class _HomePageState extends State<HomePage> {
           if (!_kindFilter.contains('todo')) {
             _kindFilter = <String>{'todo', 'event'};
           }
-          selected = SmartList.all;
         });
         await _refreshAll();
       }
@@ -2260,15 +2258,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   List<Todo> _currentList() {
-    List<Todo> items;
-    switch (selected) {
-      case SmartList.today:
-        items = scheduled;
-        break;
-      case SmartList.all:
-        items = scheduledAllTime;
-        break;
-    }
+    List<Todo> items = scheduled; // Always use scheduled items
     
     // Apply type filtering - but skip filtering when showing "All"
     if (mainView == MainView.tasks && _kindFilter.isNotEmpty) {
@@ -2287,24 +2277,7 @@ class _HomePageState extends State<HomePage> {
     return items;
   }
 
-  String _smartListKey(SmartList sl) {
-    switch (sl) {
-      case SmartList.today:
-        return 'today';
-      case SmartList.all:
-        return 'all';
-    }
-  }
 
-  SmartList _smartListFromKey(String k) {
-    switch (k) {
-      case 'today':
-        return SmartList.today;
-      case 'all':
-      default:
-        return SmartList.all;
-    }
-  }
 
   String? _getSelectedType() {
     if (_kindFilter.length == 1) {
@@ -2314,10 +2287,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   String? _getCurrentViewDate() {
-    if (selected == SmartList.today) {
-      return ymd(DateTime.now());
-    }
-    // For other views, return the anchor date
+    // Always return the anchor date
     return anchor;
   }
 
@@ -2576,7 +2546,6 @@ class _HomePageState extends State<HomePage> {
                     SizedBox(
                       width: 260,
                       child: sb.Sidebar(
-                        selectedKey: _smartListKey(selected),
                         currentView: view,
                         selectedContext: selectedContext,
                         showCompleted: showCompleted,
@@ -2599,36 +2568,6 @@ class _HomePageState extends State<HomePage> {
                         onDatePrev: _goPrev,
                         onDateNext: _goNext,
                         onDateToday: _goToToday,
-                        onSelect: (k) async {
-                          if (k == 'goals') {
-                            setState(() {
-                              mainView = MainView.goals;
-                            });
-                            return;
-                          } else if (k == 'habits') {
-                            setState(() {
-                              mainView = MainView.habits;
-                            });
-                            await _refreshAll();
-                            return;
-                          }
-                          final sl = _smartListFromKey(k);
-                          if (sl == SmartList.today) {
-                            setState(() {
-                              selected = sl;
-                              mainView = MainView.tasks;
-                              view = ViewMode.day;
-                              anchor = ymd(DateTime.now());
-                            });
-                            await _refreshAll();
-                          } else {
-                            setState(() {
-                              selected = sl;
-                              mainView = MainView.tasks;
-                            });
-                            await _refreshAll();
-                          }
-                        },
                         counters: sidebarCounts,
                       ),
                     ),
@@ -2845,13 +2784,14 @@ class _HomePageState extends State<HomePage> {
   Widget _buildWeekdayHeader() {
     try {
       final a = parseYmd(anchor);
-      // compute Monday of this week
-      final monday = a.subtract(Duration(days: (a.weekday + 6) % 7));
+      // NEW: compute Sunday of this week
+      final sunday = a.subtract(Duration(days: a.weekday % 7));
       final days = List<DateTime>.generate(
         7,
-        (i) => monday.add(Duration(days: i)),
+        (i) => sunday.add(Duration(days: i)),
       );
-      final labels = const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      // NEW: Sunday-first labels
+      final labels = const ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
       final today = ymd(DateTime.now());
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
@@ -2907,13 +2847,13 @@ class _HomePageState extends State<HomePage> {
     final a = parseYmd(anchor);
     final firstOfMonth = DateTime(a.year, a.month, 1);
     final lastOfMonth = DateTime(a.year, a.month + 1, 0);
-    // Compute Monday on/before first, Sunday on/after last
+    // NEW: Compute Sunday on/before first, Saturday on/after last
     DateTime start = firstOfMonth;
-    while (start.weekday != DateTime.monday) {
+    while (start.weekday != DateTime.sunday) {
       start = start.subtract(const Duration(days: 1));
     }
     DateTime end = lastOfMonth;
-    while (end.weekday != DateTime.sunday) {
+    while (end.weekday != DateTime.saturday) {
       end = end.add(const Duration(days: 1));
     }
     final days = <DateTime>[];
@@ -2928,14 +2868,15 @@ class _HomePageState extends State<HomePage> {
     for (int i = 0; i < days.length; i += 7) {
       weeks.add(days.sublist(i, i + 7));
     }
+    // NEW: Sunday-first weekday labels
     final weekdayLabels = const [
+      'Sun',
       'Mon',
       'Tue',
       'Wed',
       'Thu',
       'Fri',
       'Sat',
-      'Sun',
     ];
     return Column(
       children: [
@@ -3858,7 +3799,7 @@ class _HomePageState extends State<HomePage> {
           : t.completed;
       if (!isResolved && t.scheduledFor != null && t.timeOfDay != null) {
         final today = ymd(DateTime.now());
-        if (selected == SmartList.today && t.scheduledFor == today) {
+        if (t.scheduledFor == today) {
           final parts = (t.timeOfDay ?? '').split(':');
           if (parts.length == 2) {
             final now = DateTime.now();
@@ -4041,12 +3982,12 @@ class _HomePageState extends State<HomePage> {
       ),
     );
 
-    // Build Mon-Sun range from current anchor week
+    // Build Sun-Sat range from current anchor week
     final a = parseYmd(anchor);
-    final monday = a.subtract(Duration(days: (a.weekday + 6) % 7));
+    final sunday = a.subtract(Duration(days: a.weekday % 7));
     final week = List<DateTime>.generate(
       7,
-      (i) => monday.add(Duration(days: i)),
+      (i) => sunday.add(Duration(days: i)),
     );
   final weekY = week.map((d) => ymd(d)).toList();
     // Prepare habits

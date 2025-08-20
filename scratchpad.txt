@@ -6,19 +6,21 @@ Keep in mind:
 
 
 Get done Week of 8/17:
-    -Have two types of completions for task (completed and skipped)
     -Get fundamental functions of tasks and events working
         *search bar
         *add tasks and events
         *views working properly
     -Clean up UI
-        *remove Today and All from sidebar (this functionality is elsewhere already)
-        *switch week to start from sunday 
+        *Fix header to have sections
+        *Make events and tasks visually distinct in all views (also make sure different contexts work in month view)
+        *Switch the Day/Week/Month pill and All/Tasks/Events (figure out better way to layout)
         *make sure no weird wrapping in pills (Day/Week/Month pill is wack right now)
         *fix it from being so snappy when deleting todos or going between tabs
+        *Look at cursor, google calendar, and apple calendar/reminders for inspiration
+    -Make it such that no tasks or events can be set to have no date (default should be today)
     -Get assistant pipeline working for basic chats about events and tasks (maybe basic functions??)
         *simplify/iron out current pipeline
-        *plug in gpt-oss and see how it goes
+        *plug in gpt-oss or qwen-code and see how it goes
     -spam flutter analyze until no issues found and functionality is preserved
     -Modularize main and clean up/optimize the flutter directory??? (if access to GPT-5 again)
 
@@ -35,6 +37,5 @@ Get done Week of 8/17:
 
 Long term:
 -Make unit tests once stable version is here
--Look into DBMS (or better system) for connecting habits, goals, todos, and events
 -ask mitchell if I could fine tune models on the dgx (figure out best way to do this)
 -kaizen journal integration somehow?

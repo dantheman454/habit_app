@@ -106,7 +106,8 @@ class HabitsTracker extends StatelessWidget {
   }
 
   Widget _weekdayHeader(BuildContext context) {
-    final labels = const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    // NEW: Sunday-first labels
+    final labels = const ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Row(

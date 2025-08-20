@@ -30,18 +30,20 @@ function weekRangeFromToday(tz) {
     const d = parseInt(map.day, 10);
     const today = new Date(y, m - 1, d);
     const jsWeekday = today.getDay(); // 0=Sun..6=Sat
-    const daysFromMonday = (jsWeekday + 6) % 7; // Mon->0, Sun->6
-    const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - daysFromMonday);
-    const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
-    return { fromYmd: ymd(monday), toYmd: ymd(sunday) };
+    // NEW: Sunday-based calculation
+    const daysFromSunday = jsWeekday; // Sun->0, Mon->1, Tue->2, etc.
+    const sunday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - daysFromSunday);
+    const saturday = new Date(sunday.getFullYear(), sunday.getMonth(), sunday.getDate() + 6);
+    return { fromYmd: ymd(sunday), toYmd: ymd(saturday) };
   } catch {
     // Fallback to local
     const now = new Date();
     const jsWeekday = now.getDay();
-    const daysFromMonday = (jsWeekday + 6) % 7;
-    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysFromMonday);
-    const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
-    return { fromYmd: ymd(monday), toYmd: ymd(sunday) };
+    // NEW: Sunday-based calculation
+    const daysFromSunday = jsWeekday;
+    const sunday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysFromSunday);
+    const saturday = new Date(sunday.getFullYear(), sunday.getMonth(), sunday.getDate() + 6);
+    return { fromYmd: ymd(sunday), toYmd: ymd(saturday) };
   }
 }
 
