@@ -463,6 +463,15 @@ class _HomePageState extends State<HomePage> {
   int _searchHoverIndex = -1;
   bool _searching = false;
   int? _highlightedId;
+  
+  // Search filter state
+  String _searchScope = 'all'; // 'all', 'todo', 'event', 'habit'
+  String? _searchContext; // null for 'all', or 'personal', 'work', 'school'
+  String _searchStatusTodo = 'pending'; // 'pending', 'completed', 'skipped'
+  bool? _searchCompleted; // null for 'all', true for completed, false for incomplete
+  
+  // Today highlight animation state
+  bool _todayPulseActive = false;
 
   // Map of row keys for ensureVisible
   final Map<int, GlobalKey> _rowKeys = {};
@@ -575,6 +584,9 @@ class _HomePageState extends State<HomePage> {
     } else {
       setState(() => loading = false);
     }
+    
+    // Initialize search context to match sidebar
+    _searchContext = selectedContext;
   }
 
   Widget _quickAddHabitsInline() {
@@ -752,6 +764,16 @@ class _HomePageState extends State<HomePage> {
         const SnackBar(content: Text('Use 24‑hour time, e.g. 09:00.')),
       );
       return;
+    }
+    
+    // Validate start ≤ end time if both are provided
+    if (start.isNotEmpty && end.isNotEmpty) {
+      if (start.compareTo(end) > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('End time must be after start time.')),
+        );
+        return;
+      }
     }
     
     // Validate date format if provided
@@ -1231,13 +1253,12 @@ class _HomePageState extends State<HomePage> {
       } catch (_) {}
       _searchCancelToken = CancelToken();
       setState(() => _searching = true);
-      final scope = 'all'; // Always search both todos and events
       final raw = await api.searchUnified(
         q,
-        // exclude habits for now per requirements
-        scope: (scope == 'habit') ? 'event' : scope,
-        completed: showCompleted ? null : false,
-        statusTodo: showCompleted ? null : 'pending',
+        scope: _searchScope,
+        completed: _searchCompleted ?? (showCompleted ? null : false),
+        statusTodo: _searchStatusTodo,
+        context: _searchContext,
         cancelToken: _searchCancelToken,
         limit: 30,
       );
@@ -1269,6 +1290,85 @@ class _HomePageState extends State<HomePage> {
     _searchDebounce = Timer(
       const Duration(milliseconds: 250),
       () => _runSearch(v),
+    );
+  }
+
+  // Search filter chip functions
+  void _setSearchScope(String scope) {
+    setState(() => _searchScope = scope);
+    _runSearch(searchCtrl.text);
+  }
+
+  void _setSearchContext(String? context) {
+    setState(() => _searchContext = context);
+    // Sync with sidebar context
+    if (selectedContext != context) {
+      selectedContext = context;
+      _refreshAll();
+    }
+    _runSearch(searchCtrl.text);
+  }
+
+  void _setSearchStatusTodo(String status) {
+    setState(() => _searchStatusTodo = status);
+    _runSearch(searchCtrl.text);
+  }
+
+  void _setSearchCompleted(bool? completed) {
+    setState(() => _searchCompleted = completed);
+    _runSearch(searchCtrl.text);
+  }
+
+  void _resetSearchFilters() {
+    setState(() {
+      _searchScope = 'all';
+      _searchContext = selectedContext;
+      _searchStatusTodo = 'pending';
+      _searchCompleted = null;
+    });
+    _runSearch(searchCtrl.text);
+  }
+
+  Widget _buildFilterChip(String label, bool selected, VoidCallback onTap) {
+    return FilterChip(
+      label: Text(label),
+      selected: selected,
+      onSelected: (_) => onTap(),
+      backgroundColor: Colors.transparent,
+      selectedColor: Theme.of(context).colorScheme.primaryContainer,
+      checkmarkColor: Theme.of(context).colorScheme.onPrimaryContainer,
+      labelStyle: TextStyle(
+        color: selected 
+          ? Theme.of(context).colorScheme.onPrimaryContainer
+          : Theme.of(context).colorScheme.onSurface,
+      ),
+    );
+  }
+
+  void _showSettingsDialog() {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Settings'),
+        content: const SizedBox(
+          width: 400,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Application Settings', style: TextStyle(fontWeight: FontWeight.bold)),
+              SizedBox(height: 16),
+              Text('Settings dialog implemented. Additional settings can be added here.'),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1322,8 +1422,77 @@ class _HomePageState extends State<HomePage> {
                                 ),
                               ],
                             ),
-                            child: (_searching && results.isEmpty)
-                                ? const Padding(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                // Filter chips
+                                Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      // Scope chips
+                                      Wrap(
+                                        spacing: 6,
+                                        runSpacing: 6,
+                                        children: [
+                                          _buildFilterChip('All', _searchScope == 'all', () => _setSearchScope('all')),
+                                          _buildFilterChip('Todos', _searchScope == 'todo', () => _setSearchScope('todo')),
+                                          _buildFilterChip('Events', _searchScope == 'event', () => _setSearchScope('event')),
+                                          _buildFilterChip('Habits', _searchScope == 'habit', () => _setSearchScope('habit')),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      // Context chips
+                                      Wrap(
+                                        spacing: 6,
+                                        runSpacing: 6,
+                                        children: [
+                                          _buildFilterChip('All ctx', _searchContext == null, () => _setSearchContext(null)),
+                                          _buildFilterChip('Personal', _searchContext == 'personal', () => _setSearchContext('personal')),
+                                          _buildFilterChip('Work', _searchContext == 'work', () => _setSearchContext('work')),
+                                          _buildFilterChip('School', _searchContext == 'school', () => _setSearchContext('school')),
+                                        ],
+                                      ),
+                                                                             if (_searchScope == 'todo') ...[
+                                         const SizedBox(height: 8),
+                                         // Todo status chips (only when scope is todo)
+                                         Wrap(
+                                           spacing: 6,
+                                           runSpacing: 6,
+                                           children: [
+                                             _buildFilterChip('Pending', _searchStatusTodo == 'pending', () => _setSearchStatusTodo('pending')),
+                                             _buildFilterChip('Completed', _searchStatusTodo == 'completed', () => _setSearchStatusTodo('completed')),
+                                             _buildFilterChip('Skipped', _searchStatusTodo == 'skipped', () => _setSearchStatusTodo('skipped')),
+                                           ],
+                                         ),
+                                       ],
+                                       if (_searchScope == 'event' || _searchScope == 'habit' || _searchScope == 'all') ...[
+                                         const SizedBox(height: 8),
+                                         // Completed status chips (for events/habits)
+                                         Wrap(
+                                           spacing: 6,
+                                           runSpacing: 6,
+                                           children: [
+                                             _buildFilterChip('All', _searchCompleted == null, () => _setSearchCompleted(null)),
+                                             _buildFilterChip('Completed', _searchCompleted == true, () => _setSearchCompleted(true)),
+                                             _buildFilterChip('Incomplete', _searchCompleted == false, () => _setSearchCompleted(false)),
+                                           ],
+                                         ),
+                                       ],
+                                      const SizedBox(height: 8),
+                                      // Reset button
+                                      TextButton(
+                                        onPressed: _resetSearchFilters,
+                                        child: const Text('Reset filters'),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const Divider(height: 1),
+                                // Results
+                                if (_searching && results.isEmpty)
+                                  const Padding(
                                     padding: EdgeInsets.all(12),
                                     child: Center(
                                       child: SizedBox(
@@ -1335,7 +1504,9 @@ class _HomePageState extends State<HomePage> {
                                       ),
                                     ),
                                   )
-                                : ListView.separated(
+                                else
+                                  Flexible(
+                                    child: ListView.separated(
                                     padding: const EdgeInsets.symmetric(
                                       vertical: 6,
                                     ),
@@ -1400,6 +1571,9 @@ class _HomePageState extends State<HomePage> {
                                     ),
                                     itemCount: results.length,
                                   ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
@@ -2691,14 +2865,38 @@ class _HomePageState extends State<HomePage> {
                     autofocus: true,
                   ),
                   const SizedBox(height: 8),
-                  TextField(
-                    controller: _qaTodoDate,
-                    decoration: const InputDecoration(labelText: 'Date (YYYY-MM-DD)'),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _qaTodoDate,
+                          decoration: const InputDecoration(labelText: 'Date (YYYY-MM-DD)'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        onPressed: () => _pickDate(_qaTodoDate),
+                        icon: const Icon(Icons.calendar_today),
+                        tooltip: 'Pick date',
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 8),
-                  TextField(
-                    controller: _qaTodoTime,
-                    decoration: const InputDecoration(labelText: 'Time (HH:MM)'),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _qaTodoTime,
+                          decoration: const InputDecoration(labelText: 'Time (HH:MM)'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        onPressed: () => _pickTime(_qaTodoTime),
+                        icon: const Icon(Icons.access_time),
+                        tooltip: 'Pick time',
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 8),
                   TextField(
@@ -2791,19 +2989,55 @@ class _HomePageState extends State<HomePage> {
                     autofocus: true,
                   ),
                   const SizedBox(height: 8),
-                  TextField(
-                    controller: _qaEventDate,
-                    decoration: const InputDecoration(labelText: 'Date (YYYY-MM-DD)'),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _qaEventDate,
+                          decoration: const InputDecoration(labelText: 'Date (YYYY-MM-DD)'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        onPressed: () => _pickDate(_qaEventDate),
+                        icon: const Icon(Icons.calendar_today),
+                        tooltip: 'Pick date',
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 8),
-                  TextField(
-                    controller: _qaEventStart,
-                    decoration: const InputDecoration(labelText: 'Start Time (HH:MM)'),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _qaEventStart,
+                          decoration: const InputDecoration(labelText: 'Start Time (HH:MM)'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        onPressed: () => _pickTime(_qaEventStart),
+                        icon: const Icon(Icons.access_time),
+                        tooltip: 'Pick start time',
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 8),
-                  TextField(
-                    controller: _qaEventEnd,
-                    decoration: const InputDecoration(labelText: 'End Time (HH:MM)'),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _qaEventEnd,
+                          decoration: const InputDecoration(labelText: 'End Time (HH:MM)'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        onPressed: () => _pickTime(_qaEventEnd),
+                        icon: const Icon(Icons.access_time),
+                        tooltip: 'Pick end time',
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 8),
                   TextField(
@@ -2883,154 +3117,236 @@ class _HomePageState extends State<HomePage> {
         ? const Center(child: CircularProgressIndicator())
         : Column(
             children: [
-              // Unified header spanning entire app width
+              // Header with 3-section layout: Left (Logo), Center (Search), Right (Actions)
               Container(
                 color: Theme.of(context).colorScheme.surface,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 child: Row(
                   children: [
-                    // Logo
-                    const sb.HabitusLogo(),
-                    const VerticalDivider(width: 1),
-                    // Search box
+                    // Left: Logo + Title
                     Expanded(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 250),
-                        child: CompositedTransformTarget(
-                          link: _searchLink,
-                          child: Focus(
-                            focusNode: _searchFocus,
-                            onFocusChange: (f) {
-                              if (!f) {
-                                _removeSearchOverlay();
-                              } else {
-                                _showSearchOverlayIfNeeded();
-                              }
-                            },
-                            onKeyEvent: (node, event) {
-                              if (!_searchFocus.hasFocus) {
-                                return KeyEventResult.ignored;
-                              }
-                              if (event is! KeyDownEvent) {
-                                return KeyEventResult.ignored;
-                              }
-                              final len = math.min(
-                                searchResults.length,
-                                7,
-                              );
-                              if (event.logicalKey ==
-                                  LogicalKeyboardKey.arrowDown) {
-                                setState(() {
-                                  _searchHoverIndex = len == 0
-                                      ? -1
-                                      : (_searchHoverIndex + 1) % len;
-                                });
-                                _showSearchOverlayIfNeeded();
-                                return KeyEventResult.handled;
-                              } else if (event.logicalKey ==
-                                  LogicalKeyboardKey.arrowUp) {
-                                setState(() {
-                                  _searchHoverIndex = len == 0
-                                      ? -1
-                                      : (_searchHoverIndex - 1 + len) %
-                                            len;
-                                });
-                                _showSearchOverlayIfNeeded();
-                                return KeyEventResult.handled;
-                              } else if (event.logicalKey ==
-                                  LogicalKeyboardKey.enter) {
-                                final list = searchResults
-                                    .take(7)
-                                    .toList();
-                                if (list.isEmpty) {
+                      flex: 2,
+                      child: Row(
+                        children: [
+                          const sb.HabitusLogo(),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Habitus',
+                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Center: Search field (anchor for overlay)
+                    Expanded(
+                      flex: 3,
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 400),
+                          child: CompositedTransformTarget(
+                            link: _searchLink,
+                            child: Focus(
+                              focusNode: _searchFocus,
+                              onFocusChange: (f) {
+                                if (!f) {
+                                  _removeSearchOverlay();
+                                } else {
+                                  _showSearchOverlayIfNeeded();
+                                }
+                              },
+                              onKeyEvent: (node, event) {
+                                if (!_searchFocus.hasFocus) {
+                                  return KeyEventResult.ignored;
+                                }
+                                if (event is! KeyDownEvent) {
+                                  return KeyEventResult.ignored;
+                                }
+                                final len = math.min(
+                                  searchResults.length,
+                                  7,
+                                );
+                                if (event.logicalKey ==
+                                    LogicalKeyboardKey.arrowDown) {
+                                  setState(() {
+                                    _searchHoverIndex = len == 0
+                                        ? -1
+                                        : (_searchHoverIndex + 1) % len;
+                                  });
+                                  _showSearchOverlayIfNeeded();
+                                  return KeyEventResult.handled;
+                                } else if (event.logicalKey ==
+                                    LogicalKeyboardKey.arrowUp) {
+                                  setState(() {
+                                    _searchHoverIndex = len == 0
+                                        ? -1
+                                        : (_searchHoverIndex - 1 + len) %
+                                              len;
+                                  });
+                                  _showSearchOverlayIfNeeded();
+                                  return KeyEventResult.handled;
+                                } else if (event.logicalKey ==
+                                    LogicalKeyboardKey.enter) {
+                                  final list = searchResults
+                                      .take(7)
+                                      .toList();
+                                  if (list.isEmpty) {
+                                    return KeyEventResult.handled;
+                                  }
+                                  final idx =
+                                      _searchHoverIndex >= 0 &&
+                                          _searchHoverIndex < list.length
+                                      ? _searchHoverIndex
+                                      : 0;
+                                  _selectSearchResult(list[idx]);
                                   return KeyEventResult.handled;
                                 }
-                                final idx =
-                                    _searchHoverIndex >= 0 &&
-                                        _searchHoverIndex < list.length
-                                    ? _searchHoverIndex
-                                    : 0;
-                                _selectSearchResult(list[idx]);
-                                return KeyEventResult.handled;
-                              }
-                              return KeyEventResult.ignored;
-                            },
-                            child: TextField(
-                              controller: searchCtrl,
-                              decoration: InputDecoration(
-                                prefixIcon: const Icon(Icons.search),
-                                hintText: 'Search',
-                                filled: true,
-                                fillColor: Theme.of(
-                                  context,
-                                ).colorScheme.surfaceContainerHigh,
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(
-                                    24,
-                                  ),
-                                  borderSide: BorderSide(
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .outline
-                                        .withAlpha((0.4 * 255).round()),
-                                  ),
-                                ),
-                                focusedBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(
-                                    24,
-                                  ),
-                                  borderSide: BorderSide(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.primary,
-                                    width: 2,
-                                  ),
-                                ),
-                                suffixIcon: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    if (_searching)
-                                      SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: Padding(
-                                          padding: EdgeInsets.all(8),
-                                          child:
-                                              CircularProgressIndicator(
-                                                strokeWidth: 2,
-                                              ),
-                                        ),
-                                      ),
-                                    if (searchCtrl.text.isNotEmpty)
-                                      IconButton(
-                                        icon: const Icon(Icons.clear),
-                                        onPressed: () {
-                                          searchCtrl.clear();
-                                          setState(() {
-                                            searchResults = [];
-                                            _searchHoverIndex = -1;
-                                          });
-                                          _removeSearchOverlay();
-                                        },
-                                      ),
-                                  ],
-                                ),
-                              ),
-                              onChanged: (v) {
-                                _onSearchChanged(v);
-                                _showSearchOverlayIfNeeded();
+                                return KeyEventResult.ignored;
                               },
+                              child: TextField(
+                                controller: searchCtrl,
+                                decoration: InputDecoration(
+                                  prefixIcon: const Icon(Icons.search),
+                                  hintText: 'Search',
+                                  filled: true,
+                                  fillColor: Theme.of(
+                                    context,
+                                  ).colorScheme.surfaceContainerHigh,
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(
+                                      24,
+                                    ),
+                                    borderSide: BorderSide(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .outline
+                                          .withAlpha((0.4 * 255).round()),
+                                    ),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(
+                                      24,
+                                    ),
+                                    borderSide: BorderSide(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.primary,
+                                      width: 2,
+                                    ),
+                                  ),
+                                  suffixIcon: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (_searching)
+                                        SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: Padding(
+                                            padding: EdgeInsets.all(8),
+                                            child:
+                                                CircularProgressIndicator(
+                                                  strokeWidth: 2,
+                                                ),
+                                          ),
+                                        ),
+                                      if (searchCtrl.text.isNotEmpty)
+                                        IconButton(
+                                          icon: const Icon(Icons.clear),
+                                          onPressed: () {
+                                            searchCtrl.clear();
+                                            setState(() {
+                                              searchResults = [];
+                                              _searchHoverIndex = -1;
+                                            });
+                                            _removeSearchOverlay();
+                                          },
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                                onChanged: (v) {
+                                  _onSearchChanged(v);
+                                  _showSearchOverlayIfNeeded();
+                                },
+                              ),
                             ),
                           ),
                         ),
                       ),
                     ),
-                    const Spacer(),
-                    // Assistant toggle
-                    IconButton(
-                      icon: Icon(assistantCollapsed ? Icons.smart_toy_outlined : Icons.smart_toy),
-                      onPressed: () => setState(() => assistantCollapsed = !assistantCollapsed),
-                      tooltip: assistantCollapsed ? 'Show Mr. Assister' : 'Hide Mr. Assister',
+                    // Right: Quick actions
+                    Expanded(
+                      flex: 2,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Tooltip(
+                            message: 'Today',
+                            child: IconButton(
+                              icon: const Icon(Icons.today),
+                              onPressed: _goToToday,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Tooltip(
+                            message: 'Add task',
+                            child: FilledButton.tonal(
+                              onPressed: _showQuickAddTodo,
+                              child: const Text('New Todo'),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Tooltip(
+                            message: 'Add event',
+                            child: OutlinedButton(
+                              onPressed: _showQuickAddEvent,
+                              child: const Text('New Event'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          PopupMenuButton<String>(
+                            icon: const Icon(Icons.more_vert),
+                            onSelected: (value) {
+                              if (value == 'settings') {
+                                _showSettingsDialog();
+                              } else if (value == 'show_completed') {
+                                setState(() => showCompleted = !showCompleted);
+                                _refreshAll();
+                              }
+                            },
+                            itemBuilder: (context) => [
+                              const PopupMenuItem(
+                                value: 'show_completed',
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.check_circle_outline),
+                                    SizedBox(width: 8),
+                                    Text('Show Completed'),
+                                  ],
+                                ),
+                              ),
+                              const PopupMenuItem(
+                                value: 'settings',
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.settings),
+                                    SizedBox(width: 8),
+                                    Text('Settings'),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(width: 8),
+                          // Assistant toggle (moved to right section)
+                          IconButton(
+                            icon: Icon(assistantCollapsed ? Icons.smart_toy_outlined : Icons.smart_toy),
+                            onPressed: () => setState(() => assistantCollapsed = !assistantCollapsed),
+                            tooltip: assistantCollapsed ? 'Show Mr. Assister' : 'Hide Mr. Assister',
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -3253,20 +3569,22 @@ class _HomePageState extends State<HomePage> {
                 final isTodayHeader = entry.key == ymd(DateTime.now());
                 final label = isTodayHeader ? '${entry.key}  (Today)' : entry.key;
                 return AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  curve: Curves.easeOutCubic,
+                  duration: Duration(milliseconds: _todayPulseActive && isTodayHeader ? 350 : 300),
+                  curve: _todayPulseActive && isTodayHeader ? Curves.easeInOut : Curves.easeOutCubic,
                   margin: const EdgeInsets.only(top: 8, bottom: 2),
                   padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
                   decoration: BoxDecoration(
                     color: isTodayHeader
-                        ? Theme.of(context).colorScheme.primary.withAlpha((0.06 * 255).round())
+                        ? Theme.of(context).colorScheme.primary.withAlpha(
+                            _todayPulseActive ? (0.15 * 255).round() : (0.06 * 255).round()
+                          )
                         : null,
                     border: Border(
                       left: BorderSide(
                         color: isTodayHeader
                             ? Theme.of(context).colorScheme.primary
                             : Colors.transparent,
-                        width: 3,
+                        width: _todayPulseActive && isTodayHeader ? 4 : 3,
                       ),
                     ),
                   ),
@@ -3629,8 +3947,45 @@ class _HomePageState extends State<HomePage> {
   void _goToToday() async {
     setState(() {
       anchor = ymd(DateTime.now());
+      _todayPulseActive = true;
     });
     await _refreshAll();
+    
+    // Trigger pulse animation
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (mounted) {
+        setState(() => _todayPulseActive = false);
+      }
+    });
+  }
+
+  // Date/Time picker helpers for quick-add forms
+  Future<void> _pickDate(TextEditingController ctrl) async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: now,
+      firstDate: DateTime(now.year - 1),
+      lastDate: DateTime(now.year + 2),
+    );
+    if (picked != null) {
+      final y = picked.year.toString().padLeft(4, '0');
+      final m = picked.month.toString().padLeft(2, '0');
+      final d = picked.day.toString().padLeft(2, '0');
+      ctrl.text = '$y-$m-$d';
+    }
+  }
+
+  Future<void> _pickTime(TextEditingController ctrl) async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.now(),
+    );
+    if (picked != null) {
+      final h = picked.hour.toString().padLeft(2, '0');
+      final m = picked.minute.toString().padLeft(2, '0');
+      ctrl.text = '$h:$m';
+    }
   }
 
   void _maybeScrollToPendingDate() {

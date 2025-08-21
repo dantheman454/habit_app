@@ -1082,6 +1082,8 @@ app.get('/api/search', (req, res) => {
   }
   const status_todo = (req.query.status_todo === undefined) ? undefined : String(req.query.status_todo);
   if (status_todo !== undefined && !['pending','completed','skipped'].includes(status_todo)) return res.status(400).json({ error: 'invalid_status_todo' });
+  const context = (req.query.context === undefined) ? undefined : String(req.query.context);
+  if (context !== undefined && !['school','personal','work'].includes(context)) return res.status(400).json({ error: 'invalid_context' });
   const limit = (() => {
     const n = parseInt(String(req.query.limit ?? '30'), 10);
     if (!Number.isFinite(n)) return 30;
@@ -1090,7 +1092,8 @@ app.get('/api/search', (req, res) => {
 
   const wantTodos = (scope === 'all' || scope === 'todo');
   const wantEvents = (scope === 'all' || scope === 'event');
-  if (!wantTodos && !wantEvents) return res.status(400).json({ error: 'invalid_scope' });
+  const wantHabits = (scope === 'all' || scope === 'habit');
+  if (!wantTodos && !wantEvents && !wantHabits) return res.status(400).json({ error: 'invalid_scope' });
 
   try {
     let out = [];
@@ -1106,7 +1109,7 @@ app.get('/api/search', (req, res) => {
     };
 
     if (wantTodos) {
-      let items = db.searchTodos({ q, status: status_todo });
+      let items = db.searchTodos({ q, status: status_todo, context });
       if (q.length < 2) {
         const ql = q.toLowerCase();
         items = items.filter(t => String(t.title || '').toLowerCase().includes(ql) || String(t.notes || '').toLowerCase().includes(ql));
@@ -1124,7 +1127,7 @@ app.get('/api/search', (req, res) => {
       })));
     }
     if (wantEvents) {
-      let items = db.searchEvents({ q, completed: completedBool });
+      let items = db.searchEvents({ q, completed: completedBool, context });
       if (q.length < 2) {
         const ql = q.toLowerCase();
         items = items.filter(e => String(e.title || '').toLowerCase().includes(ql) || String(e.notes || '').toLowerCase().includes(ql) || String(e.location || '').toLowerCase().includes(ql));
@@ -1141,6 +1144,24 @@ app.get('/api/search', (req, res) => {
         location: e.location ?? null,
         createdAt: e.createdAt,
         updatedAt: e.updatedAt,
+      })));
+    }
+    if (wantHabits) {
+      let items = db.searchHabits({ q, completed: completedBool, context });
+      if (q.length < 2) {
+        const ql = q.toLowerCase();
+        items = items.filter(h => String(h.title || '').toLowerCase().includes(ql) || String(h.notes || '').toLowerCase().includes(ql));
+      }
+  out.push(...items.map(h => ({
+        kind: 'habit',
+        id: h.id,
+        title: h.title,
+        notes: h.notes,
+        scheduledFor: h.scheduledFor,
+        completed: h.completed,
+        timeOfDay: h.timeOfDay ?? null,
+        createdAt: h.createdAt,
+        updatedAt: h.updatedAt,
       })));
     }
 

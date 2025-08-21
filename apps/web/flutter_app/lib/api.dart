@@ -84,6 +84,7 @@ Future<List<dynamic>> searchUnified(
   String scope = 'all', // 'todo' | 'event' | 'habit' | 'all'
   bool? completed, // applies to events/habits only
   String? statusTodo, // applies to todos only
+  String? context, // 'school' | 'personal' | 'work' | null for 'all'
   CancelToken? cancelToken,
   int? limit,
 }) async {
@@ -94,6 +95,7 @@ Future<List<dynamic>> searchUnified(
       if (scope.isNotEmpty) 'scope': scope,
       if (completed != null) 'completed': completed.toString(),
       if (statusTodo != null) 'status_todo': statusTodo,
+      if (context != null) 'context': context,
       if (limit != null) 'limit': limit,
     },
     cancelToken: cancelToken,
