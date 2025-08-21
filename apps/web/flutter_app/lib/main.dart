@@ -3205,19 +3205,12 @@ class _HomePageState extends State<HomePage> {
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 child: Row(
                   children: [
-                    // Left: Logo + Title
+                    // Left: Logo
                     Expanded(
                       flex: 2,
                       child: Row(
                         children: [
                           const sb.HabitusLogo(),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Habitus',
-                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
                         ],
                       ),
                     ),
@@ -3363,65 +3356,7 @@ class _HomePageState extends State<HomePage> {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
-                          Tooltip(
-                            message: 'Today',
-                            child: IconButton(
-                              icon: const Icon(Icons.today),
-                              onPressed: _goToToday,
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          Tooltip(
-                            message: 'Add task',
-                            child: FilledButton.tonal(
-                              onPressed: _showQuickAddTodo,
-                              child: const Text('New Todo'),
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          Tooltip(
-                            message: 'Add event',
-                            child: OutlinedButton(
-                              onPressed: _showQuickAddEvent,
-                              child: const Text('New Event'),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          PopupMenuButton<String>(
-                            icon: const Icon(Icons.more_vert),
-                            onSelected: (value) {
-                              if (value == 'settings') {
-                                _showSettingsDialog();
-                              } else if (value == 'show_completed') {
-                                setState(() => showCompleted = !showCompleted);
-                                _refreshAll();
-                              }
-                            },
-                            itemBuilder: (context) => [
-                              const PopupMenuItem(
-                                value: 'show_completed',
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.check_circle_outline),
-                                    SizedBox(width: 8),
-                                    Text('Show Completed'),
-                                  ],
-                                ),
-                              ),
-                              const PopupMenuItem(
-                                value: 'settings',
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.settings),
-                                    SizedBox(width: 8),
-                                    Text('Settings'),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(width: 8),
-                          // Assistant toggle (moved to right section)
+                          // Assistant toggle
                           IconButton(
                             icon: Icon(assistantCollapsed ? Icons.smart_toy_outlined : Icons.smart_toy),
                             onPressed: () => setState(() => assistantCollapsed = !assistantCollapsed),
