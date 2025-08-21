@@ -13,7 +13,7 @@ const CHAT_THRESHOLD = 0.70;
 const TIMEZONE = process.env.TZ_NAME || 'America/New_York';
 
 // Cache models locally for this module so logs and calls stay consistent.
-const MODELS = (typeof getModels === 'function') ? getModels() : { convo: process.env.CONVO_MODEL || 'gpt-oss:20b' };
+const MODELS = (typeof getModels === 'function') ? getModels() : { convo: process.env.CONVO_MODEL || 'qwen3-coder:30b' };
 
 export async function runRouter({ instruction, transcript = [], clarify }) {
   const msg = String(instruction || '').trim();

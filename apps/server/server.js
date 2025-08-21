@@ -45,8 +45,8 @@ const __dirname = path.dirname(__filename);
 // throughout the server process. This is intentionally read-once so runtime
 // behaviour is consistent and so we can log configured models at startup.
 const MODELS = (typeof getModels === 'function') ? getModels() : {
-  convo: process.env.CONVO_MODEL || 'gpt-oss:20b',
-  code: process.env.CODE_MODEL || 'gpt-oss:20b',
+  convo: process.env.CONVO_MODEL || 'qwen3-coder:30b',
+  code: process.env.CODE_MODEL || 'qwen3-coder:30b',
   host: process.env.OLLAMA_HOST || '127.0.0.1',
   port: process.env.OLLAMA_PORT || '11434',
 };

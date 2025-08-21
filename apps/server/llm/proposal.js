@@ -8,7 +8,7 @@ import { extractFirstJson } from './json_extract.js';
 import { qualityMonitor } from './quality_monitor.js';
 
 const TIMEZONE = process.env.TZ_NAME || 'America/New_York';
-const MODELS = (typeof getModels === 'function') ? getModels() : { code: process.env.CODE_MODEL || 'gpt-oss:20b' };
+const MODELS = (typeof getModels === 'function') ? getModels() : { code: process.env.CODE_MODEL || 'qwen3-coder:30b' };
 
 // Add operation validation before returning
 function validateProposalOutput(parsed) {

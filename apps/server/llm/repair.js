@@ -6,7 +6,7 @@ import { mkCorrelationId, logIO } from './logging.js';
 import { extractFirstJson } from './json_extract.js';
 
 const TIMEZONE = process.env.TZ_NAME || 'America/New_York';
-const MODELS = (typeof getModels === 'function') ? getModels() : { code: process.env.CODE_MODEL || 'gpt-oss:20b' };
+const MODELS = (typeof getModels === 'function') ? getModels() : { code: process.env.CODE_MODEL || 'qwen3-coder:30b' };
 
 export async function runRepair({ errors, original, focusedContext }) {
   if (!Array.isArray(errors) || !errors.length) {

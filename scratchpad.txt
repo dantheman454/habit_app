@@ -1,7 +1,7 @@
 Keep in mind:
 -Have full functionality (BEFORE SCHOOL STARTS)so I can get my actual todos and events in
     *if not, MUST have better way to do google calendar and reminders app using notebookLM or something else (not ideal but fallback)
-
+-MAKE A WIREFRAME FOR SITE ON FIGMA
 
 Get done Week of 8/17:
     -Get fundamental functions of tasks and events working
@@ -10,6 +10,7 @@ Get done Week of 8/17:
     -Clean up UI (CHAT WITH COMET ABOUT THIS AND BRAINSTORM EXACT UPDATES)
         *Fix header to have sections
             >make searchbar smaller 
+            >make skip an x in the top right corner for events and tasks
             >clean update Mr Assisters toggle button
         *Make events and tasks visually distinct in all views (also make sure different contexts work in month view)
         *Switch the Day/Week/Month pill and All/Tasks/Events (figure out better way to layout)
