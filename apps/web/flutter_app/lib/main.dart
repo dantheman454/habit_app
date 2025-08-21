@@ -280,6 +280,150 @@ class DateNavigation extends StatelessWidget {
   }
 }
 
+class FilterBar extends StatelessWidget {
+  final ViewMode currentView;
+  final void Function(ViewMode) onViewChanged;
+  final VoidCallback? onDatePrev;
+  final VoidCallback? onDateNext;
+  final VoidCallback? onDateToday;
+  final String? selectedType;
+  final void Function(String?) onTypeChanged;
+  final String? selectedContext;
+  final void Function(String?) onContextChanged;
+  final bool showCompleted;
+  final void Function(bool) onShowCompletedChanged;
+
+  const FilterBar({
+    super.key,
+    required this.currentView,
+    required this.onViewChanged,
+    this.onDatePrev,
+    this.onDateNext,
+    this.onDateToday,
+    required this.selectedType,
+    required this.onTypeChanged,
+    required this.selectedContext,
+    required this.onContextChanged,
+    required this.showCompleted,
+    required this.onShowCompletedChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeOutCubic,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        border: Border(
+          bottom: BorderSide(
+            color: Theme.of(context).colorScheme.outlineVariant,
+            width: 1,
+          ),
+        ),
+      ),
+      child: Column(
+        children: [
+          // Primary filters row
+          Row(
+            children: [
+              // View mode filters
+              SegmentedButton<ViewMode>(
+                segments: const [
+                  ButtonSegment(value: ViewMode.day, label: Text('Day')),
+                  ButtonSegment(value: ViewMode.week, label: Text('Week')),
+                  ButtonSegment(value: ViewMode.month, label: Text('Month')),
+                ],
+                selected: {currentView},
+                onSelectionChanged: (s) => onViewChanged(s.first),
+              ),
+              
+              const SizedBox(width: 16),
+              
+              // Date navigation
+              if (onDatePrev != null && onDateNext != null && onDateToday != null)
+                DateNavigation(
+                  onPrev: onDatePrev!,
+                  onNext: onDateNext!,
+                  onToday: onDateToday!,
+                ),
+              
+              const Spacer(),
+              
+              // Type filters
+              slt.TypeTabs(
+                selectedType: selectedType,
+                onTypeChanged: onTypeChanged,
+              ),
+            ],
+          ),
+          
+          const SizedBox(height: 8),
+          
+          // Secondary filters row
+          Row(
+            children: [
+              // Context filters
+              _buildContextFilters(context),
+              
+              const Spacer(),
+              
+              // Show completed toggle
+              Row(
+                children: [
+                  const Icon(Icons.check_circle_outline, size: 16),
+                  const SizedBox(width: 8),
+                  const Text('Show Completed'),
+                  const SizedBox(width: 8),
+                  Switch(
+                    value: showCompleted,
+                    onChanged: onShowCompletedChanged,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContextFilters(BuildContext context) {
+    return Row(
+      children: [
+        _buildContextChip('All', null, Icons.public, context),
+        const SizedBox(width: 8),
+        _buildContextChip('School', 'school', Icons.school, context),
+        const SizedBox(width: 8),
+        _buildContextChip('Personal', 'personal', Icons.person, context),
+        const SizedBox(width: 8),
+        _buildContextChip('Work', 'work', Icons.work, context),
+      ],
+    );
+  }
+
+  Widget _buildContextChip(String label, String? contextValue, IconData icon, BuildContext context) {
+    final active = selectedContext == contextValue;
+    return AnimatedScale(
+      duration: const Duration(milliseconds: 200),
+      scale: active ? 1.05 : 1.0,
+      child: FilterChip(
+        label: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16),
+            const SizedBox(width: 4),
+            Text(label),
+          ],
+        ),
+        selected: active,
+        onSelected: (_) => onContextChanged(contextValue),
+      ),
+    );
+  }
+}
+
 DateRange rangeForView(String anchor, ViewMode view) {
   final a = parseYmd(anchor);
   if (view == ViewMode.day) {
@@ -2627,8 +2771,7 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final w = MediaQuery.of(context).size.width;
-    final showAssistantText = w >= 900;
+
     final body = loading
         ? const Center(child: CircularProgressIndicator())
         : Column(
@@ -2636,7 +2779,7 @@ class _HomePageState extends State<HomePage> {
               // Unified header spanning entire app width
               Container(
                 color: Theme.of(context).colorScheme.surface,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 child: Row(
                   children: [
                     // Logo
@@ -2645,7 +2788,7 @@ class _HomePageState extends State<HomePage> {
                     // Search box
                     Expanded(
                       child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 400),
+                        constraints: const BoxConstraints(maxWidth: 300),
                         child: CompositedTransformTarget(
                           link: _searchLink,
                           child: Focus(
@@ -2775,14 +2918,12 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ),
                     ),
-                    const VerticalDivider(width: 1),
+                    const Spacer(),
                     // Assistant toggle
-                    TextButton.icon(
+                    IconButton(
+                      icon: Icon(assistantCollapsed ? Icons.smart_toy_outlined : Icons.smart_toy),
                       onPressed: () => setState(() => assistantCollapsed = !assistantCollapsed),
-                      icon: const Icon(Icons.smart_toy_outlined, size: 18),
-                      label: showAssistantText
-                          ? Text(assistantCollapsed ? 'Show Mr. Assister' : 'Hide Mr. Assister')
-                          : const SizedBox.shrink(),
+                      tooltip: assistantCollapsed ? 'Show Mr. Assister' : 'Hide Mr. Assister',
                     ),
                   ],
                 ),
@@ -2792,37 +2933,7 @@ class _HomePageState extends State<HomePage> {
               Expanded(
                 child: Row(
                   children: [
-                    // Sidebar
-                    SizedBox(
-                      width: 260,
-                      child: sb.Sidebar(
-                        currentView: view,
-                        selectedContext: selectedContext,
-                        showCompleted: showCompleted,
-                        onShowCompletedChanged: (v) {
-                          setState(() => showCompleted = v);
-                          _refreshAll();
-                        },
-                        onViewChanged: (newView) async {
-                          setState(() {
-                            view = newView;
-                          });
-                          await _refreshAll();
-                        },
-                        onContextChanged: (context) async {
-                          setState(() {
-                            selectedContext = context;
-                          });
-                          await _refreshAll();
-                        },
-                        onDatePrev: _goPrev,
-                        onDateNext: _goNext,
-                        onDateToday: _goToToday,
-                        counters: sidebarCounts,
-                      ),
-                    ),
-                    const VerticalDivider(width: 1),
-                    // Right region: message + main + assistant
+                    // Main content area
                     Expanded(
                       child: Column(
                         children: [
@@ -2851,19 +2962,38 @@ class _HomePageState extends State<HomePage> {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      // Type Tabs
+                                      // Filter Bar
                                       if (mainView == MainView.tasks)
-                                        Padding(
-                                          padding: const EdgeInsets.all(16),
-                                          child: slt.TypeTabs(
-                                            selectedType: _getSelectedType(),
-                                            onTypeChanged: (type) async {
-                                              setState(() => _kindFilter = type == null 
-                                                ? <String>{'todo', 'event'} 
-                                                : <String>{type});
-                                              await _refreshAll();
-                                            },
-                                          ),
+                                        FilterBar(
+                                          currentView: view,
+                                          onViewChanged: (newView) async {
+                                            setState(() {
+                                              view = newView;
+                                            });
+                                            await _refreshAll();
+                                          },
+                                          onDatePrev: _goPrev,
+                                          onDateNext: _goNext,
+                                          onDateToday: _goToToday,
+                                          selectedType: _getSelectedType(),
+                                          onTypeChanged: (type) async {
+                                            setState(() => _kindFilter = type == null 
+                                              ? <String>{'todo', 'event'} 
+                                              : <String>{type});
+                                            await _refreshAll();
+                                          },
+                                          selectedContext: selectedContext,
+                                          onContextChanged: (context) async {
+                                            setState(() {
+                                              selectedContext = context;
+                                            });
+                                            await _refreshAll();
+                                          },
+                                          showCompleted: showCompleted,
+                                          onShowCompletedChanged: (v) {
+                                            setState(() => showCompleted = v);
+                                            _refreshAll();
+                                          },
                                         ),
                                       Expanded(
                                         child: Stack(
@@ -2983,49 +3113,76 @@ class _HomePageState extends State<HomePage> {
   Widget _buildMainList() {
     final items = _currentList();
     final grouped = _groupByDate(items);
-            if (view == ViewMode.month) {
+    
+    if (view == ViewMode.month) {
       return _buildMonthGrid(grouped);
     }
-    return ListView(
-      padding: const EdgeInsets.all(12),
-      children: [
-        if (view == ViewMode.week) _buildWeekdayHeader(),
-        for (final entry in grouped.entries) ...[
-          Builder(
-            builder: (context) {
-              final isTodayHeader = entry.key == ymd(DateTime.now());
-              final label = isTodayHeader ? '${entry.key}  (Today)' : entry.key;
-              return Container(
-                margin: const EdgeInsets.only(top: 8, bottom: 2),
-                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
-                decoration: BoxDecoration(
-                  color: isTodayHeader
-                      ? Theme.of(context).colorScheme.primary.withAlpha((0.06 * 255).round())
-                      : null,
-                  border: Border(
-                    left: BorderSide(
-                      color: isTodayHeader
-                          ? Theme.of(context).colorScheme.primary
-                          : Colors.transparent,
-                      width: 3,
+    
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 400),
+      transitionBuilder: (Widget child, Animation<double> animation) {
+        return SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, 0.1),
+            end: Offset.zero,
+          ).animate(CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+          )),
+          child: FadeTransition(
+            opacity: animation,
+            child: child,
+          ),
+        );
+      },
+      child: ListView(
+        key: ValueKey('${view}_${_getSelectedType()}_$selectedContext'),
+        padding: const EdgeInsets.all(12),
+        children: [
+          if (view == ViewMode.week) _buildWeekdayHeader(),
+          for (final entry in grouped.entries) ...[
+            Builder(
+              builder: (context) {
+                final isTodayHeader = entry.key == ymd(DateTime.now());
+                final label = isTodayHeader ? '${entry.key}  (Today)' : entry.key;
+                return AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOutCubic,
+                  margin: const EdgeInsets.only(top: 8, bottom: 2),
+                  padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+                  decoration: BoxDecoration(
+                    color: isTodayHeader
+                        ? Theme.of(context).colorScheme.primary.withAlpha((0.06 * 255).round())
+                        : null,
+                    border: Border(
+                      left: BorderSide(
+                        color: isTodayHeader
+                            ? Theme.of(context).colorScheme.primary
+                            : Colors.transparent,
+                        width: 3,
+                      ),
                     ),
                   ),
-                ),
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: isTodayHeader
-                        ? Theme.of(context).colorScheme.primary
-                        : null,
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: isTodayHeader
+                          ? Theme.of(context).colorScheme.primary
+                          : null,
+                    ),
                   ),
-                ),
-              );
-            },
-          ),
-          ...entry.value.map(_buildRow),
+                );
+              },
+            ),
+            ...entry.value.map((t) => AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOutCubic,
+              child: _buildRow(t),
+            )),
+          ],
         ],
-      ],
+      ),
     );
   }
 
@@ -3095,6 +3252,7 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildMonthGrid(Map<String, List<Todo>> groupedByDate) {
     final a = parseYmd(anchor);
+    final monthName = '${_getMonthName(a.month)} ${a.year}';
     final firstOfMonth = DateTime(a.year, a.month, 1);
     final lastOfMonth = DateTime(a.year, a.month + 1, 0);
     // NEW: Compute Sunday on/before first, Saturday on/after last
@@ -3130,6 +3288,40 @@ class _HomePageState extends State<HomePage> {
     ];
     return Column(
       children: [
+        // Month header with navigation
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.easeOutCubic,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerLow,
+            border: Border(
+              bottom: BorderSide(
+                color: Theme.of(context).colorScheme.outlineVariant,
+                width: 1,
+              ),
+            ),
+          ),
+          child: Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.chevron_left),
+                onPressed: _goPrev,
+              ),
+              Expanded(
+                child: Text(
+                  monthName,
+                  style: Theme.of(context).textTheme.headlineSmall,
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.chevron_right),
+                onPressed: _goNext,
+              ),
+            ],
+          ),
+        ),
         // Weekday header (sticky)
         Material(
           elevation: 1,
@@ -3192,14 +3384,16 @@ class _HomePageState extends State<HomePage> {
     final maxToShow = 3;
     final more = sorted.length > maxToShow ? (sorted.length - maxToShow) : 0;
     final isToday = ymdStr == ymd(DateTime.now());
-    return Container(
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOutCubic,
       decoration: isToday
           ? BoxDecoration(
               border: Border.all(
                 color: Theme.of(context).colorScheme.primary,
                 width: 2,
               ),
-              borderRadius: BorderRadius.circular(4),
+              borderRadius: BorderRadius.circular(8),
             )
           : const BoxDecoration(),
       child: InkWell(
@@ -3252,26 +3446,54 @@ class _HomePageState extends State<HomePage> {
   Widget _monthItemChip(Todo t) {
     final time = t.timeOfDay;
     final label = (time == null || time.isEmpty) ? t.title : '$time ${t.title}';
-    final bg = t.kind == 'event'
-        ? const Color(0xFFEEF2FF)
-        : (t.kind == 'habit'
-              ? const Color(0xFFEFF7E6)
-              : const Color(0xFFFFF4E5));
-    final fg = Colors.black87;
-    return Container(
+    
+    // Enhanced color scheme based on item type
+    Color bg;
+    Color fg;
+    Color border;
+    
+    switch (t.kind) {
+      case 'event':
+        bg = Colors.green.shade50;
+        fg = Colors.green.shade900;
+        border = Colors.green.shade200;
+        break;
+      case 'habit':
+        bg = Colors.purple.shade50;
+        fg = Colors.purple.shade900;
+        border = Colors.purple.shade200;
+        break;
+      default: // todo
+        bg = Colors.blue.shade50;
+        fg = Colors.blue.shade900;
+        border = Colors.blue.shade200;
+        break;
+    }
+    
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOutCubic,
       margin: const EdgeInsets.only(bottom: 2),
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: Colors.black12),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: border, width: 1),
       ),
       child: Text(
         label,
-        style: TextStyle(fontSize: 11, color: fg),
+        style: TextStyle(fontSize: 11, color: fg, fontWeight: FontWeight.w500),
         overflow: TextOverflow.ellipsis,
       ),
     );
+  }
+
+  String _getMonthName(int month) {
+    const monthNames = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    return monthNames[month - 1];
   }
 
   double _monthCellHeight() {

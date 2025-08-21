@@ -6,3 +6,11 @@ Vision:
 Behaviour flow (how I am going to use it):
 -quickly add/modify/delete todos
 -Consolidate/organize large amounts of todos that build up
+
+
+
+
+We need the terminal goals of the system to align with the best interests of the user but utilize ML to incentivize them to better themselves in one way or another. 
+Accountablity? 
+
+ETHICS!!!!!!!!!!!!!

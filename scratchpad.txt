@@ -3,15 +3,14 @@ Keep in mind:
     *if not, MUST have better way to do google calendar and reminders app using notebookLM or something else (not ideal but fallback)
 
 
-ASAP:
--Change to qwen
-
 Get done Week of 8/17:
     -Get fundamental functions of tasks and events working
         *add tasks and events
         *views working properly
-    -Clean up UI
+    -Clean up UI (CHAT WITH COMET ABOUT THIS AND BRAINSTORM EXACT UPDATES)
         *Fix header to have sections
+            >make searchbar smaller 
+            >clean update Mr Assisters toggle button
         *Make events and tasks visually distinct in all views (also make sure different contexts work in month view)
         *Switch the Day/Week/Month pill and All/Tasks/Events (figure out better way to layout)
         *make sure no weird wrapping in pills (Day/Week/Month pill is wack right now)
@@ -23,9 +22,13 @@ Get done Week of 8/17:
     -Get assistant pipeline working for basic chats about events and tasks (maybe basic functions??)
         *simplify/iron out current pipeline
         *plug in qwen-code and update the prompts 
+        *use chain prompting with different lens?
     -spam flutter analyze until no issues found and functionality is preserved
     -Modularize main and clean up/optimize the flutter directory??? (if access to GPT-5 again)
 
+
+Get done before school:
+-have method to be able to do minimal tasks from phone. Remote client that updates locally only?
 
 
 -get behaviours the app needs to faciliate (use notebookLM for this and make a detailed spec for the application; Frontend, backend, and everything needed to fully make a prototype of this app)
@@ -38,6 +41,10 @@ Get done Week of 8/17:
 
 
 Long term:
+-QTOT
+-HRM
+-Scratchpad for Mr Assister
 -Make unit tests once stable version is here
 -ask mitchell if I could fine tune models on the dgx (figure out best way to do this)
 -kaizen journal integration somehow?
+

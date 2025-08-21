@@ -51,28 +51,40 @@ class TodoRow extends StatelessWidget {
   Widget build(BuildContext context) {
   final isSkipped = (todo.status == 'skipped');
   final isCompleted = todo.completed || (todo.status == 'completed');
-  return Container(
+  
+  // Enhanced color scheme based on item type
+  final colorScheme = _getItemColorScheme(context, todo.kind ?? 'todo');
+  
+  return AnimatedContainer(
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeOutCubic,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         border: Border.all(
           color: highlighted
               ? Theme.of(context).colorScheme.primary
-              : Colors.grey.shade300,
+              : colorScheme.border,
           width: highlighted ? 2 : 1,
         ),
-        borderRadius: BorderRadius.circular(6),
-    color: highlighted
-  ? Theme.of(context).colorScheme.primary.withAlpha((0.06 * 255).round())
-      : (isCompleted
-  ? Colors.grey.withAlpha((0.1 * 255).round())
-  : (isSkipped ? Colors.orange.withAlpha((0.06 * 255).round()) : null)),
+        borderRadius: BorderRadius.circular(8),
+        color: highlighted
+            ? Theme.of(context).colorScheme.primary.withAlpha((0.06 * 255).round())
+            : (isCompleted
+                ? Colors.grey.withAlpha((0.1 * 255).round())
+                : (isSkipped 
+                    ? Colors.orange.withAlpha((0.06 * 255).round()) 
+                    : colorScheme.background)),
       ),
-      child: Row(
-        children: [
-          Checkbox(
-      value: isCompleted,
-            onChanged: (_) => onToggleCompleted(),
-          ),
+              child: Row(
+          children: [
+            AnimatedScale(
+              duration: const Duration(milliseconds: 200),
+              scale: isCompleted ? 1.1 : 1.0,
+              child: Checkbox(
+                value: isCompleted,
+                onChanged: (_) => onToggleCompleted(),
+              ),
+            ),
           const SizedBox(width: 6),
           Expanded(
             child: Column(
@@ -86,10 +98,6 @@ class TodoRow extends StatelessWidget {
                     ],
                     const SizedBox(width: 6),
                     _buildKindBadge(todo.kind ?? 'todo'),
-                    if (todo.context != null) ...[
-                      const SizedBox(width: 6),
-                      _buildContextBadge(todo.context!),
-                    ],
                     const SizedBox(width: 6),
                     Flexible(
                       child: InkWell(
@@ -124,8 +132,8 @@ class TodoRow extends StatelessWidget {
                                   onTitleEdited!(ctrl.text.trim());
                                 }
                               },
-                        child: Text(
-                          todo.title,
+                        child: AnimatedDefaultTextStyle(
+                          duration: const Duration(milliseconds: 300),
                           style: TextStyle(
                             decoration: isCompleted
                                 ? TextDecoration.lineThrough
@@ -133,6 +141,7 @@ class TodoRow extends StatelessWidget {
                             color: isSkipped ? Colors.black54 : null,
                             fontStyle: isSkipped ? FontStyle.italic : null,
                           ),
+                          child: Text(todo.title),
                         ),
                       ),
                     ),
@@ -201,6 +210,11 @@ class TodoRow extends StatelessWidget {
                     ],
                   ],
                 ),
+                // Context badge below title
+                if (todo.context != null) ...[
+                  const SizedBox(height: 4),
+                  _buildContextBadge(todo.context!),
+                ],
                 if (todo.notes.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 2),
@@ -216,23 +230,42 @@ class TodoRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          Wrap(
-            spacing: 6,
+          // Compact action buttons with staggered animations
+          Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               if (todo.kind == 'todo')
-                OutlinedButton.icon(
-                  onPressed: onToggleSkipped,
-                  icon: Icon(
-                    Icons.do_not_disturb_on,
-                    size: 16,
-                    color: isSkipped
-                        ? Theme.of(context).colorScheme.primary
-                        : Colors.black54,
+                AnimatedOpacity(
+                  duration: const Duration(milliseconds: 300),
+                  opacity: 1.0,
+                  child: IconButton(
+                    icon: Icon(
+                      isSkipped ? Icons.undo : Icons.do_not_disturb_on,
+                      size: 18,
+                      color: isSkipped ? Colors.blue : Colors.red,
+                    ),
+                    onPressed: onToggleSkipped,
+                    tooltip: isSkipped ? 'Unskip' : 'Skip',
                   ),
-                  label: Text(isSkipped ? 'Unskip' : 'Skip'),
                 ),
-              OutlinedButton(onPressed: onEdit, child: const Text('Edit')),
-              OutlinedButton(onPressed: onDelete, child: const Text('Delete')),
+              AnimatedOpacity(
+                duration: const Duration(milliseconds: 300),
+                opacity: 1.0,
+                child: IconButton(
+                  icon: const Icon(Icons.edit, size: 18),
+                  onPressed: onEdit,
+                  tooltip: 'Edit',
+                ),
+              ),
+              AnimatedOpacity(
+                duration: const Duration(milliseconds: 300),
+                opacity: 1.0,
+                child: IconButton(
+                  icon: const Icon(Icons.delete, size: 18),
+                  onPressed: onDelete,
+                  tooltip: 'Delete',
+                ),
+              ),
             ],
           ),
         ],
@@ -247,38 +280,38 @@ class TodoRow extends StatelessWidget {
     switch (context) {
       case 'school':
         icon = Icons.school;
-        color = Colors.blue;
+        color = Colors.blue.shade700;
         break;
       case 'work':
         icon = Icons.work;
-        color = Colors.orange;
+        color = Colors.orange.shade700;
         break;
       case 'personal':
         icon = Icons.person;
-        color = Colors.green;
+        color = Colors.green.shade700;
         break;
       default:
         icon = Icons.public;
-        color = Colors.grey;
+        color = Colors.grey.shade700;
     }
     
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withOpacity(0.15),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.3), width: 1),
+        border: Border.all(color: color.withOpacity(0.4), width: 1.5),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 12, color: color),
+          Icon(icon, size: 14, color: color),
           const SizedBox(width: 4),
           Text(
             context.substring(0, 1).toUpperCase() + context.substring(1),
             style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w500,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
               color: color,
             ),
           ),
@@ -332,5 +365,52 @@ class TodoRow extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+class ItemColorScheme {
+  final Color background;
+  final Color border;
+  final Color primary;
+  final Color text;
+  
+  const ItemColorScheme({
+    required this.background,
+    required this.border,
+    required this.primary,
+    required this.text,
+  });
+}
+
+ItemColorScheme _getItemColorScheme(BuildContext context, String kind) {
+  switch (kind) {
+    case 'event':
+      return ItemColorScheme(
+        background: Colors.green.shade50,
+        border: Colors.green.shade200,
+        primary: Colors.green.shade700,
+        text: Colors.green.shade900,
+      );
+    case 'todo':
+      return ItemColorScheme(
+        background: Colors.blue.shade50,
+        border: Colors.blue.shade200,
+        primary: Colors.blue.shade700,
+        text: Colors.blue.shade900,
+      );
+    case 'habit':
+      return ItemColorScheme(
+        background: Colors.purple.shade50,
+        border: Colors.purple.shade200,
+        primary: Colors.purple.shade700,
+        text: Colors.purple.shade900,
+      );
+    default:
+      return ItemColorScheme(
+        background: Colors.grey.shade50,
+        border: Colors.grey.shade300,
+        primary: Colors.grey.shade700,
+        text: Colors.grey.shade900,
+      );
   }
 }
