@@ -517,6 +517,9 @@ class _HomePageState extends State<HomePage> {
   // Assistant collapse state
   bool assistantCollapsed = true;
 
+  // Timeline scroll controller for DayView
+  final ScrollController _timelineScrollController = ScrollController();
+
   final TextEditingController assistantCtrl = TextEditingController();
   final List<Map<String, String>> assistantTranscript = [];
   List<AnnotatedOp> assistantOps = [];
@@ -3603,27 +3606,18 @@ class _HomePageState extends State<HomePage> {
     if (view == ViewMode.day && mainView == MainView.tasks) {
       return Padding(
         padding: const EdgeInsets.all(12),
-        child: Listener(
-          onPointerSignal: (PointerSignalEvent e) {
-            if (e is PointerScrollEvent) {
-              final dy = e.scrollDelta.dy;
-              if (dy > 0) {
-                _goNext();
-              } else if (dy < 0) {
-                _goPrev();
-              }
-            }
-          },
-          child: DayView(
-            dateYmd: anchor,
-            events: _anchorEventsAsMaps(),
-            tasks: _anchorTasksAsMaps(),
-            onPrev: _goPrev,
-            onNext: _goNext,
-            onToday: _goToToday,
-            onToggleEventOccurrence: _onToggleEventOccurrenceNew,
-            onSetTodoStatusOrOccurrence: _onSetTodoStatusOrOccurrenceNew,
-          ),
+        child: DayView(
+          dateYmd: anchor,
+          events: _anchorEventsAsMaps(),
+          tasks: _anchorTasksAsMaps(),
+          onPrev: _goPrev,
+          onNext: _goNext,
+          onToday: _goToToday,
+          onToggleEventOccurrence: _onToggleEventOccurrenceNew,
+          onSetTodoStatusOrOccurrence: _onSetTodoStatusOrOccurrenceNew,
+          onEditTask: _onEditTask,
+          onDeleteTask: _onDeleteTask,
+          scrollController: _timelineScrollController,
         ),
       );
     }
@@ -5363,5 +5357,26 @@ class _HomePageState extends State<HomePage> {
         ),
       ),
     );
+  }
+
+  // Helper functions for DayView task operations
+  void _onEditTask(int taskId) {
+    final task = scheduled.firstWhere(
+      (t) => t.id == taskId,
+      orElse: () => scheduledAllTime.firstWhere((t) => t.id == taskId),
+    );
+    if (task.kind == 'event') {
+      _editEvent(task);
+    } else {
+      _editTodo(task);
+    }
+  }
+
+  void _onDeleteTask(int taskId) {
+    final task = scheduled.firstWhere(
+      (t) => t.id == taskId,
+      orElse: () => scheduledAllTime.firstWhere((t) => t.id == taskId),
+    );
+    _deleteTodo(task);
   }
 }

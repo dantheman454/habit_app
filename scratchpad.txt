@@ -7,7 +7,7 @@ Get done by 8/24 night:
     -Get fundamental functions of tasks and events working
         *add tasks and events
         *views working properly
-    -Clean up UI (CHAT WITH COMET ABOUT THIS AND BRAINSTORM EXACT UPDATES)
+    -Clean up UI 
         *Fix header to have sections
             >make searchbar smaller 
             >make skip an x in the top right corner for events and tasks
@@ -20,7 +20,7 @@ Get done by 8/24 night:
         *fix it from being so snappy when deleting todos or going between tabs
         *Look at cursor, google calendar, and apple calendar/reminders for inspiration
     -Make it such that no tasks or events can be set to have no date (default should be today)
-    
+    -Events should only get deleted, not completed
     
     -Get assistant pipeline working for basic chats about events and tasks (maybe basic functions??)
         *simplify/iron out current pipeline
