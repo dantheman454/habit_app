@@ -1,3 +1,5 @@
 what are my tasks for today?
+What are my events for this week?
+How could I consolidate some tasks for this week?
 make a repeating task for every friday at 06:00 called Dinner with Dad
 add a repeating task that starts today and goes for 2 weeks

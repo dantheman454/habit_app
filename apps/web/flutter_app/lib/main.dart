@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'widgets/assistant_panel.dart';
+import 'views/day_view.dart';
+import 'views/week_view.dart';
+import 'views/month_view.dart';
+import 'package:flutter/gestures.dart';
 import 'widgets/sidebar.dart' as sb;
 import 'widgets/todo_row.dart' as row;
 import 'widgets/habits_tracker.dart' as ht;
@@ -38,6 +42,10 @@ var createGoalFn = api.createGoal;
 void main() {
   runApp(const App());
 }
+
+// Temporary feature flag to gate the new DayView integration (default off).
+// Can be enabled at runtime via URL query: ?features=newday
+// Feature flags removed: new Day/Week/Month views are now default paths
 
 // ----- Models -----
 class Todo {
@@ -1190,6 +1198,80 @@ class _HomePageState extends State<HomePage> {
     } finally {
       setState(() => loading = false);
     }
+  }
+
+  // Helpers for gated DayView integration
+  List<Map<String, dynamic>> _anchorEventsAsMaps() {
+    final List<Map<String, dynamic>> list = [];
+    for (final t in _currentList()) {
+      if ((t.kind == 'event') && t.scheduledFor == anchor) {
+        list.add({
+          'id': t.id,
+          'title': t.title,
+          'scheduledFor': t.scheduledFor,
+          'startTime': t.timeOfDay, // unified model uses timeOfDay for start
+          'endTime': null,
+          'completed': t.completed,
+          'location': null,
+        });
+      }
+    }
+    return list;
+  }
+
+  List<Map<String, dynamic>> _anchorTasksAsMaps() {
+    final List<Map<String, dynamic>> list = [];
+    for (final t in _currentList()) {
+      if ((t.kind == 'todo' || t.kind == null) && t.scheduledFor == anchor) {
+        list.add({
+          'id': t.id,
+          'title': t.title,
+          'scheduledFor': t.scheduledFor,
+          'timeOfDay': t.timeOfDay,
+          'completed': t.completed,
+          'status': t.status,
+          'notes': t.notes,
+        });
+      }
+    }
+    return list;
+  }
+
+  Future<void> _onToggleEventOccurrenceNew(int eventId, bool newCompleted) async {
+    try {
+      final t = _currentList().firstWhere(
+        (e) => e.kind == 'event' && (e.id == eventId || e.masterId == eventId),
+        orElse: () => throw Exception('event_not_found'),
+      );
+      if (t.masterId != null && t.scheduledFor != null) {
+        await api.toggleEventOccurrence(t.masterId!, t.scheduledFor!, newCompleted);
+      } else {
+        await api.updateEvent(t.id, {'completed': newCompleted});
+      }
+      await _refreshAll();
+    } catch (_) {}
+  }
+
+  Future<void> _onSetTodoStatusOrOccurrenceNew(int id, String status) async {
+    try {
+      final t = _currentList().firstWhere(
+        (e) => (e.kind == 'todo' || e.kind == null) && (e.id == id || e.masterId == id),
+        orElse: () => throw Exception('todo_not_found'),
+      );
+      if (t.masterId != null && t.scheduledFor != null) {
+        await api.callMCPTool('set_todo_status', {
+          'id': t.masterId!,
+          'status': status,
+          'occurrenceDate': t.scheduledFor!,
+        });
+      } else {
+        await api.callMCPTool('set_todo_status', {
+          'id': t.id,
+          'status': status,
+        });
+      }
+      await _refreshAll();
+    } catch (_) {}
   }
 
   Future<void> _loadGoalBadges() async {
@@ -3120,7 +3202,7 @@ class _HomePageState extends State<HomePage> {
               // Header with 3-section layout: Left (Logo), Center (Search), Right (Actions)
               Container(
                 color: Theme.of(context).colorScheme.surface,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 child: Row(
                   children: [
                     // Left: Logo + Title
@@ -3144,7 +3226,7 @@ class _HomePageState extends State<HomePage> {
                       flex: 3,
                       child: Center(
                         child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 400),
+                          constraints: const BoxConstraints(maxWidth: 320),
                           child: CompositedTransformTarget(
                             link: _searchLink,
                             child: Focus(
@@ -3538,7 +3620,117 @@ class _HomePageState extends State<HomePage> {
     final grouped = _groupByDate(items);
     
     if (view == ViewMode.month) {
+      if (mainView == MainView.tasks) {
+        // Build simple month grid data (6x7) around anchor
+        final a = parseYmd(anchor);
+        final firstOfMonth = DateTime(a.year, a.month, 1);
+        final weekday = firstOfMonth.weekday % 7; // Sunday=0
+        final gridStart = firstOfMonth.subtract(Duration(days: weekday));
+        final days = List<String>.generate(42, (i) => ymd(gridStart.add(Duration(days: i))));
+        // Build maps
+        final Map<String, List<Map<String, dynamic>>> evBy = {};
+        final Map<String, List<Map<String, dynamic>>> tkBy = {};
+        for (final t in _currentList()) {
+          final y = t.scheduledFor ?? '';
+          if (!days.contains(y)) continue;
+          final isEvent = t.kind == 'event';
+          final dst = isEvent ? (evBy[y] ??= <Map<String, dynamic>>[]) : (tkBy[y] ??= <Map<String, dynamic>>[]);
+          dst.add({
+            'id': t.id,
+            'title': t.title,
+            'scheduledFor': t.scheduledFor,
+            'timeOfDay': t.timeOfDay,
+            'startTime': t.timeOfDay,
+            'completed': t.completed,
+          });
+        }
+        return Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: MonthView(
+            gridYmd: days,
+            eventsByDate: evBy,
+            tasksByDate: tkBy,
+            onPrev: _goPrev,
+            onNext: _goNext,
+            onToday: _goToToday,
+            onOpenDay: (ymdStr) {
+              setState(() {
+                view = ViewMode.day;
+                anchor = ymdStr;
+              });
+            },
+          ),
+        );
+      }
       return _buildMonthGrid(grouped);
+    }
+    // Gated path for the new DayView (disabled by default)
+    if (view == ViewMode.day && mainView == MainView.tasks) {
+      return Padding(
+        padding: const EdgeInsets.all(12),
+        child: Listener(
+          onPointerSignal: (PointerSignalEvent e) {
+            if (e is PointerScrollEvent) {
+              final dy = e.scrollDelta.dy;
+              if (dy > 0) {
+                _goNext();
+              } else if (dy < 0) {
+                _goPrev();
+              }
+            }
+          },
+          child: DayView(
+            dateYmd: anchor,
+            events: _anchorEventsAsMaps(),
+            tasks: _anchorTasksAsMaps(),
+            onPrev: _goPrev,
+            onNext: _goNext,
+            onToday: _goToToday,
+            onToggleEventOccurrence: _onToggleEventOccurrenceNew,
+            onSetTodoStatusOrOccurrence: _onSetTodoStatusOrOccurrenceNew,
+          ),
+        ),
+      );
+    }
+
+    // Gated path for new WeekView
+    if (view == ViewMode.week && mainView == MainView.tasks) {
+      // Compute Sunday..Saturday for current anchor
+      final a = parseYmd(anchor);
+      final sunday = a.subtract(Duration(days: a.weekday % 7));
+      final days = List<String>.generate(7, (i) => ymd(sunday.add(Duration(days: i))));
+      // Build naive maps from scheduled list
+      final Map<String, List<Map<String, dynamic>>> evBy = {};
+      final Map<String, List<Map<String, dynamic>>> tkBy = {};
+      for (final t in _currentList()) {
+        final y = t.scheduledFor ?? '';
+        if (!days.contains(y)) continue;
+        final isEvent = t.kind == 'event';
+        final dst = isEvent ? (evBy[y] ??= <Map<String, dynamic>>[]) : (tkBy[y] ??= <Map<String, dynamic>>[]);
+        dst.add({
+          'id': t.id,
+          'title': t.title,
+          'scheduledFor': t.scheduledFor,
+          'timeOfDay': t.timeOfDay,
+          'completed': t.completed,
+          'status': t.status,
+          'context': t.context,
+        });
+      }
+      return Padding(
+        padding: const EdgeInsets.all(12),
+        child: WeekView(
+          weekYmd: days,
+          eventsByDate: evBy,
+          tasksByDate: tkBy,
+          onOpenDay: (ymdStr) {
+            setState(() {
+              view = ViewMode.day;
+              anchor = ymdStr;
+            });
+          },
+        ),
+      );
     }
     
     return AnimatedSwitcher(
@@ -4032,7 +4224,11 @@ class _HomePageState extends State<HomePage> {
     } else if (view == ViewMode.week) {
       next = a.subtract(const Duration(days: 7));
     } else {
-      next = DateTime(a.year, a.month - 1, a.day);
+      // Clamp day in month navigation to avoid invalid dates
+      final prevMonth = DateTime(a.year, a.month - 1, 1);
+      final lastPrev = DateTime(prevMonth.year, prevMonth.month + 1, 0).day;
+      final day = a.day.clamp(1, lastPrev);
+      next = DateTime(prevMonth.year, prevMonth.month, day);
     }
     setState(() {
       anchor = ymd(next);
@@ -4048,7 +4244,11 @@ class _HomePageState extends State<HomePage> {
     } else if (view == ViewMode.week) {
       next = a.add(const Duration(days: 7));
     } else {
-      next = DateTime(a.year, a.month + 1, a.day);
+      // Clamp day in month navigation to avoid invalid dates
+      final nextMonth = DateTime(a.year, a.month + 1, 1);
+      final lastNext = DateTime(nextMonth.year, nextMonth.month + 1, 0).day;
+      final day = a.day.clamp(1, lastNext);
+      next = DateTime(nextMonth.year, nextMonth.month, day);
     }
     setState(() {
       anchor = ymd(next);

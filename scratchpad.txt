@@ -1,9 +1,9 @@
 Keep in mind:
--Have full functionality (BEFORE SCHOOL STARTS)so I can get my actual todos and events in
-    *if not, MUST have better way to do google calendar and reminders app using notebookLM or something else (not ideal but fallback)
--MAKE A WIREFRAME FOR SITE ON FIGMA
+-User behaviours
+-Core abstractions/entities
 
-Get done Week of 8/17:
+
+Get done by 8/24 night:
     -Get fundamental functions of tasks and events working
         *add tasks and events
         *views working properly
@@ -13,13 +13,15 @@ Get done Week of 8/17:
             >make skip an x in the top right corner for events and tasks
             >clean update Mr Assisters toggle button
         *Make events and tasks visually distinct in all views (also make sure different contexts work in month view)
+        *Make sure the scroll wheel (< Today >) switches with the view
         *Switch the Day/Week/Month pill and All/Tasks/Events (figure out better way to layout)
         *make sure no weird wrapping in pills (Day/Week/Month pill is wack right now)
-        *add in month to top of Month view
         *Fix issue where it breaks if I scroll past the end of the year
         *fix it from being so snappy when deleting todos or going between tabs
         *Look at cursor, google calendar, and apple calendar/reminders for inspiration
     -Make it such that no tasks or events can be set to have no date (default should be today)
+    
+    
     -Get assistant pipeline working for basic chats about events and tasks (maybe basic functions??)
         *simplify/iron out current pipeline
         *plug in qwen-code and update the prompts 
@@ -32,7 +34,7 @@ Get done before school:
 -have method to be able to do minimal tasks from phone. Remote client that updates locally only?
 
 
--get behaviours the app needs to faciliate (use notebookLM for this and make a detailed spec for the application; Frontend, backend, and everything needed to fully make a prototype of this app)
+-get behaviours the app needs to faciliate 
     *First map out current todo list and google calendar usage, then have it be able to facilitate these behaviours asap
     *Daily/Weekly check in 
     *Task allocation/planning
