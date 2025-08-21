@@ -1240,20 +1240,7 @@ class _HomePageState extends State<HomePage> {
     return list;
   }
 
-  Future<void> _onToggleEventOccurrenceNew(int eventId, bool newCompleted) async {
-    try {
-      final t = _currentList().firstWhere(
-        (e) => e.kind == 'event' && (e.id == eventId || e.masterId == eventId),
-        orElse: () => throw Exception('event_not_found'),
-      );
-      if (t.masterId != null && t.scheduledFor != null) {
-        await api.toggleEventOccurrence(t.masterId!, t.scheduledFor!, newCompleted);
-      } else {
-        await api.updateEvent(t.id, {'completed': newCompleted});
-      }
-      await _refreshAll();
-    } catch (_) {}
-  }
+
 
   Future<void> _onSetTodoStatusOrOccurrenceNew(int id, String status) async {
     try {
@@ -2398,7 +2385,7 @@ class _HomePageState extends State<HomePage> {
           ? '${t.recurrence!['intervalDays']}'
           : '1',
     );
-    final ok = await showDialog<bool>(
+    final ok = await showDialog<dynamic>(
       context: context,
       builder: (c) => StatefulBuilder(
         builder: (c, setDlgState) {
@@ -2500,6 +2487,13 @@ class _HomePageState extends State<HomePage> {
                 onPressed: () => Navigator.pop(c, false),
                 child: const Text('Cancel'),
               ),
+              TextButton(
+                onPressed: () => Navigator.pop(c, 'delete'),
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.red,
+                ),
+                child: const Text('Delete'),
+              ),
               FilledButton(
                 onPressed: () => Navigator.pop(c, true),
                 child: const Text('Save'),
@@ -2509,6 +2503,15 @@ class _HomePageState extends State<HomePage> {
         },
       ),
     );
+    if (ok == 'delete') {
+      try {
+        await _deleteTodo(t);
+        await _refreshAll();
+      } catch (e) {
+        setState(() => message = 'Delete failed: $e');
+      }
+      return;
+    }
     if (ok != true) return;
     final patch = <String, dynamic>{};
     if (titleCtrl.text != t.title) patch['title'] = titleCtrl.text;
@@ -3613,10 +3616,10 @@ class _HomePageState extends State<HomePage> {
           onPrev: _goPrev,
           onNext: _goNext,
           onToday: _goToToday,
-          onToggleEventOccurrence: _onToggleEventOccurrenceNew,
           onSetTodoStatusOrOccurrence: _onSetTodoStatusOrOccurrenceNew,
           onEditTask: _onEditTask,
           onDeleteTask: _onDeleteTask,
+          onEditEvent: _onEditEvent,
           scrollController: _timelineScrollController,
         ),
       );
@@ -5378,5 +5381,14 @@ class _HomePageState extends State<HomePage> {
       orElse: () => scheduledAllTime.firstWhere((t) => t.id == taskId),
     );
     _deleteTodo(task);
+  }
+
+  // Helper functions for DayView event operations
+  void _onEditEvent(int eventId) {
+    final event = scheduled.firstWhere(
+      (t) => t.id == eventId,
+      orElse: () => scheduledAllTime.firstWhere((t) => t.id == eventId),
+    );
+    _editEvent(event);
   }
 }

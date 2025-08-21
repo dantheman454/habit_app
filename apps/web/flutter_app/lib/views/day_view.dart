@@ -9,10 +9,10 @@ class DayView extends StatelessWidget {
   final VoidCallback onPrev;
   final VoidCallback onNext;
   final VoidCallback onToday;
-  final void Function(int id, bool completed) onToggleEventOccurrence;
   final void Function(int id, String status) onSetTodoStatusOrOccurrence;
   final void Function(int id)? onEditTask;
   final void Function(int id)? onDeleteTask;
+  final void Function(int id)? onEditEvent;
   final ScrollController? scrollController;
 
   const DayView({
@@ -23,10 +23,10 @@ class DayView extends StatelessWidget {
     required this.onPrev,
     required this.onNext,
     required this.onToday,
-    required this.onToggleEventOccurrence,
     required this.onSetTodoStatusOrOccurrence,
     this.onEditTask,
     this.onDeleteTask,
+    this.onEditEvent,
     this.scrollController,
   });
 
@@ -52,7 +52,7 @@ class DayView extends StatelessWidget {
                 child: EventTimeline(
                   dateYmd: dateYmd,
                   events: events,
-                  onToggleCompleted: onToggleEventOccurrence,
+                  onTapEvent: onEditEvent,
                   scrollController: scrollController,
                   minHour: 0,
                   maxHour: 24,

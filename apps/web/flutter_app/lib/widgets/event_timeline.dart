@@ -5,7 +5,6 @@ class EventTimeline extends StatelessWidget {
   final String dateYmd;
   final List<Map<String, dynamic>> events;
   final void Function(int eventId)? onTapEvent;
-  final void Function(int eventId, bool completed)? onToggleCompleted;
   final int minHour;
   final int maxHour;
   final Duration slot;
@@ -17,7 +16,6 @@ class EventTimeline extends StatelessWidget {
     required this.dateYmd,
     required this.events,
     this.onTapEvent,
-    this.onToggleCompleted,
     this.minHour = 6,
     this.maxHour = 22,
     this.slot = const Duration(minutes: 30),
@@ -109,13 +107,11 @@ class EventTimeline extends StatelessWidget {
               message: tooltip,
               preferBelow: false,
               waitDuration: const Duration(milliseconds: 300),
-              child: _EventBlock(
-                id: e.id,
-                title: e.title,
-                completed: e.completed,
-                onTap: () => onTapEvent?.call(e.id),
-                onToggleCompleted: onToggleCompleted,
-              ),
+                          child: _EventBlock(
+              id: e.id,
+              title: e.title,
+              onTap: () => onTapEvent?.call(e.id),
+            ),
             ),
           ));
         }
@@ -158,7 +154,6 @@ class EventTimeline extends StatelessWidget {
     for (final raw in items) {
       final int id = (raw['id'] is int) ? raw['id'] as int : int.tryParse('${raw['id']}') ?? -1;
       final String title = (raw['title'] ?? '').toString();
-      final bool completed = (raw['completed'] == true);
       final String? startStr = (raw['startTime'] ?? raw['timeOfDay']) as String?;
       final String? endStr = raw['endTime'] as String?;
       int startM = _parseHm(startStr, minHour);
@@ -174,7 +169,7 @@ class EventTimeline extends StatelessWidget {
         title: title,
         startM: startM,
         endM: endM,
-        completed: completed,
+        lane: 0,
       ));
     }
     return list;
@@ -199,14 +194,12 @@ class _NormalizedEvent {
   final String title;
   final int startM;
   final int endM;
-  final bool completed;
   int lane;
   _NormalizedEvent({
     required this.id,
     required this.title,
     required this.startM,
     required this.endM,
-    required this.completed,
     this.lane = 0,
   });
 }
@@ -214,22 +207,17 @@ class _NormalizedEvent {
 class _EventBlock extends StatelessWidget {
   final int id;
   final String title;
-  final bool completed;
   final VoidCallback? onTap;
-  final void Function(int id, bool completed)? onToggleCompleted;
   const _EventBlock({
     required this.id,
     required this.title,
-    required this.completed,
     this.onTap,
-    this.onToggleCompleted,
   });
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     // Token-inspired colors for events (green family)
-    final Color bg = completed ? Colors.green.shade50.withOpacity(0.7) : Colors.green.shade50;
+    final Color bg = Colors.green.shade50;
     final Color border = Colors.green.shade200;
     final Color accent = Colors.green.shade700;
     final Color fg = Colors.green.shade900;
@@ -252,26 +240,15 @@ class _EventBlock extends StatelessWidget {
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                  child: Row(
-                    children: [
-                      Checkbox(
-                        value: completed,
-                        onChanged: (v) => onToggleCompleted?.call(id, v ?? false),
-                        visualDensity: VisualDensity.compact,
-                      ),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          title.isEmpty ? 'Event' : title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: fg, fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                    ],
+                  child: Text(
+                    title.isEmpty ? 'Event' : title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: fg, fontWeight: FontWeight.w600),
                   ),
                 ),
               ),
+
             ],
           ),
         ),
