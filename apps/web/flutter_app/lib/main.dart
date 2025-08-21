@@ -390,14 +390,13 @@ class FilterBar extends StatelessWidget {
   }
 
   Widget _buildContextFilters(BuildContext context) {
-    return Row(
+    return Wrap(
+      spacing: 8,
+      runSpacing: 4,
       children: [
         _buildContextChip('All', null, Icons.public, context),
-        const SizedBox(width: 8),
         _buildContextChip('School', 'school', Icons.school, context),
-        const SizedBox(width: 8),
         _buildContextChip('Personal', 'personal', Icons.person, context),
-        const SizedBox(width: 8),
         _buildContextChip('Work', 'work', Icons.work, context),
       ],
     );
@@ -605,7 +604,13 @@ class _HomePageState extends State<HomePage> {
         const SizedBox(width: 8),
         FilledButton(
           onPressed: _addingQuick ? null : _submitQuickAddHabit,
-          child: const Text('Add'),
+          child: _addingQuick 
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Text('Add'),
         ),
       ],
     );
@@ -695,9 +700,30 @@ class _HomePageState extends State<HomePage> {
       if (!TestHooks.skipRefresh) await _refreshAll();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Create failed: $e')));
+        // Enhanced error handling with technical details
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Task Creation Failed', style: TextStyle(fontWeight: FontWeight.bold)),
+                Text('Error: ${e.toString()}'),
+                Text('Type: ${e.runtimeType}'),
+                if (e is DioException) ...[
+                  Text('Status: ${e.response?.statusCode ?? 'Unknown'}'),
+                  if (e.response?.data != null) Text('Response: ${e.response!.data}'),
+                ],
+              ],
+            ),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 10),
+            action: SnackBarAction(
+              label: 'Copy Error',
+              onPressed: () => Clipboard.setData(ClipboardData(text: e.toString())),
+            ),
+          ),
+        );
       }
     } finally {
       if (mounted) {
@@ -777,9 +803,30 @@ class _HomePageState extends State<HomePage> {
       if (!TestHooks.skipRefresh) await _refreshAll();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Create failed: $e')));
+        // Enhanced error handling with technical details
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Event Creation Failed', style: TextStyle(fontWeight: FontWeight.bold)),
+                Text('Error: ${e.toString()}'),
+                Text('Type: ${e.runtimeType}'),
+                if (e is DioException) ...[
+                  Text('Status: ${e.response?.statusCode ?? 'Unknown'}'),
+                  if (e.response?.data != null) Text('Response: ${e.response!.data}'),
+                ],
+              ],
+            ),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 10),
+            action: SnackBarAction(
+              label: 'Copy Error',
+              onPressed: () => Clipboard.setData(ClipboardData(text: e.toString())),
+            ),
+          ),
+        );
       }
     } finally {
       await Future<void>.delayed(const Duration(milliseconds: 16));
@@ -825,9 +872,30 @@ class _HomePageState extends State<HomePage> {
       if (!TestHooks.skipRefresh) await _refreshAll();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Create failed: $e')));
+        // Enhanced error handling with technical details
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Habit Creation Failed', style: TextStyle(fontWeight: FontWeight.bold)),
+                Text('Error: ${e.toString()}'),
+                Text('Type: ${e.runtimeType}'),
+                if (e is DioException) ...[
+                  Text('Status: ${e.response?.statusCode ?? 'Unknown'}'),
+                  if (e.response?.data != null) Text('Response: ${e.response!.data}'),
+                ],
+              ],
+            ),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 10),
+            action: SnackBarAction(
+              label: 'Copy Error',
+              onPressed: () => Clipboard.setData(ClipboardData(text: e.toString())),
+            ),
+          ),
+        );
       }
     } finally {
       await Future<void>.delayed(const Duration(milliseconds: 16));
@@ -875,9 +943,30 @@ class _HomePageState extends State<HomePage> {
       setState(() {});
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Create failed: $e')));
+        // Enhanced error handling with technical details
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Goal Creation Failed', style: TextStyle(fontWeight: FontWeight.bold)),
+                Text('Error: ${e.toString()}'),
+                Text('Type: ${e.runtimeType}'),
+                if (e is DioException) ...[
+                  Text('Status: ${e.response?.statusCode ?? 'Unknown'}'),
+                  if (e.response?.data != null) Text('Response: ${e.response!.data}'),
+                ],
+              ],
+            ),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 10),
+            action: SnackBarAction(
+              label: 'Copy Error',
+              onPressed: () => Clipboard.setData(ClipboardData(text: e.toString())),
+            ),
+          ),
+        );
       }
     } finally {
       await Future<void>.delayed(const Duration(milliseconds: 16));
@@ -2582,6 +2671,9 @@ class _HomePageState extends State<HomePage> {
     _qaSelectedContext = selectedContext ?? 'personal';
     _qaSelectedRecurrence = 'none';
     
+    // Set default date to today
+    _qaTodoDate.text = anchor;
+    
     showDialog<void>(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -2656,11 +2748,17 @@ class _HomePageState extends State<HomePage> {
               child: const Text('Cancel'),
             ),
             FilledButton(
-              onPressed: () async {
+              onPressed: _addingQuick ? null : () async {
                 Navigator.of(context).pop();
                 await _submitQuickAddTodo();
               },
-              child: const Text('Add'),
+              child: _addingQuick 
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Add'),
             ),
           ],
         ),
@@ -2672,6 +2770,9 @@ class _HomePageState extends State<HomePage> {
     // Reset state variables
     _qaSelectedContext = selectedContext ?? 'personal';
     _qaSelectedRecurrence = 'none';
+    
+    // Set default date to today
+    _qaEventDate.text = anchor;
     
     showDialog<void>(
       context: context,
@@ -2757,11 +2858,17 @@ class _HomePageState extends State<HomePage> {
               child: const Text('Cancel'),
             ),
             FilledButton(
-              onPressed: () async {
+              onPressed: _addingQuick ? null : () async {
                 Navigator.of(context).pop();
                 await _submitQuickAddEvent();
               },
-              child: const Text('Add'),
+              child: _addingQuick 
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Add'),
             ),
           ],
         ),
@@ -2788,7 +2895,7 @@ class _HomePageState extends State<HomePage> {
                     // Search box
                     Expanded(
                       child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 300),
+                        constraints: const BoxConstraints(maxWidth: 250),
                         child: CompositedTransformTarget(
                           link: _searchLink,
                           child: Focus(
