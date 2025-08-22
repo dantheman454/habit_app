@@ -19,13 +19,11 @@ test('Two-Agent System: ConversationAgent structure', async () => {
 test('Two-Agent System: OpsAgent structure', async () => {
   // This test verifies that the OpsAgent module can be imported
   // and has the expected interface
-  const { runOpsAgent } = await import('../../apps/server/llm/ops_agent.js');
+  const { runOpsAgent, runOpsAgentToolCalling } = await import('../../apps/server/llm/ops_agent.js');
   
   assert.equal(typeof runOpsAgent, 'function');
-  
-  // Test that it returns a promise
-  const result = runOpsAgent({ taskBrief: 'test', transcript: [] });
-  assert.equal(result instanceof Promise, true);
+  assert.equal(typeof runOpsAgentToolCalling, 'function');
+  // Do not invoke here to avoid network/tool-calling side effects in unit test
 });
 
 test('Two-Agent System: Summary structure', async () => {
@@ -40,14 +38,4 @@ test('Two-Agent System: Summary structure', async () => {
   assert.equal(result instanceof Promise, true);
 });
 
-test('Two-Agent System: Proposal structure', async () => {
-  // This test verifies that the Proposal module can be imported
-  // and has the expected interface
-  const { runProposal } = await import('../../apps/server/llm/proposal.js');
-  
-  assert.equal(typeof runProposal, 'function');
-  
-  // Test that it returns a promise
-  const result = runProposal({ instruction: 'test', transcript: [] });
-  assert.equal(result instanceof Promise, true);
-});
+// Proposal removed in final architecture; tool-calling used instead.

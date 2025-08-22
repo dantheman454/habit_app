@@ -41,6 +41,7 @@ class Sidebar extends StatelessWidget {
   final VoidCallback? onDatePrev;
   final VoidCallback? onDateNext;
   final VoidCallback? onDateToday;
+  final String currentDate;
   final bool showCompleted;
   final void Function(bool) onShowCompletedChanged;
 
@@ -54,6 +55,7 @@ class Sidebar extends StatelessWidget {
     this.onDatePrev,
     this.onDateNext,
     this.onDateToday,
+    required this.currentDate,
     required this.showCompleted,
     required this.onShowCompletedChanged,
   });
@@ -95,6 +97,7 @@ class Sidebar extends StatelessWidget {
                 onPrev: onDatePrev!,
                 onNext: onDateNext!,
                 onToday: onDateToday!,
+                currentDate: currentDate,
               ),
             ),
           ),

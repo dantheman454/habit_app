@@ -2,10 +2,13 @@ Keep in mind:
 -User behaviours
 -Core abstractions/entities
 
+ASAP:
+-update mindmap
+-update test suite
+-refactor codebase to get rid of legacy code and monolithic files
 
 Get done by 8/24 night:
     -Get fundamental functions of tasks and events working
-        *add tasks and events
         *views working properly
     -Clean up UI 
         *Fix header to have sections
@@ -26,12 +29,12 @@ Get done by 8/24 night:
         *simplify/iron out current pipeline
         *plug in qwen-code and update the prompts 
         *use chain prompting with different lens?
+
+    -have method to be able to do minimal tasks from phone. Remote client that updates locally only?
+
     -spam flutter analyze until no issues found and functionality is preserved
     -Modularize main and clean up/optimize the flutter directory??? (if access to GPT-5 again)
 
-
-Get done before school:
--have method to be able to do minimal tasks from phone. Remote client that updates locally only?
 
 
 -get behaviours the app needs to faciliate 

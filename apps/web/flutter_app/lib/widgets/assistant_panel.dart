@@ -190,10 +190,28 @@ class AssistantPanel extends StatelessWidget {
                   _buildProgress(context),
                 if (operations.isNotEmpty) ...[
                   const SizedBox(height: 8),
-                  const Text(
-                    'Proposed operations',
-                    style: TextStyle(fontWeight: FontWeight.w600),
+                  Text(
+                    sending
+                        ? 'Proposed operations'
+                        : 'Executed operations (${operations.length})',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
+                  if (operations.any((o) => _getErrors(o).isNotEmpty))
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4, bottom: 4),
+                      child: Row(
+                        children: const [
+                          Icon(Icons.error_outline, size: 16, color: Colors.amber),
+                          SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'Some operations failed to run. Review errors below.',
+                              style: TextStyle(fontSize: 12),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   const SizedBox(height: 4),
                   if (operations.any((o) => _getErrors(o).isNotEmpty)) ...[
                     const SizedBox(height: 6),

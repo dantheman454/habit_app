@@ -4,7 +4,7 @@ import { mkCorrelationId } from './logging.js';
 import db from '../database/DbService.js';
 
 // ConversationAgent: enforces JSON-only outputs and records audit traces.
-export async function runConversationAgent({ instruction, transcript = [], clarify = null, timezone } = {}) {
+export async function runConversationAgent({ instruction, transcript = [], timezone } = {}) {
   const ctx = buildRouterContext({ timezone });
   const correlationId = mkCorrelationId();
   
@@ -21,16 +21,13 @@ export async function runConversationAgent({ instruction, transcript = [], clari
     }); 
   } catch {}
 
-  const result = await runRouter({ instruction, transcript, clarify });
+  const result = await runRouter({ instruction, transcript });
 
   // Normalize result to expected envelope
   const out = {
-    decision: result.decision || 'clarify',
+    decision: result.decision || 'chat',
     confidence: Number(result.confidence || 0),
-    question: result.question || null,
     where: result.where || null,
-    delegate: result.delegate || null,
-    options: result.options || null,
   };
 
   try { 

@@ -3,7 +3,10 @@ Vision:
 -Help tie actual tasks to overall habits
 -Track task success rates to be able to make informed decisions based on success rates of tasks
 
+
 Behaviour flow (how I am going to use it):
+-Daily overview
+-Weekly/Monthly planning
 -quickly add/modify/delete todos
 -Consolidate/organize large amounts of todos that build up
 

@@ -138,7 +138,6 @@ Future<Map<String, dynamic>> assistantMessage(
   bool streamSummary = false,
   void Function(String text)? onSummary,
   void Function(String question, List<Map<String, dynamic>> options)? onClarify,
-  Map<String, dynamic>? priorClarify,
   Map<String, dynamic>? clientContext,
   void Function(String stage)? onStage,
   void Function(
@@ -157,7 +156,6 @@ Future<Map<String, dynamic>> assistantMessage(
         'message': message,
         'transcript': transcript,
         'options': {
-          if (priorClarify != null) 'clarify': priorClarify,
           if (clientContext != null) 'client': clientContext,
         },
       },
@@ -181,7 +179,6 @@ Future<Map<String, dynamic>> assistantMessage(
         queryParameters: {
           'message': message,
           'transcript': transcript.isEmpty ? '[]' : jsonEncode(transcript),
-          if (priorClarify != null) 'clarify': jsonEncode(priorClarify),
           if (clientContext != null) 'context': jsonEncode(clientContext),
         },
       )
@@ -255,7 +252,6 @@ Future<Map<String, dynamic>> assistantMessage(
               'message': message,
               'transcript': transcript,
               'options': {
-                if (priorClarify != null) 'clarify': priorClarify,
                 if (clientContext != null) 'client': clientContext,
               },
             },

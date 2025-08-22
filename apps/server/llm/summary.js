@@ -1,8 +1,8 @@
 // Summary generator for the two-agent system
 // Produces concise plain-text summaries of operations and issues
 
-import { harmonyConvoLLM, getModels } from './clients.js';
-import { createHarmonyPrompt, getFinalResponse } from './harmony_utils.js';
+import { qwenConvoLLM, getModels } from './clients.js';
+import { createQwenPrompt, getQwenFinalResponse } from './qwen_utils.js';
 import { mkCorrelationId, logIO } from './logging.js';
 
 const TIMEZONE = process.env.TZ_NAME || 'America/New_York';
@@ -23,25 +23,8 @@ export async function runSummary({ operations = [], issues = [], timezone } = {}
     return `${index + 1}. ${action} ${kind}: ${title}`;
   });
 
-  const harmonyPrompt = createHarmonyPrompt({
-    system: "You are a helpful, concise assistant for a todo application.",
-    developer: `Your job is to explain what actions will be taken in clear, user-friendly language.
-
-SUMMARY GUIDELINES:
-- Be concise but informative (1-3 sentences)
-- Use natural language, not technical terms
-- Mention specific items being modified when relevant
-- Explain any issues or limitations clearly
-- Avoid jargon or technical details
-- Focus on what the user will see change
-
-FORMAT RULES:
-- No markdown formatting
-- No bullet points or lists
-- No JSON or technical syntax
-- Plain text only
-- Use present tense for actions
-- Be encouraging and helpful`,
+  const qwenPrompt = createQwenPrompt({
+    system: "You are a helpful, concise assistant for a todo application. Your job is to explain what actions will be taken in clear, user-friendly language.",
     user: `Today: ${todayYmd} (${timezone || TIMEZONE})
 
 Operations to perform:
@@ -50,11 +33,22 @@ ${opSummaries.join('\n')}
 Issues to address:
 ${issues.length > 0 ? issues.join('; ') : 'none'}
 
+SUMMARY GUIDELINES:
+- Be concise but informative (1-3 sentences)
+- Use natural language, not technical terms
+- Mention specific items being modified when relevant
+- Explain any issues or limitations clearly
+- Avoid jargon or technical details
+- Focus on what the user will see change
+- No markdown formatting, plain text only
+- Use present tense for actions
+- Be encouraging and helpful
+
 Generate a clear, user-friendly summary of what will happen:`
   });
 
-  const raw = await harmonyConvoLLM(harmonyPrompt, { stream: false, model: MODELS.convo });
-  logIO('summary', { model: MODELS.convo, prompt: JSON.stringify(harmonyPrompt), output: raw, meta: { correlationId, module: 'summary' } });
+  const raw = await qwenConvoLLM(qwenPrompt, { stream: false, model: MODELS.convo });
+  logIO('summary', { model: MODELS.convo, prompt: JSON.stringify(qwenPrompt), output: raw, meta: { correlationId, module: 'summary' } });
 
   // Enhanced response cleaning
   function cleanSummaryResponse(raw) {
@@ -79,8 +73,8 @@ Generate a clear, user-friendly summary of what will happen:`
     return summary || 'Ready to apply your changes.';
   }
 
-  // Extract final response from Harmony channels
-  const finalResponse = getFinalResponse(raw);
+  // Extract final response from Qwen response
+  const finalResponse = getQwenFinalResponse(raw);
   const summary = cleanSummaryResponse(finalResponse);
   return summary;
 }

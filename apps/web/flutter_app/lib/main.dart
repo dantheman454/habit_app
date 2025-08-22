@@ -2653,19 +2653,7 @@ class _HomePageState extends State<HomePage> {
             _clarifySelectedDate = null;
           });
         },
-        priorClarify: (_pendingClarifyQuestion == null)
-            ? null
-            : {
-                'question': _pendingClarifyQuestion,
-                if (_clarifySelectedIds.isNotEmpty ||
-                    _clarifySelectedDate != null)
-                  'selection': {
-                    if (_clarifySelectedIds.isNotEmpty)
-                      'ids': _clarifySelectedIds.toList(),
-                    if (_clarifySelectedDate != null)
-                      'date': _clarifySelectedDate,
-                  },
-              },
+
         onStage: (st) {
           if (!mounted) return;
           setState(() {

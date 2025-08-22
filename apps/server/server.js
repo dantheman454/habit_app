@@ -32,7 +32,7 @@ function filterLLMResponse(data) {
   return data;
 }
 import { extractFirstJson } from './llm/json_extract.js';
-import { buildRouterSnapshots as buildRouterSnapshotsLLM, topClarifyCandidates as topClarifyCandidatesLLM, buildFocusedContext as buildFocusedContextLLM } from './llm/context.js';
+import { buildRouterSnapshots as buildRouterSnapshotsLLM, buildFocusedContext as buildFocusedContextLLM } from './llm/context.js';
 import { runRouter as runRouterLLM } from './llm/router.js';
 import { HabitusMCPServer } from './mcp/mcp_server.js';
 import { OperationProcessor } from './operations/operation_processor.js';
@@ -143,7 +143,7 @@ function filterTodosByWhere(where = {}) {
       if (!d) return false;
       if (from && d < from) return false;
       if (to) {
-        const inclusiveEnd = new Date(to.getFullYear(), to.getMonth(), to.getDate() + 1);
+        const inclusiveEnd = new Date(to.getFullYear(), to.getMonth(), toDate.getDate() + 1);
         if (d >= inclusiveEnd) return false;
       }
       return true;
@@ -194,7 +194,7 @@ function filterItemsByWhere(items, where = {}) {
       if (!d) return false;
       if (from && d < from) return false;
       if (to) {
-        const inclusiveEnd = new Date(to.getFullYear(), to.getMonth(), to.getDate() + 1);
+        const inclusiveEnd = new Date(to.getFullYear(), to.getMonth(), toDate.getDate() + 1);
         if (d >= inclusiveEnd) return false;
       }
       return true;
@@ -245,24 +245,7 @@ function buildRouterSnapshots() {
   return { week: { from: fromYmd, to: toYmd, items: weekItems.map(compact) }, backlog: backlogSample.map(compact) };
 }
 
-// Rank top clarify candidates from snapshots by fuzzy title tokens
-function topClarifyCandidates(instruction, snapshot, limit = 5) {
-  const tokens = String(instruction || '').toLowerCase().split(/[^a-z0-9]+/g).filter(Boolean);
-  const all = [...(snapshot.week?.items || []), ...(snapshot.backlog || [])];
-  const score = (item) => {
-    const title = String(item.title || '').toLowerCase();
-    let s = 0;
-    for (const t of tokens) if (title.includes(t)) s += 1;
-  // priority removed
-    return s;
-  };
-  return all
-    .map(i => ({ i, s: score(i) }))
-    .filter(x => x.s > 0)
-    .sort((a, b) => b.s - a.s)
-    .slice(0, limit)
-    .map(x => x.i);
-}
+
 
 // Ensure data dir exists and bootstrap DB schema
 try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch {}
@@ -1529,8 +1512,6 @@ app.delete('/api/todos/:id', (req, res) => {
 // Model selection now uses `getModels()` from `apps/server/llm/clients.js` (convo/code).
 const OLLAMA_TEMPERATURE = 0.1;
 const GLOBAL_TIMEOUT_SECS = parseInt('300', 10);
-const CLARIFY_THRESHOLD = 0.45;
-const CHAT_THRESHOLD = 0.70;
 
 
 function validateWhere(where) {
@@ -2000,44 +1981,74 @@ async function runProposalAndRepair({ instruction, transcript, focusedWhere, mod
 }
 
 import { runConversationAgent } from './llm/conversation_agent.js';
-import { runOpsAgent, runOpsAgentWithProcessor } from './llm/ops_agent.js';
+import { runOpsAgent, runOpsAgentWithProcessor, runOpsAgentToolCalling } from './llm/ops_agent.js';
 import { runSummary } from './llm/summary.js';
+import { runChat } from './llm/chat.js';
 import { qualityMonitor } from './llm/quality_monitor.js';
 
 app.post('/api/assistant/message', async (req, res) => {
   try {
-    const { message, transcript = [], options = {} } = req.body || {};
+    const { message, transcript = [] } = req.body || {};
     const correlationId = mkCorrelationId();
+    
     if (typeof message !== 'string' || message.trim() === '') {
       return res.status(400).json({ error: 'invalid_message' });
     }
+    
     // ConversationAgent
-    const ca = await runConversationAgent({ instruction: message.trim(), transcript, clarify: options && options.clarify });
-    console.log('DEBUG: Conversation agent decision:', ca.decision);
-    console.log('DEBUG: Conversation agent result:', JSON.stringify(ca, null, 2));
-    if (ca.decision === 'clarify') {
-      return res.json({ clarify: { question: ca.question, options: Array.isArray(ca.options) ? ca.options : [] }, correlationId });
-    }
-    if (ca.decision === 'chat') {
-      // Generate summary for chat
-      const summaryText = await runSummary({ operations: [], issues: [], timezone: TIMEZONE });
-      return res.json({ text: summaryText, operations: [], correlationId });
-    }
-    // Plan: call OpsAgent with operation processor integration
-    const oa = await runOpsAgentWithProcessor({ 
-      taskBrief: ca.delegate?.taskBrief || message.trim(), 
-      where: ca.where, 
+    const ca = await runConversationAgent({ 
+      instruction: message.trim(), 
       transcript, 
-      timezone: TIMEZONE,
-      operationProcessor 
-    });
-    // Generate summary
-    const summaryText = await runSummary({ 
-      operations: oa.operations, 
-      issues: oa.notes?.errors || [],
       timezone: TIMEZONE 
     });
-    // Compose result
+    
+    if (ca.decision === 'chat') {
+      // Generate conversational response
+      const chatText = await runChat({ 
+        instruction: message.trim(), 
+        transcript, 
+        timezone: TIMEZONE 
+      });
+      return res.json({ 
+        text: chatText, 
+        operations: [], 
+        correlationId 
+      });
+    }
+    
+    // Act: native tool-calling execution with safe fallback to chat on failure
+    let oa;
+    try {
+      oa = await runOpsAgentToolCalling({ 
+        taskBrief: message.trim(), 
+        where: ca.where, 
+        transcript, 
+        timezone: TIMEZONE,
+        operationProcessor 
+      });
+    } catch (err) {
+      // Fallback: return a chat text so the UI doesn't break when tool-calling isn't available
+      const fallbackText = await (async () => {
+        try { const { runChat } = await import('./llm/chat.js'); return await runChat({ instruction: message.trim(), transcript, timezone: TIMEZONE }); }
+        catch { return 'Sorry, I could not process that right now.'; }
+      })();
+      return res.json({ text: fallbackText, operations: [], correlationId });
+    }
+    
+    // Check if OpsAgent needs clarification
+    if (oa.needsClarification) {
+      return res.json({ 
+        clarify: { 
+          question: oa.question, 
+          options: oa.options 
+        }, 
+        correlationId 
+      });
+    }
+    
+    // Final text: chat-generated within tool-calling flow
+    const summaryText = String(oa.text || '').trim();
+    
     return res.json({
       text: summaryText,
       steps: oa.steps,
@@ -2047,7 +2058,10 @@ app.post('/api/assistant/message', async (req, res) => {
       correlationId
     });
   } catch (err) {
-    res.status(502).json({ error: 'assistant_failure', detail: String(err && err.message ? err.message : err) });
+    res.status(502).json({ 
+      error: 'assistant_failure', 
+      detail: String(err && err.message ? err.message : err) 
+    });
   }
 });
 
@@ -2058,95 +2072,104 @@ app.get('/api/assistant/message/stream', async (req, res) => {
     const message = String(req.query.message || '');
     const transcriptParam = req.query.transcript;
     const transcript = (() => {
-      try { return Array.isArray(transcriptParam) ? transcriptParam : JSON.parse(String(transcriptParam || '[]')); } catch { return []; }
+      try { 
+        return Array.isArray(transcriptParam) ? transcriptParam : JSON.parse(String(transcriptParam || '[]')); 
+      } catch { 
+        return []; 
+      }
     })();
+    
     if (message.trim() === '') return res.status(400).json({ error: 'invalid_message' });
-    const clarify = (() => { try { return JSON.parse(String(req.query.clarify || 'null')); } catch { return null; } })();
+    
     const correlationId = mkCorrelationId();
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     if (typeof res.flushHeaders === 'function') res.flushHeaders();
+    
     const send = (event, data) => { 
       const filteredData = filterLLMResponse(data);
       res.write(`event: ${event}\n`); 
       res.write(`data: ${filteredData}\n\n`); 
     };
+    
     send('stage', JSON.stringify({ stage: 'routing', correlationId }));
+    
     // ConversationAgent
-    const ca = await runConversationAgent({ instruction: message.trim(), transcript, clarify, timezone: TIMEZONE });
-    if (ca.decision === 'clarify') {
-      send('clarify', JSON.stringify({ question: ca.question, options: Array.isArray(ca.options) ? ca.options : [], correlationId }));
-      send('done', 'true');
-      return res.end();
-    }
-    if (ca.decision === 'chat') {
-      const summaryText = await runSummary({ operations: [], issues: [], timezone: TIMEZONE });
-      send('summary', JSON.stringify({ text: summaryText, correlationId }));
-      send('result', JSON.stringify({ text: summaryText, operations: [], correlationId }));
-      send('done', 'true');
-      return res.end();
-    }
-    // Plan: call OpsAgent
-    send('stage', JSON.stringify({ stage: 'proposing', correlationId }));
-    const heartbeat = setInterval(() => { try { send('heartbeat', JSON.stringify({ ts: new Date().toISOString() })); } catch {} }, 10000);
-    __heartbeat = heartbeat;
-    res.on('close', () => { try { clearInterval(heartbeat); } catch {} });
-    const oa = await runOpsAgentWithProcessor({ 
-      taskBrief: ca.delegate?.taskBrief || message.trim(), 
-      where: ca.where, 
+    const ca = await runConversationAgent({ 
+      instruction: message.trim(), 
       transcript, 
-      timezone: TIMEZONE,
-      operationProcessor 
-    });
-    const validCount = oa.operations.length - (oa.notes?.invalidCount || 0);
-    const invalidCount = oa.notes?.invalidCount || 0;
-    const errors = oa.notes?.errors ? oa.notes.errors.map((error, index) => ({ index, codes: [error] })) : [];
-    send('ops', JSON.stringify({ 
-      version: oa.version, 
-      steps: oa.steps, 
-      operations: oa.operations, 
-      tools: oa.tools, 
-      validCount, 
-      invalidCount, 
-      errors: errors.length > 0 ? errors : undefined,
-      correlationId 
-    }));
-    send('stage', JSON.stringify({ stage: 'summarizing', correlationId }));
-    // Generate proper summary
-    const summaryText = await runSummary({ 
-      operations: oa.operations, 
-      issues: oa.notes?.errors || [],
       timezone: TIMEZONE 
     });
-    send('summary', JSON.stringify({ text: summaryText, correlationId }));
-    const partial = (oa.notes?.invalidCount || 0) > 0;
-    const issues = oa.notes?.errors || [];
-    send('result', JSON.stringify({ 
-      decision: ca.decision, 
-      steps: oa.steps, 
-      operations: oa.operations, 
-      tools: oa.tools, 
-      partial, 
-      issues: issues.length > 0 ? issues : undefined,
-      correlationId 
-    }));
-    send('done', 'true');
-    try { clearInterval(heartbeat); } catch {}
-    return res.end();
-  } catch (err) {
-    try {
-      const send = (event, data) => { 
-        const filteredData = filterLLMResponse(data);
-        res.write(`event: ${event}\n`); 
-        res.write(`data: ${filteredData}\n\n`); 
-      };
-      send('summary', JSON.stringify({ text: 'Sorry, the assistant encountered an error.' }));
-      send('result', JSON.stringify({ text: '', operations: [], correlationId: mkCorrelationId() }));
+    
+    if (ca.decision === 'chat') {
+      const chatText = await runChat({ 
+        instruction: message.trim(), 
+        transcript, 
+        timezone: TIMEZONE 
+      });
+      send('summary', JSON.stringify({ text: chatText, correlationId }));
+      send('result', JSON.stringify({ text: chatText, operations: [], correlationId }));
       send('done', 'true');
-      try { if (__heartbeat) clearInterval(__heartbeat); } catch {}
-      res.end();
+      return res.end();
+    }
+    
+    // Act: tool-calling execution
+    send('stage', JSON.stringify({ stage: 'executing', correlationId }));
+    const heartbeat = setInterval(() => { 
+      try { 
+        send('heartbeat', JSON.stringify({ ts: new Date().toISOString() })); 
+      } catch {} 
+    }, 10000);
+    __heartbeat = heartbeat;
+    res.on('close', () => { try { clearInterval(heartbeat); } catch {} });
+    
+    let oa;
+    try {
+      oa = await runOpsAgentToolCalling({ 
+        taskBrief: message.trim(), 
+        where: ca.where, 
+        transcript, 
+        timezone: TIMEZONE,
+        operationProcessor 
+      });
+    } catch (err) {
+      // Fallback to chat text and finish the SSE stream gracefully
+      const fallbackText = await (async () => {
+        try { const { runChat } = await import('./llm/chat.js'); return await runChat({ instruction: message.trim(), transcript, timezone: TIMEZONE }); }
+        catch { return 'Sorry, I could not process that right now.'; }
+      })();
+      send('summary', JSON.stringify({ text: fallbackText, correlationId }));
+      send('result', JSON.stringify({ text: fallbackText, operations: [], correlationId }));
+      send('done', 'true');
+      return res.end();
+    }
+    
+    // Check if OpsAgent needs clarification
+    if (oa.needsClarification) {
+      send('clarify', JSON.stringify({ 
+        question: oa.question, 
+        options: oa.options, 
+        correlationId 
+      }));
+      send('done', 'true');
+      return res.end();
+    }
+    
+    // End-of-run summary only (per decision)
+    const summaryText = String(oa.text || '').trim();
+    send('summary', JSON.stringify({ text: summaryText, correlationId }));
+    send('result', JSON.stringify({ text: summaryText, operations: oa.operations, correlationId }));
+    send('done', 'true');
+    
+  } catch (err) {
+    try { 
+      res.write(`event: error\ndata: ${JSON.stringify({ error: String(err) })}\n\n`); 
+      res.write('event: done\ndata: true\n\n');
     } catch {}
+  } finally {
+    try { if (__heartbeat) clearInterval(__heartbeat); } catch {}
+    res.end();
   }
 });
 

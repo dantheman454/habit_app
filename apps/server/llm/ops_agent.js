@@ -1,5 +1,5 @@
-import { runProposal } from './proposal.js';
-import { runRepair } from './repair.js';
+import { qwenToolLLM } from './clients.js';
+import { createQwenToolPrompt } from './qwen_utils.js';
 import { buildFocusedContext } from './context.js';
 import { extractFirstJson } from './json_extract.js';
 import { mkCorrelationId } from './logging.js';
@@ -74,6 +74,51 @@ function validateProposal(ops) {
   const results = shaped.map((o, i) => ({ index: i, op: o, errors: validateOperation(o) }));
   const invalid = results.filter(r => r.errors.length > 0);
   return { operations: shaped, results, errors: invalid.length ? ['invalid_operations'] : [] };
+}
+
+function detectAmbiguity(taskBrief, context) {
+  const lowerBrief = taskBrief.toLowerCase();
+  const actionWords = ['update', 'change', 'modify', 'complete', 'delete', 'remove', 'set', 'create', 'add'];
+  const hasAction = actionWords.some(word => lowerBrief.includes(word));
+  
+  if (!hasAction) {
+    return { needsClarification: false };
+  }
+  
+  // Check for ambiguous references
+  const items = context.focused || [];
+  
+  // If no specific items mentioned and multiple items exist
+  if (items.length > 1 && !lowerBrief.match(/#\d+/)) {
+    return {
+      needsClarification: true,
+      question: "Which item do you want to work with?",
+      options: items.slice(0, 5).map(item => ({
+        id: item.id,
+        title: item.title,
+        scheduledFor: item.scheduledFor
+      }))
+    };
+  }
+  
+  // If title contains matches multiple items
+  const titleMatches = items.filter(item => 
+    item.title && lowerBrief.includes(item.title.toLowerCase())
+  );
+  
+  if (titleMatches.length > 1) {
+    return {
+      needsClarification: true,
+      question: "Which item do you mean?",
+      options: titleMatches.map(item => ({
+        id: item.id,
+        title: item.title,
+        scheduledFor: item.scheduledFor
+      }))
+    };
+  }
+  
+  return { needsClarification: false };
 }
 
 export async function runOpsAgent({ taskBrief, where = {}, transcript = [], timezone } = {}) {
@@ -173,6 +218,7 @@ export async function runOpsAgent({ taskBrief, where = {}, transcript = [], time
 }
 
 export async function runOpsAgentWithProcessor({ taskBrief, where = {}, transcript = [], timezone, operationProcessor } = {}) {
+  // Legacy compatibility wrapper retained until server is switched over.
   const focusedContext = buildFocusedContext(where, { timezone });
   const correlationId = mkCorrelationId();
   
@@ -188,6 +234,19 @@ export async function runOpsAgentWithProcessor({ taskBrief, where = {}, transcri
       meta: { correlationId }
     }); 
   } catch {}
+
+  // Check for ambiguity before generating operations
+  const ambiguityCheck = detectAmbiguity(taskBrief, focusedContext);
+  
+  if (ambiguityCheck.needsClarification) {
+    // Return clarification response
+    return {
+      needsClarification: true,
+      question: ambiguityCheck.question,
+      options: ambiguityCheck.options,
+      correlationId
+    };
+  }
 
   // 1) Propose (same as original)
   const proposalRaw = await runProposal({ instruction: taskBrief, transcript, focusedWhere: where });
@@ -311,4 +370,107 @@ export async function runOpsAgentWithProcessor({ taskBrief, where = {}, transcri
   } catch {}
   
   return out;
+}
+
+// --- New: Native tool-calling executor (final path) ---
+
+function toolCallToOperation(name, args) {
+  const [kind, action] = String(name || '').split('.')
+    .map(s => String(s || '').trim().toLowerCase());
+  return { kind, action, ...(args || {}) };
+}
+
+export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript = [], timezone, operationProcessor } = {}) {
+  const instruction = String(taskBrief || '').trim();
+  if (!instruction) return { version: '3', steps: [], operations: [], tools: [], notes: { errors: ['empty_instruction'] }, text: 'Please share what you would like to do.' };
+
+  const correlationId = mkCorrelationId();
+  const focusedContext = buildFocusedContext(where, { timezone });
+  const contextJson = JSON.stringify(focusedContext, null, 2);
+  const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
+  const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
+
+  // Define tool surface (v1 approved list)
+  const operationTools = [
+    'todo.create','todo.update','todo.delete','todo.set_status',
+    'event.create','event.update','event.delete',
+    'habit.create','habit.update','habit.delete','habit.set_occurrence_status'
+  ].map((name) => ({
+    type: 'function',
+    function: {
+      name,
+      description: `Execute operation ${name}`,
+      parameters: { type: 'object', additionalProperties: true }
+    }
+  }));
+
+  const system = 'You are an operations executor for a todo application. Use tools to perform user actions precisely. Never invent IDs. Validate dates (YYYY-MM-DD) and times (HH:MM). Keep operations under 20 total.';
+  const user = `Task: ${instruction}\nWhere: ${JSON.stringify(where)}\nFocused Context:\n${contextJson}\nRecent Conversation:\n${convo}`;
+
+  // Start conversation
+  const prompt = createQwenToolPrompt({ system, user, tools: operationTools });
+
+  const executedOps = [];
+  const toolCallsLog = [];
+  const notes = { errors: [] };
+  const steps = [ { name: 'Identify targets' }, { name: 'Execute operations' } ];
+
+  let messages = [...prompt.messages];
+  let rounds = 0;
+  const MAX_ROUNDS = 5;
+  const MAX_OPS = 20;
+  let finalText = '';
+
+  while (rounds < MAX_ROUNDS && executedOps.length < MAX_OPS) {
+    const resp = await qwenToolLLM({ messages, tools: operationTools, tool_choice: 'auto' });
+
+    // Try to recover tool_calls or assistant message from response
+    const text = typeof resp === 'string' ? resp : (resp.final || resp.message || resp.content || '');
+
+    // Attempt to parse JSON looking for tool_calls
+    let parsed = null;
+    try { parsed = JSON.parse(text); } catch {}
+
+    const toolCalls = Array.isArray(parsed?.tool_calls) ? parsed.tool_calls : [];
+
+    if (!toolCalls.length) {
+      finalText = String(text || '').trim();
+      break;
+    }
+
+    for (const call of toolCalls) {
+      if (executedOps.length >= MAX_OPS) break;
+      const name = call?.function?.name || call?.name;
+      const args = call?.function?.arguments || call?.arguments || {};
+      let parsedArgs = args;
+      if (typeof args === 'string') {
+        try { parsedArgs = JSON.parse(args); } catch { parsedArgs = {}; }
+      }
+      const op = toolCallToOperation(name, parsedArgs);
+      toolCallsLog.push({ name, args: parsedArgs });
+      try {
+        const result = await operationProcessor.processOperations([op], correlationId);
+        const ok = result?.results?.[0]?.ok;
+        if (ok) executedOps.push(op);
+        // Append tool result message for the model
+        messages.push({ role: 'tool', tool_call_id: call.id || name, content: JSON.stringify(result) });
+      } catch (e) {
+        notes.errors.push(String(e?.message || e));
+        messages.push({ role: 'tool', tool_call_id: call.id || name, content: JSON.stringify({ ok: false, error: String(e?.message || e) }) });
+      }
+    }
+
+    rounds += 1;
+    // Add assistant acknowledgement to continue loop
+    messages = [ ...prompt.messages, ...messages.filter(m => m.role === 'tool') ];
+  }
+
+  return {
+    version: '3',
+    steps,
+    operations: executedOps,
+    tools: toolCallsLog,
+    notes,
+    text: finalText || 'All set.'
+  };
 }

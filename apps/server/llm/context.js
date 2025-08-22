@@ -147,25 +147,66 @@ export function buildFocusedContext(where = {}, { timezone = DEFAULT_TZ } = {}) 
   };
 }
 
-export function topClarifyCandidates(instruction, snapshot, limit = 5) {
-  const tokens = String(instruction || '').toLowerCase().split(/[^a-z0-9]+/g).filter(Boolean);
-  const all = [...(snapshot.week?.items || []), ...(snapshot.backlog || [])];
-  const score = (item) => {
-    const title = String(item.title || '').toLowerCase();
-    let s = 0;
-    for (const t of tokens) if (title.includes(t)) s += 1;
-  // priority removed from scoring
-    return s;
-  };
-  return all
-    .map(i => ({ i, s: score(i) }))
-    .filter(x => x.s > 0)
-    .sort((a, b) => b.s - a.s)
-    .slice(0, limit)
-    .map(x => x.i);
-}
+
 
 export function buildRouterContext({ todayYmd, timezone } = {}) {
   return { today: todayYmd || ymdInTimeZone(new Date(), timezone || DEFAULT_TZ), timezone: timezone || DEFAULT_TZ, ...buildRouterSnapshots({ timezone: timezone || DEFAULT_TZ }) };
+}
+
+// Build compact, QA‑friendly context for Chat: detailed Today, summarized Week
+export function buildQAContext({ timezone = DEFAULT_TZ } = {}) {
+  const tz = timezone || DEFAULT_TZ;
+  const today = ymdInTimeZone(new Date(), tz);
+  const { fromYmd, toYmd } = weekRangeFromToday(tz);
+
+  // Limits
+  const MAX_TODAY = 30; // combined across types
+  const MAX_WEEK_TITLES = 50; // titles only
+  const perTypeToday = Math.max(1, Math.floor(MAX_TODAY / 3));
+
+  // Today (detailed)
+  const todosToday = filterByWhere(listAllTodosRaw(), { scheduled_range: { from: today, to: today } }, { todayY: today })
+    .slice(0, perTypeToday)
+    .map(t => ({ id: t.id, title: t.title, scheduledFor: t.scheduledFor ?? null, timeOfDay: t.timeOfDay ?? null, status: t.status ?? (t.completed ? 'completed' : 'pending') }));
+  const eventsToday = filterByWhere(listAllEventsRaw(), { scheduled_range: { from: today, to: today } }, { todayY: today })
+    .slice(0, perTypeToday)
+    .map(e => ({ id: e.id, title: e.title, scheduledFor: e.scheduledFor ?? null, startTime: e.startTime ?? null, endTime: e.endTime ?? null, location: e.location ?? null }));
+  // For habits, include those explicitly scheduled for today; simple heuristic: also include repeating habits with no explicit date
+  const habitsTodayAll = listAllHabitsRaw();
+  const habitsToday = habitsTodayAll
+    .filter(h => (h.scheduledFor === today) || (h.recurrence && h.recurrence.type && h.recurrence.type !== 'none'))
+    .slice(0, perTypeToday)
+    .map(h => ({ id: h.id, title: h.title, scheduledFor: h.scheduledFor ?? null, timeOfDay: h.timeOfDay ?? null, recurrence: h.recurrence || { type: 'daily' }, completed: !!h.completed }));
+
+  // Week summary (titles only)
+  const todosWeek = filterByWhere(listAllTodosRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false }, { todayY: today });
+  const eventsWeek = filterByWhere(listAllEventsRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false }, { todayY: today });
+  const habitsWeek = filterByWhere(listAllHabitsRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false }, { todayY: today });
+  const pickTitles = (arr, n) => arr.slice(0, n).map(x => ({ id: x.id, title: x.title, scheduledFor: x.scheduledFor ?? null }));
+  const perTypeWeek = Math.max(1, Math.floor(MAX_WEEK_TITLES / 3));
+
+  return {
+    timezone: tz,
+    todayYmd: today,
+    today: {
+      todos: todosToday,
+      events: eventsToday,
+      habits: habitsToday,
+    },
+    week: {
+      fromYmd,
+      toYmd,
+      counts: {
+        todos: todosWeek.length,
+        events: eventsWeek.length,
+        habits: habitsWeek.length,
+      },
+      titles: {
+        todos: pickTitles(todosWeek, perTypeWeek),
+        events: pickTitles(eventsWeek, perTypeWeek),
+        habits: pickTitles(habitsWeek, perTypeWeek),
+      }
+    }
+  };
 }
 
