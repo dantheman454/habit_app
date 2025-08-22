@@ -5,7 +5,7 @@ import 'views/day_view.dart';
 import 'views/week_view.dart';
 import 'views/month_view.dart';
 import 'package:flutter/gestures.dart';
-import 'widgets/sidebar.dart' as sb;
+
 import 'widgets/todo_row.dart' as row;
 import 'widgets/habits_tracker.dart' as ht;
 import 'widgets/smart_list_tabs.dart' as slt;
@@ -259,12 +259,14 @@ class DateNavigation extends StatelessWidget {
   final VoidCallback onPrev;
   final VoidCallback onNext;
   final VoidCallback onToday;
+  final String currentDate;
 
   const DateNavigation({
     super.key,
     required this.onPrev,
     required this.onNext,
     required this.onToday,
+    required this.currentDate,
   });
 
   @override
@@ -275,9 +277,9 @@ class DateNavigation extends StatelessWidget {
           icon: const Icon(Icons.chevron_left),
           onPressed: onPrev,
         ),
-        TextButton(
-          onPressed: onToday,
-          child: const Text('Today'),
+        Text(
+          currentDate,
+          style: Theme.of(context).textTheme.titleMedium,
         ),
         IconButton(
           icon: const Icon(Icons.chevron_right),
@@ -294,6 +296,7 @@ class FilterBar extends StatelessWidget {
   final VoidCallback? onDatePrev;
   final VoidCallback? onDateNext;
   final VoidCallback? onDateToday;
+  final String currentDate;
   final String? selectedType;
   final void Function(String?) onTypeChanged;
   final String? selectedContext;
@@ -308,6 +311,7 @@ class FilterBar extends StatelessWidget {
     this.onDatePrev,
     this.onDateNext,
     this.onDateToday,
+    required this.currentDate,
     required this.selectedType,
     required this.onTypeChanged,
     required this.selectedContext,
@@ -355,6 +359,7 @@ class FilterBar extends StatelessWidget {
                   onPrev: onDatePrev!,
                   onNext: onDateNext!,
                   onToday: onDateToday!,
+                  currentDate: currentDate,
                 ),
               
               const Spacer(),
@@ -484,7 +489,6 @@ class _HomePageState extends State<HomePage> {
   // Map of row keys for ensureVisible
   final Map<int, GlobalKey> _rowKeys = {};
 
-  // Sidebar state
   MainView mainView = MainView.tasks;
   
   String? _goalsStatusFilter; // null=all | 'active'|'completed'|'archived'
@@ -496,7 +500,6 @@ class _HomePageState extends State<HomePage> {
   List<Todo> scheduled = [];
   List<Todo> scheduledAllTime = [];
   List<Todo> searchResults = [];
-  Map<String, int> sidebarCounts = {};
   // Habit stats for current range (by habit id)
   Map<int, Map<String, dynamic>> habitStatsById = {};
   // Goal badges mapping: key `${kind}:${masterOrId}` -> { goalId, title }
@@ -596,8 +599,8 @@ class _HomePageState extends State<HomePage> {
       setState(() => loading = false);
     }
     
-    // Initialize search context to match sidebar
-    _searchContext = selectedContext;
+            // Initialize search context
+        _searchContext = selectedContext;
   }
 
   Widget _quickAddHabitsInline() {
@@ -1116,7 +1119,6 @@ class _HomePageState extends State<HomePage> {
       .map((e) => Todo.fromJson(e as Map<String, dynamic>))
       .toList();
       // Completed filter already applied above; priority now requested server-side
-      // Sidebar counters are scoped by active tab context only
       final nowYmd = ymd(DateTime.now());
   int todayCount;
   int allCount;
@@ -1190,7 +1192,6 @@ class _HomePageState extends State<HomePage> {
           // "Tasks" view or other: todos only
           scheduledAllTime = sAllList;
         }
-        sidebarCounts = counts;
         message = null;
       });
       // Load goal badges (non-blocking)
@@ -1373,7 +1374,7 @@ class _HomePageState extends State<HomePage> {
 
   void _setSearchContext(String? context) {
     setState(() => _searchContext = context);
-    // Sync with sidebar context
+    // Sync context
     if (selectedContext != context) {
       selectedContext = context;
       _refreshAll();
@@ -3216,7 +3217,28 @@ class _HomePageState extends State<HomePage> {
                       flex: 2,
                       child: Row(
                         children: [
-                          const sb.HabitusLogo(),
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.spa,
+                                  size: 32,
+                                  color: Theme.of(context).colorScheme.primary,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Habitus',
+                                  style: TextStyle(
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.w600,
+                                    color: Theme.of(context).colorScheme.onSurface,
+                                    letterSpacing: 0.2,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -3421,6 +3443,7 @@ class _HomePageState extends State<HomePage> {
                                           onDatePrev: _goPrev,
                                           onDateNext: _goNext,
                                           onDateToday: _goToToday,
+                                          currentDate: anchor,
                                           selectedType: _getSelectedType(),
                                           onTypeChanged: (type) async {
                                             setState(() => _kindFilter = type == null 
@@ -3607,22 +3630,19 @@ class _HomePageState extends State<HomePage> {
     }
     // Gated path for the new DayView (disabled by default)
     if (view == ViewMode.day && mainView == MainView.tasks) {
-      return Padding(
-        padding: const EdgeInsets.all(12),
-        child: DayView(
-          dateYmd: anchor,
-          events: _anchorEventsAsMaps(),
-          tasks: _anchorTasksAsMaps(),
-          onPrev: _goPrev,
-          onNext: _goNext,
-          onToday: _goToToday,
-          onSetTodoStatusOrOccurrence: _onSetTodoStatusOrOccurrenceNew,
-          onEditTask: _onEditTask,
-          onDeleteTask: _onDeleteTask,
-          onEditEvent: _onEditEvent,
-          scrollController: _timelineScrollController,
-        ),
-      );
+              return Padding(
+          padding: const EdgeInsets.all(12),
+          child: DayView(
+            dateYmd: anchor,
+            events: _anchorEventsAsMaps(),
+            tasks: _anchorTasksAsMaps(),
+            onSetTodoStatusOrOccurrence: _onSetTodoStatusOrOccurrenceNew,
+            onEditTask: _onEditTask,
+            onDeleteTask: _onDeleteTask,
+            onEditEvent: _onEditEvent,
+            scrollController: _timelineScrollController,
+          ),
+        );
     }
 
     // Gated path for new WeekView
@@ -3691,7 +3711,8 @@ class _HomePageState extends State<HomePage> {
             Builder(
               builder: (context) {
                 final isTodayHeader = entry.key == ymd(DateTime.now());
-                final label = isTodayHeader ? '${entry.key}  (Today)' : entry.key;
+                // Today label removed - just show the date
+                final label = entry.key;
                 return AnimatedContainer(
                   duration: Duration(milliseconds: _todayPulseActive && isTodayHeader ? 350 : 300),
                   curve: _todayPulseActive && isTodayHeader ? Curves.easeInOut : Curves.easeOutCubic,
