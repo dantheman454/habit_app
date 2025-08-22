@@ -42,17 +42,17 @@ This glossary defines key terms and concepts used throughout the Habit App syste
 - **Example**: `bulk_delete` or `bulk_update` operations are rejected
 - **Reference**: See [Backend Algorithms](./backend_algorithms.md#operation-level-validation) for validation rules
 
-**Router**: Auto-mode decision step returning `{ decision, confidence, question?, options?, where?, delegate? }`; may ask to clarify and includes `options` for disambiguation.
+**Router**: Auto-mode decision step returning `{ decision, confidence, where? }`; routes between 'chat' and 'act' modes based on confidence threshold.
 
 - **Usage**: Determines how to handle user input in assistant chat
-- **Example**: Routes "update my task" to clarification if multiple tasks exist
+- **Example**: Routes "update my task" to act mode if confidence >= 0.5
 - **Reference**: See [Assistant Chat Mindmap](./assistant_chat_mindmap.md#router-decision-algorithm) for detailed flow
 
-**Clarify options**: Structured list `{ id, title, scheduledFor|null }[]` to guide selection. The client may return a `selection` object `{ ids?, date? }` to bias planning.
+**Tool calling**: Native LLM tool calling with Qwen model for operation execution. Uses predefined tool surface with operation types.
 
-- **Usage**: Helps disambiguate user intent when multiple items match
-- **Example**: Shows list of tasks when user says "update my task"
-- **Reference**: See [Client Architecture](./client_architecture.md#clarification-ui) for UI implementation
+- **Usage**: Executes operations directly through LLM tool calls
+- **Example**: `todo.update` tool call with arguments for updating a todo
+- **Reference**: See [Assistant Chat Mindmap](./assistant_chat_mindmap.md#tool-calling-generation-algorithm) for implementation
 
 ### Data Integrity and Safety
 
@@ -62,7 +62,7 @@ This glossary defines key terms and concepts used throughout the Habit App syste
 - **Example**: Same operation with same key returns cached result
 - **Reference**: See [Backend Algorithms](./backend_algorithms.md#idempotency-implementation) for implementation
 
-**Audit log**: Append-only records of assistant and CRUD actions written during MCP tool execution.
+**Audit log**: Append-only records of assistant and CRUD actions written during operation execution.
 
 - **Usage**: Provides transparency and debugging for all system changes
 - **Example**: Logs every todo creation, update, and deletion
@@ -93,7 +93,7 @@ This glossary defines key terms and concepts used throughout the Habit App syste
 **SSE events**: Streaming assistant emits `stage`, `clarify`, `ops`, `summary`, `result`, periodic `heartbeat`, and `done`.
 
 - **Usage**: Real-time communication between server and client during assistant interactions
-- **Example**: `stage: "proposing"` followed by `ops: [...]` with operations
+- **Example**: `stage: "executing"` followed by `ops: [...]` with operations
 - **Reference**: See [Assistant Chat Mindmap](./assistant_chat_mindmap.md#sse-stream-handling) for implementation
 
 **Operation types**: 

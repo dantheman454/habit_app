@@ -567,8 +567,8 @@ Widget _buildOperationsPreview() {
               assistantOpsChecked[index] = value ?? true;
             });
           },
-          title: Text('${op.action} ${op.kind} #${op.id}'),
-          subtitle: Text(op.title ?? ''),
+          title: Text('${op.op.action} ${op.op.kind} #${op.op.id}'),
+          subtitle: Text(op.op.title ?? ''),
         );
       }).toList(),
       Row(
@@ -598,7 +598,7 @@ Future<void> _executeSelectedOperations() async {
   final selectedOps = <Map<String, dynamic>>[];
   for (int i = 0; i < assistantOps.length; i++) {
     if (assistantOpsChecked[i]) {
-      selectedOps.add(assistantOps[i].toJson());
+      selectedOps.add(assistantOps[i].op.toJson());
     }
   }
   
@@ -1005,6 +1005,3 @@ class DebugPanel extends StatelessWidget {
   }
 }
 ```
-
-
-

@@ -93,7 +93,7 @@ db.logAudit({
 
 **Router Input Context**:
 ```javascript
-// buildRouterContext() creates:
+// buildRouterSnapshots() creates:
 const todayYmd = '2024-01-15'; // Example date
 const snapshots = buildRouterSnapshots(); // Week + backlog data
 const contextJson = JSON.stringify(snapshots);
@@ -101,30 +101,10 @@ const contextJson = JSON.stringify(snapshots);
 
 **Router Prompt** (sent to Ollama):
 ```
-You are an intelligent intent router for a todo assistant.
-
-OUTPUT FORMAT: Single JSON object only with these fields:
-- decision: "chat" | "plan" | "clarify"
-- confidence: number (0.0 to 1.0)
-- question: string (only for clarify decisions)
-- where: object (only for plan decisions)
-- delegate: object (only for plan decisions)
-- options: array (only for clarify decisions)
-
-DECISION RULES:
-- "clarify": Use when intent is ambiguous about time/date, target selection, or context
-- "plan": Use when intent is clear and actionable
-- "chat": Use for general questions, status inquiries, or non-actionable requests
-
-CONFIDENCE SCORING:
-- 0.9-1.0: Very clear intent with specific details
-- 0.7-0.8: Clear intent with some ambiguity
-- 0.5-0.6: Somewhat clear but needs context
-- 0.3-0.4: Ambiguous, needs clarification
-- 0.0-0.2: Very ambiguous, definitely needs clarification
+You are an intelligent intent router for a todo assistant. Your job is to determine if the user wants to perform an action or just ask a question.
 
 Today: 2024-01-15 (America/New_York)
-Current Context: {
+Available Items: {
   "week": {
     "items": [
       {"id": 1, "title": "Review project proposal", "scheduledFor": "2024-01-15"},
@@ -137,129 +117,57 @@ Current Context: {
   ]
 }
 
-Recent Conversation (last 3 turns):
-- user: update my task for today
-
+Recent Conversation: - user: update my task for today
 User Input: update my task for today
 
-Analyze the user's intent carefully. Consider:
-1. What specific action do they want to perform?
-2. Do they have all necessary information (time, target, context)?
-3. Is there ambiguity that needs clarification?
-4. What is their confidence level in their request?
+OUTPUT FORMAT: Single JSON object only with these fields:
+- decision: "chat" | "act"
+- confidence: number (0.0 to 1.0)
+- where: object (only for act decisions, optional)
 
-Respond with JSON only:
+DECISION RULES:
+- "act": Use when user wants to perform a concrete action (create, update, delete, complete, etc.)
+- "chat": Use for questions, status inquiries, general conversation, or unclear requests
+
+CONFIDENCE SCORING:
+- 0.8-1.0: Very clear actionable intent
+- 0.6-0.7: Clear actionable intent with some context
+- 0.4-0.5: Somewhat clear but could be ambiguous
+- 0.0-0.3: Unclear or definitely a question
+
+Is this an actionable request or a question? Respond with JSON only:
 ```
 
 **Expected LLM Response**:
 ```json
 {
-  "decision": "clarify",
-  "confidence": 0.3,
-  "question": "Which task do you want to update?",
-  "options": [
-    {"id": 1, "title": "Review project proposal", "scheduledFor": "2024-01-15"},
-    {"id": 2, "title": "Call client", "scheduledFor": "2024-01-15"}
-  ]
+  "decision": "act",
+  "confidence": 0.7,
+  "where": {"title_contains": "task"}
 }
 ```
 
 **Router Processing**:
 ```javascript
 // Confidence threshold check
-const c = 0.3; // From LLM
-if (c < CLARIFY_THRESHOLD) { // 0.3 < 0.45
-  result.decision = 'clarify'; // Forces clarification
+const c = 0.7; // From LLM
+if (c >= CONFIDENCE_THRESHOLD) { // 0.7 >= 0.5
+  result.decision = 'act'; // Proceeds to action
 }
 
-// Generate clarification options
-const cands = topClarifyCandidates(instruction, snapshots, 5);
-// Returns tasks matching "task" token
-// Example: [{"id": 1, "title": "Review project proposal", "scheduledFor": "2024-01-15"}]
-
-result.question = "Which task do you want to update?";
-result.options = cands.map(c => ({ id: c.id, title: c.title, scheduledFor: c.scheduledFor }));
-```
-
-### 4. Clarification Response
-
-**Server Response** (SSE):
-```javascript
-send('clarify', JSON.stringify({
-  question: "Which task do you want to update?",
-  options: [
-    {"id": 1, "title": "Review project proposal", "scheduledFor": "2024-01-15"},
-    {"id": 2, "title": "Call client", "scheduledFor": "2024-01-15"}
-  ]
-}));
-send('done', 'true');
-```
-
-**Client UI Update**:
-```dart
-// assistant_panel.dart shows clarification section
-Widget _buildClarifySection() {
-  return Container(
-    child: Column(
-      children: [
-        Text("Which task do you want to update?"),
-        Wrap(
-          children: [
-            FilterChip(
-              label: Text("#1 Review project proposal @2024-01-15"),
-              selected: selectedClarifyIds.contains(1),
-              onSelected: (_) => onToggleClarifyId(1),
-            ),
-            FilterChip(
-              label: Text("#2 Call client @2024-01-15"),
-              selected: selectedClarifyIds.contains(2),
-              onSelected: (_) => onToggleClarifyId(2),
-            ),
-          ],
-        ),
-        // Date quick-selects
-      ],
-    ),
-  );
+// Process where field
+const where = parsed.where || null;
+if (decision === 'act' && typeof where === 'string' && where.trim()) {
+  where = { title_contains: where }; // Convert string to object
 }
 ```
 
-### 5. User Selection & Re-routing
-
-**User Action**: Clicks on "Review project proposal" chip
-
-**Client State Update**:
-```dart
-_clarifySelectedIds.add(1); // Selected task ID
-// Next message will include priorClarify with selection
-```
-
-**User Response**: Types "the first one" or clicks "Send" with selection
-
-**Router Re-evaluation** (with selection context):
-```javascript
-// Prior clarification state included
-const clarify = {
-  question: "Which task do you want to update?",
-  selection: { ids: [1] } // User selected task ID 1
-};
-
-// Router bias injection
-if (clarify && clarify.selection && typeof clarify.selection === 'object') {
-  result.decision = 'plan'; // Force plan mode
-  const sel = clarify.selection;
-  const where = {};
-  if (Array.isArray(sel.ids) && sel.ids.length) where.ids = sel.ids;
-  result.where = where; // Seeds focused context
-}
-```
-
-### 6. OpsAgent with Processor
+### 4. OpsAgent with Processor
 
 **OpsAgent Input**:
 ```javascript
-// runOpsAgentWithProcessor() called with:
-const oa = await runOpsAgentWithProcessor({ 
+// runOpsAgentToolCalling() called with:
+const oa = await runOpsAgentToolCalling({ 
   taskBrief: ca.delegate?.taskBrief || message.trim(), 
   where: ca.where, 
   transcript, 
@@ -268,220 +176,97 @@ const oa = await runOpsAgentWithProcessor({
 });
 ```
 
-**Proposal Generation** (with focused context):
+**Tool Calling Generation** (with focused context):
 ```javascript
-// buildProposalPrompt() with focusedWhere
-const focusedWhere = { ids: [1] }; // Only task ID 1
-const topK = filterTodosByWhere(focusedWhere).slice(0, 50);
-const snapshot = { focused: topK, aggregates };
+// buildFocusedContext() with where
+const focusedWhere = { title_contains: "task" }; // Focus on tasks
+const focusedContext = buildFocusedContext(focusedWhere, { timezone });
+
+// Tool surface definition
+const operationTools = [
+  'todo.create','todo.update','todo.delete','todo.set_status',
+  'event.create','event.update','event.delete',
+  'habit.create','habit.update','habit.delete','habit.set_occurrence_status'
+].map((name) => ({
+  type: 'function',
+  function: {
+    name,
+    description: `Execute operation ${name}`,
+    parameters: { type: 'object', additionalProperties: true }
+  }
+}));
 
 // Prompt sent to LLM:
-You are an expert operations planner for a todo application. Your task is to generate precise, valid operations based on user intent.
+You are an operations executor for a todo application. Use tools to perform user actions precisely. Never invent IDs. Validate dates (YYYY-MM-DD) and times (HH:MM). Keep operations under 20 total.
 
-CRITICAL RULES:
-1. Output ONLY valid JSON with keys: version, steps, operations, tools, notes
-2. Use ONLY IDs from the provided context - NEVER invent IDs
-3. Include recurrence for ALL create/update operations
-4. For habits, recurrence.type cannot be "none"
-5. For todos with recurrence, include scheduledFor as anchor
-6. Maximum 20 operations per request
-7. Validate all time formats (YYYY-MM-DD for dates, HH:MM for times)
+Task: update my task for today
+Where: {"title_contains":"task"}
+Focused Context: [context with tasks matching "task"]
+Recent Conversation: - user: update my task for today
 
-Timezone: ${TIMEZONE}; Today: ${today}
-Task: ${taskBrief}
-Where: ${JSON.stringify(focusedWhere)}
-Available Context: ${contextJson}
-Recent Conversation: ${convo}
-
-Generate operations that precisely match the user's intent while following all validation rules.
+Use tools to perform the requested action.
 ```
 
 **Expected LLM Response**:
 ```json
 {
-  "version": "3",
-  "steps": [{"name": "Update the selected task"}],
-  "operations": [
+  "tool_calls": [
     {
-      "kind": "todo",
-      "action": "update",
-      "id": 1,
-      "recurrence": {"type": "none"}
+      "id": "call_1",
+      "function": {
+        "name": "todo.update",
+        "arguments": {
+          "id": 1,
+          "recurrence": {"type": "none"}
+        }
+      }
     }
-  ],
-  "tools": [],
-  "notes": {}
+  ]
 }
 ```
 
-### 7. Validation & Repair
+### 5. Operation Execution
 
-**Operation Inference**:
+**Tool Call Processing**:
 ```javascript
-// inferOperationShape() processes the operation
-const op = {
-  kind: "todo",
-  action: "update", 
-  id: 1,
-  recurrence: {"type": "none"}
-};
-
-// Maps V3 to internal format
-op.op = 'update'; // Internal operation code
-```
-
-**Validation Checks**:
-```javascript
-// validateOperation() runs checks:
-const errors = [];
-
-// 1. Valid operation type
-if (!['create', 'update', 'delete', 'set_status', 'complete', 'complete_occurrence'].includes('update')) 
-  errors.push('invalid_op');
-
-// 2. Valid ID
-if (!Number.isFinite(1)) 
-  errors.push('missing_or_invalid_id');
-
-// 3. Recurrence present (required for update)
-if (!(op.recurrence && typeof op.recurrence === 'object' && 'type' in op.recurrence)) 
-  errors.push('missing_recurrence');
-
-// 4. Anchor check (not needed for non-repeating)
-const type = op.recurrence.type; // "none"
-if (type && type !== 'none') {
-  // Would check for anchor, but type is "none"
-}
-
-// Result: errors = [] (all valid)
-```
-
-**Validation Result**:
-```javascript
-const validation = {
-  operations: [op],
-  results: [{ op: op, errors: [] }],
-  errors: [] // No validation errors
-};
-```
-
-### 8. Summarization
-
-**Summary Generation**:
-```javascript
-// runSummary() called with:
-const summaryText = await runSummary({ 
-  operations: oa.operations, 
-  issues: oa.notes?.errors || [],
-  timezone: TIMEZONE 
-});
-```
-
-**Summary Prompt**:
-```javascript
-// buildConversationalSummaryPrompt()
-const compactOps = operations.map((op) => {
-  const parts = [];
-  parts.push('update');
-  parts.push('#1');
-  parts.push('"Review project proposal"');
-  parts.push('@2024-01-15');
-  return `- ${parts.join(' ')}`;
-}).join('\n');
-
-// Prompt sent to LLM:
-You are a helpful assistant for a todo app. Keep answers concise and clear. Prefer 1–3 short sentences; no lists or JSON.
-
-Proposed operations (count: 1):
-- update #1 "Review project proposal" @2024-01-15
-
-User instruction: update my task for today
-
-Summarize the plan in plain English grounded in the proposed operations above.
-```
-
-**Expected LLM Response**:
-```
-I'll update the "Review project proposal" task.
-```
-
-### 9. Client Display & User Action
-
-**SSE Events Sent**:
-```javascript
-send('stage', JSON.stringify({ stage: 'proposing' }));
-send('ops', JSON.stringify({
-  operations: [{
-    kind: "todo",
-    action: "update", 
-    id: 1,
-    recurrence: {"type": "none"}
-  }],
-  version: 1,
-  validCount: 1,
-  invalidCount: 0
-}));
-send('summary', JSON.stringify({ text: "I'll update the \"Review project proposal\" task." }));
-send('result', JSON.stringify({ text: "...", operations: [...] }));
-send('done', 'true');
-```
-
-**Client UI Update**:
-```dart
-// Shows operations panel
-Widget _buildGroupedOperationList() {
-  return Column(
-    children: [
-      Row(
-        children: [
-          Icon(Icons.check_box_outline_blank), // Todo icon
-          Text("TODO"),
-        ],
-      ),
-      Row(
-        children: [
-          Checkbox(value: true, onChanged: (v) => onToggleOperation(0, v!)),
-          Icon(Icons.check_box_outline_blank),
-          Expanded(child: Text("update #1 - Review project proposal @2024-01-15")),
-        ],
-      ),
-    ],
-  );
-}
-```
-
-### 10. Operation Execution
-
-**User Action**: Clicks "Apply Selected"
-
-**Apply Request**:
-```javascript
-// POST /api/mcp/tools/call
-{
-  "name": "todo.update",
-  "arguments": {
-    "id": 1,
-    "recurrence": {"type": "none"}
+// Process tool calls
+for (const call of toolCalls) {
+  const name = call?.function?.name || call?.name;
+  const args = call?.function?.arguments || call?.arguments || {};
+  const op = toolCallToOperation(name, parsedArgs);
+  
+  try {
+    const result = await operationProcessor.processOperations([op], correlationId);
+    const ok = result?.results?.[0]?.ok;
+    if (ok) executedOps.push(op);
+    // Append tool result message for the model
+    messages.push({ role: 'tool', tool_call_id: call.id || name, content: JSON.stringify(result) });
+  } catch (e) {
+    notes.errors.push(String(e?.message || e));
   }
 }
 ```
 
-**Server Processing**:
+**Operation Processor Execution**:
 ```javascript
-// 1. MCP tool validation
-const tool = mcpServer.getTool("todo.update");
-const validation = await tool.validate(args);
+// OperationProcessor.processOperations()
+const type = this.inferOperationType(op); // "todo_update"
+const validator = this.validators.get(type);
+const executor = this.executors.get(type);
 
-// 2. MCP tool execution
-const result = await mcpServer.handleToolCall("todo.update", args);
+// Validate operation
+const validation = await validator(op);
+if (!validation.valid) {
+  results.push({ ok: false, op, error: validation.errors.join(', ') });
+  continue;
+}
 
-// 3. Database transaction (handled by MCP tool)
-// The MCP tool internally:
-// - Validates the operation
-// - Executes the database update
-// - Logs audit entries
-// - Returns the result
+// Execute operation
+const result = await executor(op);
+results.push({ ok: true, op, ...result });
 ```
+
+### 6. Database Update
 
 **Database Update**:
 ```sql
@@ -507,7 +292,7 @@ WHERE id = 1;
 }
 ```
 
-### 11. Final UI Update
+### 7. Final UI Update
 
 **Client Refresh**:
 ```dart
@@ -522,26 +307,21 @@ await _refreshAll(); // Refreshes scheduled list
 For the query "update my task for today":
 
 1. **ConversationAgent**: Orchestrates the entire flow with audit logging
-2. **Router Decision**: Should route to `clarify` due to ambiguity (multiple tasks today)
-3. **Clarification**: Present options for tasks scheduled today
-4. **User Selection**: Allow user to choose specific task
-5. **Re-routing**: Route to `plan` with focused context
-6. **OpsAgent**: Generate update operation for selected task
-7. **Validation**: All checks pass (valid ID, recurrence)
-8. **Summarization**: Clear English description of the change
-9. **Execution**: Update database and audit log
-10. **Feedback**: Show success and refresh UI
+2. **Router Decision**: Should route to `act` due to clear actionable intent
+3. **OpsAgent**: Generate tool calls for updating tasks
+4. **Operation Processor**: Validate and execute the update operation
+5. **Database**: Update the task and audit log
+6. **Feedback**: Show success and refresh UI
 
 **Key Safety Features**:
 - Confidence thresholds prevent incorrect assumptions
-- Clarification system handles ambiguity gracefully
+- Tool calling ensures precise operation execution
 - Validation ensures data integrity
 - Transaction wrapping prevents partial updates
 - Audit logging for transparency
 
 **User Experience**:
 - Real-time streaming feedback
-- Interactive clarification selection
 - Clear operation preview
 - Immediate UI updates after execution
 
@@ -563,8 +343,8 @@ For the query "update my task for today":
 ### 1. ConversationAgent (`runConversationAgent`)
 ```javascript
 // Orchestrates the entire assistant flow
-// Decision types: 'chat', 'plan', 'clarify'
-// Confidence thresholds: CLARIFY_THRESHOLD = 0.45, CHAT_THRESHOLD = 0.70
+// Decision types: 'chat', 'act'
+// Confidence thresholds: CONFIDENCE_THRESHOLD = 0.5
 ```
 
 **Input Context**:
@@ -576,8 +356,7 @@ For the query "update my task for today":
 **Output**:
 - `decision`: routing choice
 - `confidence`: 0-1 confidence score
-- `question`: clarification question (if needed)
-- `options`: structured choices for clarification
+- `where`: context for action decisions
 
 ### 2. Router Decision (`runRouter`)
 **Schema Rules**:
@@ -593,7 +372,13 @@ For the query "update my task for today":
 - **Habits**: `create|update|delete|complete|complete_occurrence`
 - **Goals**: `create|update|delete|add_items|remove_item|add_child|remove_child`
 
-### 3. OpsAgent with Processor (`runOpsAgentWithProcessor`)
+### 3. OpsAgent with Processor (`runOpsAgentToolCalling`)
+**Tool Calling**:
+- Native tool calling with Qwen model
+- Tool surface defined with operation types
+- Automatic tool call execution
+- Error handling and repair
+
 **Validation Checks**:
 - Recurrence presence and shape
 - Anchor dates for repeating items
@@ -606,15 +391,17 @@ For the query "update my task for today":
 - Schema reminder injection
 - Fallback to valid subset if repair fails
 
-### 4. Summarization (`runSummary`)
-**LLM Summary**:
-- Plain text output (no markdown/JSON)
-- Granite tag stripping
-- Code block removal
+### 4. Operation Processor
+**Operation Types**:
+- `todo_create`, `todo_update`, `todo_delete`, `todo_set_status`
+- `event_create`, `event_update`, `event_delete`, `event_set_occurrence_status`
+- `habit_create`, `habit_update`, `habit_delete`, `habit_set_occurrence_status`
 
-**Fallback Summary**:
-- Deterministic rule-based summary
-- Compact operation descriptions
+**Execution Flow**:
+1. Infer operation type from kind/action
+2. Validate operation using registered validators
+3. Execute operation using registered executors
+4. Return results with success/failure status
 
 ## Client-Side Implementation
 
@@ -653,7 +440,7 @@ Future<Map<String, dynamic>> assistantMessage(
 ## Clarification System
 
 ### 1. Trigger Conditions
-- Low confidence (< 0.45)
+- Low confidence (< 0.5)
 - Ambiguous time/date references
 - Unclear target selection
 - Missing context
@@ -669,13 +456,13 @@ Future<Map<String, dynamic>> assistantMessage(
 
 ### 3. Bias Injection
 When clarification selection is provided:
-- Routes to 'plan' decision
-- Seeds `where` context for proposal generation
+- Routes to 'act' decision
+- Seeds `where` context for tool calling
 - Focuses on selected items/date
 
 ## Operation Execution
 
-### 1. Apply Process (MCP Tools)
+### 1. Apply Process (Operation Processor)
 **Safety Checks**:
 - Operation count limit (≤20)
 - Idempotency key support
@@ -683,15 +470,15 @@ When clarification selection is provided:
 - Audit logging
 
 **Execution Flow**:
-1. Convert operations to MCP tool calls
-2. Validate each tool call
-3. Execute tools through MCP server
-4. Log audit entries during tool execution
+1. Convert operations to tool calls
+2. Validate each operation
+3. Execute operations through processor
+4. Log audit entries during execution
 5. Return aggregated results
 
-### 2. Dry-Run Support (MCP Tool Validation)
+### 2. Dry-Run Support (Operation Validation)
 - Preview without execution
-- Tool schema validation
+- Operation schema validation
 - No state changes
 - No audit logging
 
@@ -704,7 +491,7 @@ When clarification selection is provided:
 
 ### 2. Server-Side Robustness
 - JSON parsing with lenient fallbacks
-- Granite model compatibility
+- Qwen model compatibility
 - Deterministic fallback summaries
 - Comprehensive error logging
 
@@ -731,7 +518,7 @@ When clarification selection is provided:
 ### 3. LLM Efficiency
 - Structured prompts
 - JSON-first parsing
-- Granite compatibility
+- Qwen compatibility
 - Local model usage
 
 ## Security & Safety

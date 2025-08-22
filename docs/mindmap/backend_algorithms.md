@@ -128,29 +128,7 @@ function isValidContext(context) {
 }
 ```
 
-#### Operation-Level Validation (MCP Tools)
-
-**Proposal Validation**:
-```javascript
-function validateProposal(body) {
-  if (!body || typeof body !== 'object') return { errors: ['invalid_body'] };
-  
-  const operations = Array.isArray(body.operations) 
-    ? body.operations.map(o => inferOperationShape(o)).filter(Boolean) 
-    : [];
-    
-  if (!operations.length) return { errors: ['missing_operations'], operations: [] };
-  
-  const results = operations.map(o => ({ op: o, errors: validateOperation(o) }));
-  const invalid = results.filter(r => r.errors.length > 0);
-  
-  return { 
-    operations, 
-    results, 
-    errors: invalid.length ? ['invalid_operations'] : [] 
-  };
-}
-```
+#### Operation-Level Validation (Operation Processor)
 
 **Operation Validation**:
 ```javascript
@@ -161,13 +139,14 @@ function validateOperation(op) {
   if (!op || typeof op !== 'object') return ['invalid_operation_object'];
   
   // Operation type validation
-  const kind = inferOperationShape(op)?.op;
+  const kind = op.kind && String(op.kind).toLowerCase();
+  const action = op.action && String(op.action).toLowerCase();
   const allowedKinds = [
     'create', 'update', 'delete', 'set_status', 'complete', 'complete_occurrence',
     'goal_create', 'goal_update', 'goal_delete', 'goal_add_items', 'goal_remove_item',
     'goal_add_child', 'goal_remove_child'
   ];
-  if (!allowedKinds.includes(kind)) errors.push('invalid_op');
+  if (!allowedKinds.includes(action)) errors.push('invalid_op');
   
   // Field validation
   if (op.scheduledFor !== undefined && !(op.scheduledFor === null || isYmdString(op.scheduledFor))) 
@@ -180,7 +159,7 @@ function validateOperation(op) {
     errors.push('invalid_recurrence');
   
   // Recurrence requirement for create/update
-  if (kind === 'create' || kind === 'update') {
+  if (action === 'create' || action === 'update') {
     if (!(op.recurrence && typeof op.recurrence === 'object' && 'type' in op.recurrence)) {
       errors.push('missing_recurrence');
     }
@@ -191,16 +170,16 @@ function validateOperation(op) {
   }
   
   // ID requirement for update/delete operations
-  if (['update', 'delete', 'complete', 'complete_occurrence', 'set_status'].includes(kind)) {
+  if (['update', 'delete', 'complete', 'complete_occurrence', 'set_status'].includes(action)) {
     if (!Number.isFinite(op.id)) errors.push('missing_or_invalid_id');
   }
   
   // Todo-specific validation
   if (op.kind === 'todo') {
-    if (kind === 'complete' || kind === 'complete_occurrence') {
+    if (action === 'complete' || action === 'complete_occurrence') {
       errors.push('use_set_status');
     }
-    if (kind === 'set_status') {
+    if (action === 'set_status') {
       const status = String(op.status || '');
       if (!['pending', 'completed', 'skipped'].includes(status)) {
         errors.push('invalid_status');
@@ -209,12 +188,12 @@ function validateOperation(op) {
   }
   
   // Occurrence validation
-  if (kind === 'complete_occurrence') {
+  if (action === 'complete_occurrence') {
     if (!isYmdString(op.occurrenceDate)) errors.push('invalid_occurrenceDate');
   }
   
   // Repeating item validation
-  if (kind === 'complete') {
+  if (action === 'complete') {
     // Check if target is repeating and require complete_occurrence
     if (isRepeatingItem(op.id, op.kind)) {
       errors.push('use_complete_occurrence_for_repeating');
@@ -425,44 +404,39 @@ function topClarifyCandidates(instruction, snapshots, limit = 5) {
 }
 ```
 
-### Assistant Router and Proposal Pipeline
+### Assistant Router and Tool Calling Pipeline
 
 #### Router Decision Algorithm
 
 **Confidence Thresholds**:
-- `CLARIFY_THRESHOLD = 0.45` - Below this forces clarification
-- `CHAT_THRESHOLD = 0.70` - Above this allows direct planning
+- `CONFIDENCE_THRESHOLD = 0.5` - Below this forces chat mode
 
 **Router Prompt Structure**:
 ```javascript
 const routerPrompt = {
-  system: "You are an intelligent intent router for a todo assistant.",
-  developer: `
-    OUTPUT FORMAT: Single JSON object only with these fields:
-    - decision: "chat" | "plan" | "clarify"
-    - confidence: number (0.0 to 1.0)
-    - question: string (only for clarify decisions)
-    - where: object (only for plan decisions)
-    - delegate: object (only for plan decisions)
-    - options: array (only for clarify decisions)
-    
-    DECISION RULES:
-    - "clarify": Use when intent is ambiguous about time/date, target selection, or context
-    - "plan": Use when intent is clear and actionable
-    - "chat": Use for general questions, status inquiries, or non-actionable requests
-    
-    CONFIDENCE SCORING:
-    - 0.9-1.0: Very clear intent with specific details
-    - 0.7-0.8: Clear intent with some ambiguity
-    - 0.5-0.6: Somewhat clear but needs context
-    - 0.3-0.4: Ambiguous, needs clarification
-    - 0.0-0.2: Very ambiguous, definitely needs clarification
-  `,
+  system: "You are an intelligent intent router for a todo assistant. Your job is to determine if the user wants to perform an action or just ask a question.",
   user: `
     Today: ${todayYmd} (${TIMEZONE})
-    Current Context: ${JSON.stringify(snapshots, null, 2)}
-    Recent Conversation (last 3 turns): ${convo}
+    Available Items: ${JSON.stringify(snapshots, null, 2)}
+    Recent Conversation: ${convo}
     User Input: ${msg}
+
+    OUTPUT FORMAT: Single JSON object only with these fields:
+    - decision: "chat" | "act"
+    - confidence: number (0.0 to 1.0)
+    - where: object (only for act decisions, optional)
+
+    DECISION RULES:
+    - "act": Use when user wants to perform a concrete action (create, update, delete, complete, etc.)
+    - "chat": Use for questions, status inquiries, general conversation, or unclear requests
+
+    CONFIDENCE SCORING:
+    - 0.8-1.0: Very clear actionable intent
+    - 0.6-0.7: Clear actionable intent with some context
+    - 0.4-0.5: Somewhat clear but could be ambiguous
+    - 0.0-0.3: Unclear or definitely a question
+
+    Is this an actionable request or a question? Respond with JSON only:
   `
 };
 ```
@@ -470,106 +444,77 @@ const routerPrompt = {
 **Decision Processing**:
 ```javascript
 function processRouterDecision(parsed, snapshots) {
-  let decision = parsed.decision || 'clarify';
+  let decision = parsed.decision || 'chat';
   const confidence = Number(parsed.confidence || 0);
   
-  // Force clarification if confidence is low
-  if (confidence < CLARIFY_THRESHOLD) {
-    decision = 'clarify';
+  // Force chat if confidence is low
+  if (confidence < CONFIDENCE_THRESHOLD) {
+    decision = 'chat';
   }
   
-  // Process where field for plan decisions
+  // Process where field for act decisions
   let where = parsed.where || null;
   if (typeof where === 'string' && where.trim()) {
-    where = resolveWhereFromString(where, snapshots);
+    where = { title_contains: where };
   }
   
   return {
     decision,
     confidence,
-    question: parsed.question,
-    where,
-    delegate: parsed.delegate,
-    options: parsed.options || []
+    where
   };
 }
 ```
 
-#### Proposal Generation Algorithm
+#### Tool Calling Generation Algorithm
 
-**Proposal Prompt Structure**:
+**Tool Surface Definition**:
 ```javascript
-const proposalPrompt = `
-You are an assistant for a todo app. Output ONLY a single JSON object with key "operations" as an array. No prose.
-
-Each operation MUST include fields: kind (todo|event|goal) and action.
-todo actions: create|update|delete|set_status.
-For todo/event create/update include recurrence (use {"type":"none"} for non-repeating). 
-If recurrence.type != none, scheduledFor is REQUIRED.
-
-No bulk operations. Emit independent operations; limit to ≤20 per apply.
-Today's date is ${todayYmd}. Do NOT invent invalid IDs. Prefer fewer changes over hallucination.
-
-Conversation (last 3 turns): ${convo}
-Timezone: ${TIMEZONE}
-Instruction: ${instruction}
-
-Context: ${JSON.stringify(focusedSnapshot, null, 2)}
-
-Respond with JSON ONLY that matches this exact example format:
-{
-  "operations": [
-    {"kind":"todo","action":"update","id":1,"recurrence":{"type":"none"}}
-  ]
-}
-`;
+const operationTools = [
+  'todo.create','todo.update','todo.delete','todo.set_status',
+  'event.create','event.update','event.delete',
+  'habit.create','habit.update','habit.delete','habit.set_occurrence_status'
+].map((name) => ({
+  type: 'function',
+  function: {
+    name,
+    description: `Execute operation ${name}`,
+    parameters: { type: 'object', additionalProperties: true }
+  }
+}));
 ```
 
-**Operation Inference**:
+**Tool Call Processing**:
 ```javascript
-function inferOperationShape(o) {
-  if (!o || typeof o !== 'object') return null;
+function toolCallToOperation(name, args) {
+  const [kind, action] = String(name || '').split('.')
+    .map(s => String(s || '').trim().toLowerCase());
+  return { kind, action, ...(args || {}) };
+}
+
+async function processToolCalls(toolCalls, operationProcessor, correlationId) {
+  const executedOps = [];
+  const notes = { errors: [] };
   
-  const op = { ...o };
-  
-  // Map V3 to internal format
-  if (op.kind && op.action) {
-    const kind = String(op.kind).toLowerCase();
-    const action = String(op.action).toLowerCase();
+  for (const call of toolCalls) {
+    const name = call?.function?.name || call?.name;
+    const args = call?.function?.arguments || call?.arguments || {};
+    let parsedArgs = args;
+    if (typeof args === 'string') {
+      try { parsedArgs = JSON.parse(args); } catch { parsedArgs = {}; }
+    }
+    const op = toolCallToOperation(name, parsedArgs);
     
-    if (kind === 'todo') {
-      if (action === 'create') op.op = 'create';
-      else if (action === 'update') op.op = 'update';
-      else if (action === 'delete') op.op = 'delete';
-      else if (action === 'set_status') op.op = 'set_status';
-    } else if (kind === 'event') {
-      if (action === 'create') op.op = 'create';
-      else if (action === 'update') op.op = 'update';
-      else if (action === 'delete') op.op = 'delete';
-      else if (action === 'complete') op.op = 'complete';
-      else if (action === 'complete_occurrence') op.op = 'complete_occurrence';
-    } else if (kind === 'habit') {
-      if (action === 'create') op.op = 'create';
-      else if (action === 'update') op.op = 'update';
-      else if (action === 'delete') op.op = 'delete';
-      else if (action === 'complete') op.op = 'complete';
-      else if (action === 'complete_occurrence') op.op = 'complete_occurrence';
-    } else if (kind === 'goal') {
-      if (action === 'create') op.op = 'goal_create';
-      else if (action === 'update') op.op = 'goal_update';
-      else if (action === 'delete') op.op = 'goal_delete';
-      else if (action === 'add_items') op.op = 'goal_add_items';
-      else if (action === 'remove_item') op.op = 'goal_remove_item';
-      else if (action === 'add_child') op.op = 'goal_add_child';
-      else if (action === 'remove_child') op.op = 'goal_remove_child';
+    try {
+      const result = await operationProcessor.processOperations([op], correlationId);
+      const ok = result?.results?.[0]?.ok;
+      if (ok) executedOps.push(op);
+    } catch (e) {
+      notes.errors.push(String(e?.message || e));
     }
   }
   
-  // Normalize empty strings to null
-  if (op.scheduledFor === '') op.scheduledFor = null;
-  if (op.timeOfDay === '') op.timeOfDay = null;
-  
-  return op;
+  return { executedOps, notes };
 }
 ```
 
@@ -606,90 +551,85 @@ Please fix the operations to resolve all validation errors. Return ONLY valid JS
 }
 ```
 
-#### Summarization Algorithm
+### Operation Execution via Operation Processor
 
-**Conversational Summary**:
-```javascript
-async function generateSummary(operations, issues, timezone) {
-  const compactOps = operations.map(op => {
-    const parts = [];
-    parts.push(op.action || op.op);
-    if (op.id) parts.push(`#${op.id}`);
-    if (op.title) parts.push(`"${op.title}"`);
-    if (op.scheduledFor) parts.push(`@${op.scheduledFor}`);
-    return `- ${parts.join(' ')}`;
-  }).join('\n');
-  
-  const summaryPrompt = `
-You are a helpful assistant for a todo app. Keep answers concise and clear. Prefer 1–3 short sentences; no lists or JSON.
-
-Proposed operations (count: ${operations.length}):
-${compactOps}
-
-${issues.length > 0 ? `Issues: ${issues.join(', ')}` : ''}
-
-Summarize the plan in plain English grounded in the proposed operations above.
-  `;
-  
-  const summary = await convoLLM(summaryPrompt);
-  return stripGraniteTags(summary);
-}
-
-function stripGraniteTags(text) {
-  return text
-    .replace(/<granite:.*?>/g, '')
-    .replace(/<\/granite:.*?>/g, '')
-    .replace(/```.*?```/gs, '')
-    .trim();
-}
-```
-
-### Operation Execution via MCP Tools
-
-#### MCP Tool Execution Flow
+#### Operation Processor Execution Flow
 
 ```javascript
 class OperationProcessor {
-  constructor(mcpServer, db) {
-    this.mcpServer = mcpServer;
-    this.db = db;
+  constructor() {
+    this.validators = new Map();
+    this.executors = new Map();
+    this.formatters = new Map();
+    this.operationTypes = new Map();
+    this.dbService = null;
   }
   
-  async executeOperations(operations) {
+  async processOperations(operations, correlationId = mkCorrelationId()) {
     const results = [];
+    const summary = { created: 0, updated: 0, deleted: 0, completed: 0 };
+    
+    // If we have multiple operations and a database service, wrap in transaction
+    if (operations.length > 1 && this.dbService) {
+      try {
+        return await this.dbService.runInTransaction(async () => {
+          return await this._processOperationsInternal(operations, correlationId);
+        });
+      } catch (error) {
+        return {
+          results: [{ ok: false, error: `Transaction failed: ${String(error)}` }],
+          summary: { created: 0, updated: 0, deleted: 0, completed: 0 },
+          correlationId
+        };
+      }
+    } else {
+      return await this._processOperationsInternal(operations, correlationId);
+    }
+  }
+  
+  async _processOperationsInternal(operations, correlationId) {
+    const results = [];
+    const summary = { created: 0, updated: 0, deleted: 0, completed: 0 };
     
     for (const op of operations) {
       try {
-        const result = await this.executeOperation(op);
-        results.push({ success: true, result });
+        const type = this.inferOperationType(op);
+        const validator = this.validators.get(type);
+        const executor = this.executors.get(type);
+        
+        if (!validator || !executor) {
+          results.push({ ok: false, op, error: 'unknown_operation_type' });
+          continue;
+        }
+        
+        const validation = await validator(op);
+        if (!validation.valid) {
+          results.push({ ok: false, op, error: validation.errors.join(', ') });
+          continue;
+        }
+        
+        const result = await executor(op);
+        results.push({ ok: true, op, ...result });
+        
+        // Update summary
+        if (result.created) summary.created++;
+        if (result.updated) summary.updated++;
+        if (result.deleted) summary.deleted++;
+        if (result.completed) summary.completed++;
+        
       } catch (error) {
-        results.push({ success: false, error: error.message });
+        results.push({ ok: false, op, error: String(error) });
       }
     }
     
-    return results;
+    return { results, summary, correlationId };
   }
   
-  async executeOperation(op) {
-    const toolName = this.mapOperationToTool(op);
-    const args = this.mapOperationToArgs(op);
-    
-    return await this.mcpServer.handleToolCall(toolName, args);
-  }
-  
-  mapOperationToTool(op) {
-    const kind = op.kind || 'todo';
-    const action = op.action || op.op;
-    
-    switch (action) {
-      case 'create': return `${kind}.create`;
-      case 'update': return `${kind}.update`;
-      case 'delete': return `${kind}.delete`;
-      case 'set_status': return `${kind}.set_status`;
-      case 'complete': return `${kind}.complete`;
-      case 'complete_occurrence': return `${kind}.complete_occurrence`;
-      default: throw new Error(`Unknown operation: ${action}`);
+  inferOperationType(op) {
+    if (op.kind && op.action) {
+      return `${op.kind}_${op.action}`;
     }
+    return op.op || 'unknown';
   }
 }
 ```
@@ -770,7 +710,7 @@ logAuditEntry('validation_error', null, null, { errors, operations });
 #### Endpoint Validation Errors
 
 **Field Validation**:
-- `invalid_title` - Title is missing or empty
+- `invalid_title` - Title is missing or invalid
 - `missing_recurrence` - Recurrence object is required
 - `invalid_notes` - Notes field is invalid type
 - `invalid_scheduledFor` - Date format is invalid
@@ -797,7 +737,7 @@ logAuditEntry('validation_error', null, null, { errors, operations });
 - `invalid_end_time` - End time format is invalid
 - `invalid_time_range` - End time must be after start time
 
-#### MCP Tool Errors
+#### Operation Processor Errors
 
 **Operation Validation**:
 - `invalid_operations` - Operations array is invalid

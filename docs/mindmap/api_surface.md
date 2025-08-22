@@ -35,6 +35,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 **Backlog (Unscheduled)**
 - **GET** `/api/todos/backlog`
   - **Query Parameters**:
+    - `status?: pending|completed|skipped` - Filter by status
     - `context?: school|personal|work` - Filter by context
   - **Response**: `{ todos: Todo[] }` (unscheduled only)
   - **Example**: `GET /api/todos/backlog?context=work`
@@ -294,6 +295,21 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 **LLM Health Check**
 - **GET** `/api/llm/health`
   - **Response**: `{ ok: true, models, configured, convoPresent, codePresent }`
+
+**LLM Quality Report**
+- **GET** `/api/llm/quality`
+  - **Response**: `{ ok: true, report }`
+
+**LLM Message (Direct)**
+- **POST** `/api/llm/message`
+  - **Body**:
+    ```json
+    {
+      "message": "string (required)",
+      "transcript": "Array (optional)"
+    }
+    ```
+  - **Response**: `{ ok: true, text, correlationId }`
 
 #### MCP Tools
 

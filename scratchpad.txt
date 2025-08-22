@@ -3,7 +3,6 @@ Keep in mind:
 -Core abstractions/entities
 
 ASAP:
--update mindmap
 -update test suite
 -refactor codebase to get rid of legacy code and monolithic files
 

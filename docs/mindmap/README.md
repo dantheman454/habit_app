@@ -14,13 +14,14 @@ graph TD
   subgraph "Server (Express.js)"
     B["Express API\napps/server/server.js\nREST endpoints, SSE streaming"]
     B2["MCP Server\napps/server/mcp/mcp_server.js\nTool execution, validation"]
-    B3["LLM Pipeline\nrouter.js, proposal.js, repair.js\nConversationAgent, OpsAgent"]
+    B3["LLM Pipeline\nrouter.js, ops_agent.js, conversation_agent.js\nRouter, OpsAgent, ConversationAgent"]
+    B4["Operation Processor\noperation_processor.js, operation_registry.js\nValidation, execution, transactions"]
   end
   subgraph "Persistence (SQLite)"
     P[("SQLite (data/app.db)\nTables: todos, events, habits, goals\nLinking tables, audit_log, idempotency\nFTS5 virtual tables")]
   end
   subgraph "LLM (Ollama)"
-    F[["Ollama local model\nconfigurable (defaults: convo=qwen3-coder:30b, code=qwen3-coder:30b)\nHarmony prompt formatting"]]
+    F[["Ollama local model\nconfigurable (defaults: convo=qwen3-coder:30b, code=qwen3-coder:30b)\nQwen-optimized prompts and parsing"]]
   end
 
   A --> A2
@@ -31,6 +32,7 @@ graph TD
   B -->|"router/propose/repair/summarize"| F
   B2 -->|"tool execution + transactions"| P
   B3 -->|"structured prompts"| F
+  B4 -->|"operation validation + execution"| P
 ```
 
 ### End-to-end trace (happy path)
@@ -40,6 +42,7 @@ sequenceDiagram
   participant UI as "Flutter Web UI"
   participant API as "Express API"
   participant MCP as "MCP Server"
+  participant OPS as "Operation Processor"
   participant DB as "SQLite data/app.db"
   participant LLM as "Ollama model"
 
@@ -51,17 +54,12 @@ sequenceDiagram
   Note over UI,LLM: Assistant Chat Flow
   UI->>API: GET /api/assistant/message/stream?message="update task"
   API->>LLM: runRouter (router decision)
-  LLM-->>API: {decision: "clarify", confidence: 0.3}
-  API-->>UI: SSE: clarify event with options
-  
-  UI->>API: GET /api/assistant/message/stream (with selection)
-  API->>LLM: runProposal (proposal generation)
+  LLM-->>API: {decision: "act", confidence: 0.7}
+  API->>LLM: runOpsAgent (operation generation)
   LLM-->>API: {operations: [{kind: "todo", action: "update"}]}
+  API->>OPS: processOperations (validation + execution)
+  OPS->>DB: Execute with transaction + audit
   API-->>UI: SSE: ops event with validation results
-  
-  UI->>MCP: POST /api/mcp/tools/call {name: "todo.update"}
-  MCP->>DB: Execute with transaction + audit
-  MCP-->>UI: {content: {todo}, isError: false}
 ```
 
 ### Architecture Principles
@@ -69,19 +67,22 @@ sequenceDiagram
 **Single Responsibility**: Each component has a clear, focused purpose
 - **Client**: State management, UI rendering, user interaction
 - **Server**: API routing, validation, business logic orchestration
-- **MCP Server**: Tool execution, transaction management
+- **MCP Server**: Tool execution, validation
+- **Operation Processor**: Operation validation, execution, transaction management
 - **LLM Pipeline**: Intent understanding, operation generation
 - **Database**: Data persistence, relationships, search
 
 **Loose Coupling**: Components communicate through well-defined interfaces
 - HTTP JSON APIs for client-server communication
 - MCP protocol for tool execution
+- Operation processor for validation and execution
 - Structured prompts for LLM interaction
 - SQLite for data persistence
 
 **Safety First**: Multiple layers of validation and error handling
 - Client-side input validation
 - Server-side schema validation
+- Operation processor validation
 - LLM response parsing and repair
 - Database constraints and transactions
 - Idempotency for operation safety
@@ -123,10 +124,16 @@ sequenceDiagram
 - `apps/server/database/schema.sql`: SQLite schema definition, constraints, indexes
 
 **LLM Pipeline**:
-- `apps/server/llm/clients.js`: Ollama client wrappers, model configuration
+- `apps/server/llm/clients.js`: Ollama client wrappers, model configuration, Qwen-optimized functions
 - `apps/server/llm/router.js`: Intent routing, decision making, confidence scoring
-- `apps/server/llm/proposal.js`: Operation generation, validation, repair
+- `apps/server/llm/ops_agent.js`: Operation generation, validation, repair, tool calling
 - `apps/server/llm/conversation_agent.js`: Conversation orchestration, audit logging
+
+**Operation Processing**:
+- `apps/server/operations/operation_processor.js`: Operation validation, execution, transaction management
+- `apps/server/operations/operation_registry.js`: Operation type registration and schema definitions
+- `apps/server/operations/validators.js`: Operation validation logic
+- `apps/server/operations/executors.js`: Operation execution logic
 
 **Client Layer**:
 - `apps/web/flutter_app/lib/main.dart`: Main app state, navigation, data loading
