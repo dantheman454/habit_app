@@ -13,27 +13,29 @@ graph TD
     end
     
     subgraph "Server (Express)"
-        E[Router Decision] --> F[Proposal Generation]
-        F --> G[Validation & Repair]
-        G --> H[Summarization]
-        H --> I[Apply Operations]
+        E[ConversationAgent] --> F[Router Decision]
+        F --> G[OpsAgent with Processor]
+        G --> H[Validation & Repair]
+        H --> I[Summarization]
+        I --> J[Apply Operations]
     end
     
     subgraph "LLM (Ollama)"
-        J[Local Model] --> K[JSON Generation]
-        K --> L[Response Parsing]
+        K[Local Model] --> L[JSON Generation]
+        L --> M[Response Parsing]
     end
     
     subgraph "Database"
-        M[SQLite] --> N[Audit Log]
-        M --> O[Idempotency Cache]
+        N[SQLite] --> O[Audit Log]
+        N --> P[Idempotency Cache]
     end
     
     C -->|HTTP/SSE| E
-    F --> J
-    G --> J
-    H --> J
-    I --> M
+    F --> K
+    G --> K
+    H --> K
+    I --> K
+    J --> N
 ```
 
 ## Detailed Flow Analysis: "update my task for today"
@@ -67,7 +69,27 @@ final res = await api.assistantMessage(
 );
 ```
 
-### 2. Server-Side Router Decision
+### 2. Server-Side ConversationAgent
+
+**ConversationAgent Input Context**:
+```javascript
+// runConversationAgent() creates:
+const ctx = buildRouterContext({ timezone });
+const correlationId = mkCorrelationId();
+
+// Audit logging
+db.logAudit({ 
+  action: 'conversation_agent.input', 
+  payload: { 
+    instruction: String(instruction || '').slice(0, 1000), 
+    transcript: transcript.slice(-3),
+    contextSize: Object.keys(ctx).length
+  },
+  meta: { correlationId }
+});
+```
+
+### 3. Router Decision
 
 **Router Input Context**:
 ```javascript
@@ -159,7 +181,7 @@ result.question = "Which task do you want to update?";
 result.options = cands.map(c => ({ id: c.id, title: c.title, scheduledFor: c.scheduledFor }));
 ```
 
-### 3. Clarification Response
+### 4. Clarification Response
 
 **Server Response** (SSE):
 ```javascript
@@ -202,7 +224,7 @@ Widget _buildClarifySection() {
 }
 ```
 
-### 4. User Selection & Re-routing
+### 5. User Selection & Re-routing
 
 **User Action**: Clicks on "Review project proposal" chip
 
@@ -232,9 +254,21 @@ if (clarify && clarify.selection && typeof clarify.selection === 'object') {
 }
 ```
 
-### 5. Proposal Generation
+### 6. OpsAgent with Processor
 
-**Proposal Prompt** (with focused context):
+**OpsAgent Input**:
+```javascript
+// runOpsAgentWithProcessor() called with:
+const oa = await runOpsAgentWithProcessor({ 
+  taskBrief: ca.delegate?.taskBrief || message.trim(), 
+  where: ca.where, 
+  transcript, 
+  timezone: TIMEZONE,
+  operationProcessor 
+});
+```
+
+**Proposal Generation** (with focused context):
 ```javascript
 // buildProposalPrompt() with focusedWhere
 const focusedWhere = { ids: [1] }; // Only task ID 1
@@ -242,39 +276,31 @@ const topK = filterTodosByWhere(focusedWhere).slice(0, 50);
 const snapshot = { focused: topK, aggregates };
 
 // Prompt sent to LLM:
-You are an assistant for a todo app. Output ONLY a single JSON object with key "operations" as an array. No prose.
-Each operation MUST include fields: kind (todo|event|goal) and action.
-todo actions: create|update|delete|set_status.
-For todo/event create/update include recurrence (use {"type":"none"} for non-repeating). If recurrence.type != none, scheduledFor is REQUIRED.
-No bulk operations. Emit independent operations; limit to ≤20 per apply.
-Today's date is 2024-01-15. Do NOT invent invalid IDs. Prefer fewer changes over hallucination.
+You are an expert operations planner for a todo application. Your task is to generate precise, valid operations based on user intent.
 
-Conversation (last 3 turns):
-- user: update my task for today
-- assistant: Which task do you want to update? Options: #1 "Review project proposal" @2024-01-15; #2 "Call client" @2024-01-15.
-- user: the first one
+CRITICAL RULES:
+1. Output ONLY valid JSON with keys: version, steps, operations, tools, notes
+2. Use ONLY IDs from the provided context - NEVER invent IDs
+3. Include recurrence for ALL create/update operations
+4. For habits, recurrence.type cannot be "none"
+5. For todos with recurrence, include scheduledFor as anchor
+6. Maximum 20 operations per request
+7. Validate all time formats (YYYY-MM-DD for dates, HH:MM for times)
 
-Timezone: America/New_York
-Instruction: update my task for today
+Timezone: ${TIMEZONE}; Today: ${today}
+Task: ${taskBrief}
+Where: ${JSON.stringify(focusedWhere)}
+Available Context: ${contextJson}
+Recent Conversation: ${convo}
 
-Context:
-{
-  "todos": [
-    {"id": 1, "title": "Review project proposal", "scheduledFor": "2024-01-15", "recurrence": {"type": "none"}}
-  ]
-}
-
-Respond with JSON ONLY that matches this exact example format:
-{
-  "operations": [
-    {"kind":"todo","action":"update","id":1,"recurrence":{"type":"none"}}
-  ]
-}
+Generate operations that precisely match the user's intent while following all validation rules.
 ```
 
 **Expected LLM Response**:
 ```json
 {
+  "version": "3",
+  "steps": [{"name": "Update the selected task"}],
   "operations": [
     {
       "kind": "todo",
@@ -282,11 +308,13 @@ Respond with JSON ONLY that matches this exact example format:
       "id": 1,
       "recurrence": {"type": "none"}
     }
-  ]
+  ],
+  "tools": [],
+  "notes": {}
 }
 ```
 
-### 6. Validation & Repair
+### 7. Validation & Repair
 
 **Operation Inference**:
 ```javascript
@@ -337,7 +365,17 @@ const validation = {
 };
 ```
 
-### 7. Summarization
+### 8. Summarization
+
+**Summary Generation**:
+```javascript
+// runSummary() called with:
+const summaryText = await runSummary({ 
+  operations: oa.operations, 
+  issues: oa.notes?.errors || [],
+  timezone: TIMEZONE 
+});
+```
 
 **Summary Prompt**:
 ```javascript
@@ -354,12 +392,6 @@ const compactOps = operations.map((op) => {
 // Prompt sent to LLM:
 You are a helpful assistant for a todo app. Keep answers concise and clear. Prefer 1–3 short sentences; no lists or JSON.
 
-Conversation (last 3 turns):
-- user: update my task for today
-- assistant: Which task do you want to update? Options: #1 "Review project proposal" @2024-01-15; #2 "Call client" @2024-01-15.
-- user: the first one
-
-Today: 2024-01-15 (America/New_York)
 Proposed operations (count: 1):
 - update #1 "Review project proposal" @2024-01-15
 
@@ -373,7 +405,7 @@ Summarize the plan in plain English grounded in the proposed operations above.
 I'll update the "Review project proposal" task.
 ```
 
-### 8. Client Display & User Action
+### 9. Client Display & User Action
 
 **SSE Events Sent**:
 ```javascript
@@ -418,7 +450,7 @@ Widget _buildGroupedOperationList() {
 }
 ```
 
-### 9. Operation Execution
+### 10. Operation Execution
 
 **User Action**: Clicks "Apply Selected"
 
@@ -475,7 +507,7 @@ WHERE id = 1;
 }
 ```
 
-### 10. Final UI Update
+### 11. Final UI Update
 
 **Client Refresh**:
 ```dart
@@ -489,15 +521,16 @@ await _refreshAll(); // Refreshes scheduled list
 
 For the query "update my task for today":
 
-1. **Router Decision**: Should route to `clarify` due to ambiguity (multiple tasks today)
-2. **Clarification**: Present options for tasks scheduled today
-3. **User Selection**: Allow user to choose specific task
-4. **Re-routing**: Route to `plan` with focused context
-5. **Proposal**: Generate update operation for selected task
-6. **Validation**: All checks pass (valid ID, recurrence)
-7. **Summary**: Clear English description of the change
-8. **Execution**: Update database and audit log
-9. **Feedback**: Show success and refresh UI
+1. **ConversationAgent**: Orchestrates the entire flow with audit logging
+2. **Router Decision**: Should route to `clarify` due to ambiguity (multiple tasks today)
+3. **Clarification**: Present options for tasks scheduled today
+4. **User Selection**: Allow user to choose specific task
+5. **Re-routing**: Route to `plan` with focused context
+6. **OpsAgent**: Generate update operation for selected task
+7. **Validation**: All checks pass (valid ID, recurrence)
+8. **Summarization**: Clear English description of the change
+9. **Execution**: Update database and audit log
+10. **Feedback**: Show success and refresh UI
 
 **Key Safety Features**:
 - Confidence thresholds prevent incorrect assumptions
@@ -527,8 +560,9 @@ For the query "update my task for today":
 
 ## Server-Side Pipeline
 
-### 1. Router Decision (`runRouter`)
+### 1. ConversationAgent (`runConversationAgent`)
 ```javascript
+// Orchestrates the entire assistant flow
 // Decision types: 'chat', 'plan', 'clarify'
 // Confidence thresholds: CLARIFY_THRESHOLD = 0.45, CHAT_THRESHOLD = 0.70
 ```
@@ -545,7 +579,7 @@ For the query "update my task for today":
 - `question`: clarification question (if needed)
 - `options`: structured choices for clarification
 
-### 2. Proposal Generation (`buildProposalPrompt`)
+### 2. Router Decision (`runRouter`)
 **Schema Rules**:
 - All operations must include `kind` and `action`
 - Todo/Event create/update require `recurrence` object
@@ -559,7 +593,7 @@ For the query "update my task for today":
 - **Habits**: `create|update|delete|complete|complete_occurrence`
 - **Goals**: `create|update|delete|add_items|remove_item|add_child|remove_child`
 
-### 3. Validation & Repair
+### 3. OpsAgent with Processor (`runOpsAgentWithProcessor`)
 **Validation Checks**:
 - Recurrence presence and shape
 - Anchor dates for repeating items
@@ -572,7 +606,7 @@ For the query "update my task for today":
 - Schema reminder injection
 - Fallback to valid subset if repair fails
 
-### 4. Summarization
+### 4. Summarization (`runSummary`)
 **LLM Summary**:
 - Plain text output (no markdown/JSON)
 - Granite tag stripping
@@ -728,7 +762,7 @@ When clarification selection is provided:
 - Main tables: todos, events, habits, goals
 
 ### 2. External Dependencies
-- Ollama local model (gpt-oss:20b)
+- Ollama local model (qwen3-coder:30b)
 - SSE implementation
 - JSON parsing utilities
 

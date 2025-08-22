@@ -7,35 +7,98 @@ Entry files: `apps/web/flutter_app/lib/main.dart`, `apps/web/flutter_app/lib/api
 #### Core State Structure
 
 ```dart
-class HabitAppState extends ChangeNotifier {
-  // Navigation and view state
-  ViewMode viewMode = ViewMode.day;
+class _HomePageState extends State<HomePage> {
+  // Header state
+  String anchor = ymd(DateTime.now());
+  ViewMode view = ViewMode.day;
+  bool showCompleted = false;
+
+  // Search state
+  final TextEditingController searchCtrl = TextEditingController();
+  Timer? _searchDebounce;
+  CancelToken? _searchCancelToken;
+  final FocusNode _searchFocus = FocusNode();
+  final LayerLink _searchLink = LayerLink();
+  OverlayEntry? _searchOverlay;
+  int _searchHoverIndex = -1;
+  bool _searching = false;
+  int? _highlightedId;
+  
+  // Search filter state
+  String _searchScope = 'all'; // 'all', 'todo', 'event', 'habit'
+  String? _searchContext; // null for 'all', or 'personal', 'work', 'school'
+  String _searchStatusTodo = 'pending'; // 'pending', 'completed', 'skipped'
+  bool? _searchCompleted; // null for 'all', true for completed, false for incomplete
+  
+  // Navigation state
   MainView mainView = MainView.tasks;
-  SmartList smartList = SmartList.today;
-  DateTime anchor = DateTime.now();
+  String? _goalsStatusFilter; // null=all | 'active'|'completed'|'archived'
+  String? selectedContext; // 'school', 'personal', 'work', null for 'all'
   
   // Data collections
-  List<dynamic> scheduled = [];           // Unified schedule items
-  List<Todo> scheduledAllTime = [];       // All scheduled todos for counts
-  List<Todo> backlog = [];               // Unscheduled todos
-  List<Event> events = [];               // All events for "All" view
-  List<Habit> habits = [];               // Habits with stats
+  List<Todo> scheduled = [];           // Unified schedule items
+  List<Todo> scheduledAllTime = [];    // All scheduled todos for counts
+  List<Todo> searchResults = [];       // Search results
+  Map<int, Map<String, dynamic>> habitStatsById = {}; // Habit stats for current range
+  Map<String, Map<String, dynamic>> _itemGoalByKey = {}; // Goal badges mapping
+  
+  // Unified schedule filters (chips)
+  Set<String> _kindFilter = <String>{'todo', 'event'};
   
   // UI state
-  bool showCompleted = false;
-  String selectedContext = 'personal';
-  bool isLoading = false;
-  String? errorMessage;
+  bool loading = false;
+  String? message;
+  bool assistantCollapsed = true;
   
   // Assistant state
-  List<Map<String, String>> assistantTranscript = [];
+  final TextEditingController assistantCtrl = TextEditingController();
+  final List<Map<String, String>> assistantTranscript = [];
+  List<AnnotatedOp> assistantOps = [];
+  List<bool> assistantOpsChecked = [];
   bool assistantSending = false;
-  int assistantStreamingIndex = -1;
+  bool assistantShowDiff = false;
+  int? assistantStreamingIndex;
   
-  // Search state
-  String searchQuery = '';
-  List<dynamic> searchResults = [];
-  bool searchActive = false;
+  // Clarification state
+  String? _pendingClarifyQuestion;
+  List<Map<String, dynamic>> _pendingClarifyOptions = const [];
+  final Set<int> _clarifySelectedIds = <int>{};
+  String? _clarifySelectedDate;
+  String _progressStage = '';
+  String? _lastCorrelationId;
+  int _progressValid = 0;
+  int _progressInvalid = 0;
+  DateTime? _progressStart;
+  
+  // Quick-add controllers
+  final TextEditingController _qaTodoTitle = TextEditingController();
+  final TextEditingController _qaTodoTime = TextEditingController();
+  final TextEditingController _qaTodoDate = TextEditingController();
+  final TextEditingController _qaTodoNotes = TextEditingController();
+  final TextEditingController _qaTodoInterval = TextEditingController();
+  
+  final TextEditingController _qaEventTitle = TextEditingController();
+  final TextEditingController _qaEventStart = TextEditingController();
+  final TextEditingController _qaEventEnd = TextEditingController();
+  final TextEditingController _qaEventLocation = TextEditingController();
+  final TextEditingController _qaEventDate = TextEditingController();
+  final TextEditingController _qaEventNotes = TextEditingController();
+  final TextEditingController _qaEventInterval = TextEditingController();
+  
+  final TextEditingController _qaHabitTitle = TextEditingController();
+  final TextEditingController _qaHabitTime = TextEditingController();
+  
+  final TextEditingController _qaGoalTitle = TextEditingController();
+  final TextEditingController _qaGoalNotes = TextEditingController();
+  final TextEditingController _qaGoalCurrent = TextEditingController();
+  final TextEditingController _qaGoalTarget = TextEditingController();
+  final TextEditingController _qaGoalUnit = TextEditingController();
+  String _qaGoalStatus = 'active';
+  bool _addingQuick = false;
+  
+  // FAB dialog state
+  String? _qaSelectedContext;
+  String? _qaSelectedRecurrence;
 }
 ```
 
@@ -43,8 +106,8 @@ class HabitAppState extends ChangeNotifier {
 
 ```dart
 enum ViewMode { day, week, month }
-enum SmartList { today, all }
 enum MainView { tasks, habits, goals }
+enum SmartList { today, all }
 enum AppTab { todos, events, habits, goals }
 
 // Date range calculation
@@ -65,10 +128,13 @@ Map<String, String> rangeForView(DateTime anchor, ViewMode view) {
   }
   
   return {
-    'from': from.toIso8601String().split('T')[0],
-    'to': to.toIso8601String().split('T')[0],
+    'from': ymd(from),
+    'to': ymd(to),
   };
 }
+
+String ymd(DateTime d) =>
+    '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 ```
 
 ### Data Loading Patterns
@@ -77,57 +143,55 @@ Map<String, String> rangeForView(DateTime anchor, ViewMode view) {
 
 ```dart
 Future<void> _refreshAll() async {
-  isLoading = true;
-  notifyListeners();
+  setState(() => loading = true);
   
   try {
-    final range = rangeForView(anchor, viewMode);
+    final range = rangeForView(parseYmd(anchor), view);
     
     // Load unified schedule for current view
     final scheduleResponse = await api.fetchSchedule(
       from: range['from']!,
       to: range['to']!,
-      kinds: 'todo,event,habit',
+      kinds: _kindFilter.toList(),
       completed: showCompleted,
       statusTodo: showCompleted ? null : 'pending',
       context: selectedContext,
     );
-    scheduled = scheduleResponse['items'] ?? [];
+    scheduled = (scheduleResponse as List<dynamic>).map((e) => Todo.fromJson(e)).toList();
     
     // Load counts and backlog
     final allTimeResponse = await api.fetchScheduledAllTime(
       status: showCompleted ? null : 'pending',
       context: selectedContext,
     );
-    scheduledAllTime = allTimeResponse['todos'] ?? [];
-    
-    final backlogResponse = await api.fetchBacklog(
-      status: showCompleted ? null : 'pending',
-      context: selectedContext,
-    );
-    backlog = backlogResponse['todos'] ?? [];
+    scheduledAllTime = (allTimeResponse as List<dynamic>).map((e) => Todo.fromJson(e)).toList();
     
     // Load habit stats when needed
-    if (mainView == MainView.habits || smartList == SmartList.all) {
+    if (mainView == MainView.habits || _kindFilter.contains('habit')) {
       final habitsResponse = await api.listHabits(
         from: range['from'],
         to: range['to'],
         context: selectedContext,
       );
-      habits = habitsResponse['habits'] ?? [];
+      // Process habit stats
+      final habits = habitsResponse as List<dynamic>;
+      habitStatsById.clear();
+      for (final habit in habits) {
+        habitStatsById[habit['id']] = {
+          'currentStreak': habit['currentStreak'] ?? 0,
+          'longestStreak': habit['longestStreak'] ?? 0,
+          'weekHeatmap': habit['weekHeatmap'] ?? [],
+        };
+      }
     }
     
-    // Load events for "All" view
-    if (smartList == SmartList.all) {
-      final eventsResponse = await api.listEvents(context: selectedContext);
-      events = eventsResponse['events'] ?? [];
-    }
+    // Load goal badges
+    await _loadGoalBadges();
     
   } catch (e) {
-    errorMessage = 'Failed to load data: ${e.toString()}';
+    setState(() => message = 'Failed to load data: ${e.toString()}');
   } finally {
-    isLoading = false;
-    notifyListeners();
+    setState(() => loading = false);
   }
 }
 ```
@@ -136,14 +200,18 @@ Future<void> _refreshAll() async {
 
 ```dart
 // Context filtering affects all data loading
-void setContext(String context) {
-  selectedContext = context;
+void _setContext(String? context) {
+  setState(() {
+    selectedContext = context;
+  });
   _refreshAll(); // Reload all data with new context
 }
 
 // Show completed toggle affects filtering
-void setShowCompleted(bool show) {
-  showCompleted = show;
+void _setShowCompleted(bool show) {
+  setState(() {
+    showCompleted = show;
+  });
   _refreshAll(); // Reload with new completion filter
 }
 ```
@@ -190,15 +258,16 @@ class _SearchOverlayState extends State<SearchOverlay> {
     try {
       final response = await api.searchUnified(
         query,
-        scope: 'todo,event', // Exclude habits
-        completed: showCompleted,
-        statusTodo: showCompleted ? null : 'pending',
+        scope: _searchScope,
+        completed: _searchCompleted,
+        statusTodo: _searchStatusTodo,
+        context: _searchContext,
         limit: 30,
         cancelToken: _cancelToken,
       );
       
       setState(() {
-        searchResults = response['items'] ?? [];
+        searchResults = (response as List<dynamic>).map((e) => Todo.fromJson(e)).toList();
       });
     } catch (e) {
       if (e is! CancelException) {
@@ -218,31 +287,21 @@ Widget _buildSearchResults() {
     itemBuilder: (context, index) {
       final item = searchResults[index];
       return ListTile(
-        title: Text(item['title']),
+        title: Text(item.title),
         subtitle: Text(_formatSearchResult(item)),
         onTap: () => _selectSearchResult(item),
-        selected: index == _selectedIndex,
+        selected: index == _searchHoverIndex,
       );
     },
   );
 }
 
-void _selectSearchResult(dynamic item) {
+void _selectSearchResult(Todo item) {
   // Focus appropriate list and scroll to item
-  final kind = item['kind'];
-  final id = item['id'];
-  
-  switch (kind) {
-    case 'todo':
-      _focusTodoList(id);
-      break;
-    case 'event':
-      _focusEventList(id);
-      break;
-  }
+  _highlightedId = item.id;
   
   // Close search overlay
-  Navigator.of(context).pop();
+  _closeSearchOverlay();
 }
 ```
 
@@ -252,7 +311,7 @@ void _selectSearchResult(dynamic item) {
 
 ```dart
 // Toggle completion for repeating todos
-Future<void> toggleTodoOccurrence(int todoId, String occurrenceDate, String status) async {
+Future<void> _toggleTodoOccurrence(int todoId, String occurrenceDate, String status) async {
   try {
     await api.setTodoOccurrenceStatus(todoId, occurrenceDate, status);
     _refreshAll(); // Refresh to show updated state
@@ -262,7 +321,7 @@ Future<void> toggleTodoOccurrence(int todoId, String occurrenceDate, String stat
 }
 
 // Toggle completion for non-repeating todos
-Future<void> toggleTodoStatus(int todoId, String status) async {
+Future<void> _toggleTodoStatus(int todoId, String status) async {
   try {
     await api.updateTodo(todoId, {'status': status});
     _refreshAll();
@@ -272,7 +331,7 @@ Future<void> toggleTodoStatus(int todoId, String status) async {
 }
 
 // Create new todo
-Future<void> createTodo(String title, {String? notes, String? scheduledFor, String? timeOfDay}) async {
+Future<void> _createTodo(String title, {String? notes, String? scheduledFor, String? timeOfDay}) async {
   try {
     await api.createTodo({
       'title': title,
@@ -280,7 +339,7 @@ Future<void> createTodo(String title, {String? notes, String? scheduledFor, Stri
       'scheduledFor': scheduledFor,
       'timeOfDay': timeOfDay,
       'recurrence': {'type': 'none'}, // Default to non-repeating
-      'context': selectedContext,
+      'context': selectedContext ?? 'personal',
     });
     _refreshAll();
   } catch (e) {
@@ -293,7 +352,7 @@ Future<void> createTodo(String title, {String? notes, String? scheduledFor, Stri
 
 ```dart
 // Toggle event completion
-Future<void> toggleEventOccurrence(int eventId, String occurrenceDate, bool completed) async {
+Future<void> _toggleEventOccurrence(int eventId, String occurrenceDate, bool completed) async {
   try {
     await api.toggleEventOccurrence(eventId, occurrenceDate, completed);
     _refreshAll();
@@ -303,7 +362,7 @@ Future<void> toggleEventOccurrence(int eventId, String occurrenceDate, bool comp
 }
 
 // Create new event
-Future<void> createEvent(String title, {
+Future<void> _createEvent(String title, {
   String? notes, 
   String? scheduledFor, 
   String? startTime, 
@@ -319,7 +378,7 @@ Future<void> createEvent(String title, {
       'endTime': endTime,
       'location': location,
       'recurrence': {'type': 'none'},
-      'context': selectedContext,
+      'context': selectedContext ?? 'personal',
     });
     _refreshAll();
   } catch (e) {
@@ -332,7 +391,7 @@ Future<void> createEvent(String title, {
 
 ```dart
 // Toggle habit completion
-Future<void> toggleHabitOccurrence(int habitId, String occurrenceDate, bool completed) async {
+Future<void> _toggleHabitOccurrence(int habitId, String occurrenceDate, bool completed) async {
   try {
     await api.toggleHabitOccurrence(habitId, occurrenceDate, completed);
     _refreshAll(); // Refresh to update streak stats
@@ -342,7 +401,7 @@ Future<void> toggleHabitOccurrence(int habitId, String occurrenceDate, bool comp
 }
 
 // Create new habit (must be repeating)
-Future<void> createHabit(String title, {
+Future<void> _createHabit(String title, {
   String? notes, 
   String? scheduledFor, 
   String? timeOfDay,
@@ -355,7 +414,7 @@ Future<void> createHabit(String title, {
       'scheduledFor': scheduledFor,
       'timeOfDay': timeOfDay,
       'recurrence': recurrence ?? {'type': 'daily'}, // Default to daily
-      'context': selectedContext,
+      'context': selectedContext ?? 'personal',
     });
     _refreshAll();
   } catch (e) {
@@ -370,13 +429,14 @@ Future<void> createHabit(String title, {
 
 ```dart
 Future<void> _sendAssistantMessage(String message) async {
-  assistantSending = true;
-  assistantTranscript.add({'role': 'user', 'text': message});
-  
-  // Add placeholder assistant message
-  assistantTranscript.add({'role': 'assistant', 'text': ''});
-  assistantStreamingIndex = assistantTranscript.length - 1;
-  notifyListeners();
+  setState(() {
+    assistantSending = true;
+    assistantTranscript.add({'role': 'user', 'text': message});
+    
+    // Add placeholder assistant message
+    assistantTranscript.add({'role': 'assistant', 'text': ''});
+    assistantStreamingIndex = assistantTranscript.length - 1;
+  });
   
   try {
     // Get last 3 turns for context
@@ -390,11 +450,12 @@ Future<void> _sendAssistantMessage(String message) async {
       streamSummary: true,
       onSummary: (text) {
         // Update placeholder message
-        assistantTranscript[assistantStreamingIndex] = {
-          'role': 'assistant', 
-          'text': text
-        };
-        notifyListeners();
+        setState(() {
+          assistantTranscript[assistantStreamingIndex!] = {
+            'role': 'assistant', 
+            'text': text
+          };
+        });
       },
       onClarify: (question, options) {
         // Show clarification UI
@@ -402,19 +463,25 @@ Future<void> _sendAssistantMessage(String message) async {
       },
       onStage: (stage) {
         // Update progress indicator
-        _updateAssistantStage(stage);
+        setState(() => _progressStage = stage);
       },
       onOps: (operations, version, validCount, invalidCount) {
         // Show operations preview
-        _showOperationsPreview(operations, validCount, invalidCount);
+        setState(() {
+          assistantOps = operations.map((op) => AnnotatedOp.fromJson(op)).toList();
+          assistantOpsChecked = List.filled(operations.length, true);
+          _progressValid = validCount;
+          _progressInvalid = invalidCount;
+        });
       },
     );
   } catch (e) {
     _showError('Assistant error: ${e.toString()}');
   } finally {
-    assistantSending = false;
-    assistantStreamingIndex = -1;
-    notifyListeners();
+    setState(() {
+      assistantSending = false;
+      assistantStreamingIndex = null;
+    });
   }
 }
 ```
@@ -423,37 +490,56 @@ Future<void> _sendAssistantMessage(String message) async {
 
 ```dart
 void _showClarificationDialog(String question, List<Map<String, dynamic>> options) {
-  showDialog(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: Text(question),
-      content: Wrap(
-        spacing: 8,
-        children: options.map((option) => FilterChip(
-          label: Text('${option['title']} @${option['scheduledFor'] ?? 'unscheduled'}'),
-          selected: _selectedClarifyIds.contains(option['id']),
-          onSelected: (selected) {
-            setState(() {
-              if (selected) {
-                _selectedClarifyIds.add(option['id']);
-              } else {
-                _selectedClarifyIds.remove(option['id']);
-              }
-            });
-          },
-        )).toList(),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text('Cancel'),
+  setState(() {
+    _pendingClarifyQuestion = question;
+    _pendingClarifyOptions = options;
+    _clarifySelectedIds.clear();
+    _clarifySelectedDate = null;
+  });
+}
+
+Widget _buildClarifySection() {
+  if (_pendingClarifyQuestion == null) return SizedBox.shrink();
+  
+  return Container(
+    child: Column(
+      children: [
+        Text(_pendingClarifyQuestion!),
+        Wrap(
+          spacing: 8,
+          children: _pendingClarifyOptions.map((option) => FilterChip(
+            label: Text('${option['title']} @${option['scheduledFor'] ?? 'unscheduled'}'),
+            selected: _clarifySelectedIds.contains(option['id']),
+            onSelected: (selected) {
+              setState(() {
+                if (selected) {
+                  _clarifySelectedIds.add(option['id']);
+                } else {
+                  _clarifySelectedIds.remove(option['id']);
+                }
+              });
+            },
+          )).toList(),
         ),
-        ElevatedButton(
-          onPressed: () {
-            Navigator.of(context).pop();
-            _sendClarifiedMessage();
-          },
-          child: Text('Continue'),
+        Row(
+          children: [
+            TextButton(
+              onPressed: () {
+                setState(() {
+                  _pendingClarifyQuestion = null;
+                  _pendingClarifyOptions = [];
+                  _clarifySelectedIds.clear();
+                });
+              },
+              child: Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                _sendClarifiedMessage();
+              },
+              child: Text('Continue'),
+            ),
+          ],
         ),
       ],
     ),
@@ -464,39 +550,60 @@ void _showClarificationDialog(String question, List<Map<String, dynamic>> option
 #### Operations Preview and Execution
 
 ```dart
-void _showOperationsPreview(List<Map<String, dynamic>> operations, int validCount, int invalidCount) {
-  showDialog(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: Text('Preview Changes'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
+Widget _buildOperationsPreview() {
+  if (assistantOps.isEmpty) return SizedBox.shrink();
+  
+  return Column(
+    children: [
+      if (_progressInvalid > 0)
+        Text('$_progressInvalid operations have errors', style: TextStyle(color: Colors.red)),
+      ...assistantOps.asMap().entries.map((entry) {
+        final index = entry.key;
+        final op = entry.value;
+        return CheckboxListTile(
+          value: assistantOpsChecked[index],
+          onChanged: (value) {
+            setState(() {
+              assistantOpsChecked[index] = value ?? true;
+            });
+          },
+          title: Text('${op.action} ${op.kind} #${op.id}'),
+          subtitle: Text(op.title ?? ''),
+        );
+      }).toList(),
+      Row(
         children: [
-          if (invalidCount > 0)
-            Text('$invalidCount operations have errors', style: TextStyle(color: Colors.red)),
-          ...operations.map((op) => _buildOperationTile(op)).toList(),
+          TextButton(
+            onPressed: () {
+              setState(() {
+                assistantOps.clear();
+                assistantOpsChecked.clear();
+              });
+            },
+            child: Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              _executeSelectedOperations();
+            },
+            child: Text('Apply Selected'),
+          ),
         ],
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text('Cancel'),
-        ),
-        ElevatedButton(
-          onPressed: () {
-            Navigator.of(context).pop();
-            _executeOperations(operations);
-          },
-          child: Text('Apply Selected'),
-        ),
-      ],
-    ),
+    ],
   );
 }
 
-Future<void> _executeOperations(List<Map<String, dynamic>> operations) async {
+Future<void> _executeSelectedOperations() async {
+  final selectedOps = <Map<String, dynamic>>[];
+  for (int i = 0; i < assistantOps.length; i++) {
+    if (assistantOpsChecked[i]) {
+      selectedOps.add(assistantOps[i].toJson());
+    }
+  }
+  
   try {
-    final results = await api.applyOperationsMCP(operations);
+    final results = await api.applyOperationsMCP(selectedOps);
     
     // Check for errors
     final errors = results.where((r) => r['isError'] == true).toList();
@@ -505,6 +612,10 @@ Future<void> _executeOperations(List<Map<String, dynamic>> operations) async {
     }
     
     _refreshAll(); // Refresh to show changes
+    setState(() {
+      assistantOps.clear();
+      assistantOpsChecked.clear();
+    });
   } catch (e) {
     _showError('Failed to execute operations: ${e.toString()}');
   }
@@ -518,9 +629,9 @@ Future<void> _executeOperations(List<Map<String, dynamic>> operations) async {
 ```dart
 Widget _buildUnifiedSchedule() {
   // Group items by date
-  final grouped = <String, List<dynamic>>{};
+  final grouped = <String, List<Todo>>{};
   for (final item in scheduled) {
-    final date = item['scheduledFor'] ?? 'unscheduled';
+    final date = item.scheduledFor ?? 'unscheduled';
     grouped.putIfAbsent(date, () => []).add(item);
   }
   
@@ -551,10 +662,10 @@ Widget _buildUnifiedSchedule() {
   );
 }
 
-int _compareItems(dynamic a, dynamic b) {
+int _compareItems(Todo a, Todo b) {
   // 1. Sort by time (nulls first)
-  final timeA = a['timeOfDay'] ?? a['startTime'];
-  final timeB = b['timeOfDay'] ?? b['startTime'];
+  final timeA = a.timeOfDay;
+  final timeB = b.timeOfDay;
   if (timeA == null && timeB != null) return -1;
   if (timeA != null && timeB == null) return 1;
   if (timeA != null && timeB != null) {
@@ -564,43 +675,44 @@ int _compareItems(dynamic a, dynamic b) {
   
   // 2. Sort by kind: event < todo < habit
   final kindOrder = {'event': 0, 'todo': 1, 'habit': 2};
-  final kindA = kindOrder[a['kind']] ?? 3;
-  final kindB = kindOrder[b['kind']] ?? 3;
+  final kindA = kindOrder[a.kind ?? 'todo'] ?? 3;
+  final kindB = kindOrder[b.kind ?? 'todo'] ?? 3;
   if (kindA != kindB) return kindA.compareTo(kindB);
   
   // 3. Sort by ID
-  return (a['id'] ?? 0).compareTo(b['id'] ?? 0);
+  return a.id.compareTo(b.id);
 }
 ```
 
 #### Habit Stats Display
 
 ```dart
-Widget _buildHabitStats(Habit habit) {
+Widget _buildHabitStats(int habitId) {
+  final stats = habitStatsById[habitId];
+  if (stats == null) return SizedBox.shrink();
+  
   return Card(
     child: Padding(
       padding: EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(habit.title, style: Theme.of(context).textTheme.titleMedium),
-          SizedBox(height: 8),
           Row(
             children: [
-              _buildStreakBadge('Current', habit.currentStreak),
+              _buildStreakBadge('Current', stats['currentStreak'] ?? 0),
               SizedBox(width: 8),
-              _buildStreakBadge('Longest', habit.longestStreak),
+              _buildStreakBadge('Longest', stats['longestStreak'] ?? 0),
             ],
           ),
           SizedBox(height: 8),
-          _buildWeekHeatmap(habit.weekHeatmap),
+          _buildWeekHeatmap(stats['weekHeatmap'] ?? []),
         ],
       ),
     ),
   );
 }
 
-Widget _buildWeekHeatmap(List<Map<String, dynamic>> heatmap) {
+Widget _buildWeekHeatmap(List<dynamic> heatmap) {
   return Row(
     children: heatmap.map((day) {
       final completed = day['completed'] ?? false;
@@ -665,7 +777,7 @@ class ApiClient {
       if (data is Map && data.containsKey('error')) {
         message = data['error'];
       } else {
-        message = 'Server error: ${error.response!..statusCode}';
+        message = 'Server error: ${error.response!.statusCode}';
       }
     } else if (error.type == DioErrorType.connectTimeout) {
       message = 'Connection timeout';
@@ -788,7 +900,7 @@ class LazyScheduleList extends StatefulWidget {
 }
 
 class _LazyScheduleListState extends State<LazyScheduleList> {
-  final List<dynamic> _items = [];
+  final List<Todo> _items = [];
   bool _isLoading = false;
   int _page = 0;
   
@@ -821,22 +933,22 @@ class _LazyScheduleListState extends State<LazyScheduleList> {
 #### State Management Optimization
 
 ```dart
-// Selective notifications
-class OptimizedHabitAppState extends ChangeNotifier {
+// Selective state updates
+class OptimizedHomePageState extends State<HomePage> {
   void _notifyScheduledChanged() {
-    notifyListeners();
+    setState(() {});
   }
   
-  void _notifyBacklogChanged() {
-    notifyListeners();
+  void _notifySearchChanged() {
+    setState(() {});
   }
   
   void _notifyAssistantChanged() {
-    notifyListeners();
+    setState(() {});
   }
   
-  // Only notify relevant listeners
-  void updateScheduled(List<dynamic> newScheduled) {
+  // Only update relevant state
+  void updateScheduled(List<Todo> newScheduled) {
     scheduled = newScheduled;
     _notifyScheduledChanged();
   }
@@ -878,12 +990,12 @@ class DebugPanel extends StatelessWidget {
     return ExpansionTile(
       title: Text('Debug Info'),
       children: [
-        Text('View Mode: $viewMode'),
+        Text('View Mode: $view'),
         Text('Main View: $mainView'),
         Text('Context: $selectedContext'),
         Text('Show Completed: $showCompleted'),
         Text('Scheduled Count: ${scheduled.length}'),
-        Text('Backlog Count: ${backlog.length}'),
+        Text('Search Results Count: ${searchResults.length}'),
         ElevatedButton(
           onPressed: () => _refreshAll(),
           child: Text('Force Refresh'),

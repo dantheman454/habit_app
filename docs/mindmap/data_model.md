@@ -13,9 +13,9 @@ This document specifies the Todo/Event/Habit/Goal schemas, recurrence semantics,
 
 **Core Tables**:
 - `todos(id, title, notes, scheduled_for, time_of_day, status, recurrence TEXT(JSON), completed_dates TEXT(JSON), skipped_dates TEXT(JSON), context, created_at, updated_at)`
-- `events(id, title, notes, scheduled_for, start_time, end_time, location, completed, recurrence TEXT(JSON), completed_dates TEXT(JSON), context, created_at, updated_at)`
-- `habits(id, title, notes, scheduled_for, time_of_day, completed, recurrence TEXT(JSON), completed_dates TEXT(JSON), context, created_at, updated_at)`
-- `goals(id, title, notes, status, current_progress_value, target_progress_value, progress_unit, created_at, updated_at)`
+- `events(id, title, notes, scheduled_for, start_time, end_time, location, completed INTEGER, recurrence TEXT(JSON), completed_dates TEXT(JSON), context, created_at, updated_at)`
+- `habits(id, title, notes, scheduled_for, time_of_day, completed INTEGER, recurrence TEXT(JSON), completed_dates TEXT(JSON), context, created_at, updated_at)`
+- `goals(id, title, notes, status, current_progress_value REAL, target_progress_value REAL, progress_unit, created_at, updated_at)`
 
 **Linking Tables**:
 - `habit_todo_items(habit_id, todo_id)` - Many-to-many: habits ↔ todos
@@ -50,6 +50,7 @@ interface Todo {
   completedDates: string[] | null;               // YYYY-MM-DD array for repeating
   skippedDates: string[] | null;                 // YYYY-MM-DD array for repeating
   context: 'school' | 'personal' | 'work';       // Required, defaults to 'personal'
+  completed: boolean;                            // Back-compat derived from status
   createdAt: string;                             // ISO-8601 timestamp
   updatedAt: string;                             // ISO-8601 timestamp
 }
@@ -68,6 +69,7 @@ interface Todo {
 - For repeating items: ensure `completedDates`/`skippedDates` arrays exist
 - Master `status` defaults to 'pending' for new items
 - `context` field defaults to 'personal' if not specified
+- `completed` boolean derived from `status` for back-compatibility
 
 #### Event Schema (Normalized)
 

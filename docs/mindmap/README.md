@@ -9,18 +9,18 @@ graph TD
   subgraph "Client (Flutter Web)"
     A["Flutter Web UI\napps/web/flutter_app/lib/main.dart\nState: ViewMode, MainView, SmartList"]
     A2["API wrapper\napps/web/flutter_app/lib/api.dart\nDio client, SSE support"]
-    A3["Widgets\nassistant_panel.dart, sidebar.dart\nReal-time updates"]
+    A3["Widgets\nassistant_panel.dart, sidebar.dart, todo_row.dart\nReal-time updates"]
   end
   subgraph "Server (Express.js)"
     B["Express API\napps/server/server.js\nREST endpoints, SSE streaming"]
     B2["MCP Server\napps/server/mcp/mcp_server.js\nTool execution, validation"]
-    B3["LLM Pipeline\nrouter.js, ops_agent.js\nConversationAgent, OpsAgent"]
+    B3["LLM Pipeline\nrouter.js, proposal.js, repair.js\nConversationAgent, OpsAgent"]
   end
   subgraph "Persistence (SQLite)"
     P[("SQLite (data/app.db)\nTables: todos, events, habits, goals\nLinking tables, audit_log, idempotency\nFTS5 virtual tables")]
   end
   subgraph "LLM (Ollama)"
-    F[["Ollama local model\nconfigurable (defaults: convo=gpt-oss:20b, code=gpt-oss:20b)\nHarmony prompt formatting"]]
+    F[["Ollama local model\nconfigurable (defaults: convo=qwen3-coder:30b, code=qwen3-coder:30b)\nHarmony prompt formatting"]]
   end
 
   A --> A2
@@ -50,12 +50,12 @@ sequenceDiagram
 
   Note over UI,LLM: Assistant Chat Flow
   UI->>API: GET /api/assistant/message/stream?message="update task"
-  API->>LLM: runConversationAgent (router decision)
+  API->>LLM: runRouter (router decision)
   LLM-->>API: {decision: "clarify", confidence: 0.3}
   API-->>UI: SSE: clarify event with options
   
   UI->>API: GET /api/assistant/message/stream (with selection)
-  API->>LLM: runOpsAgentWithProcessor (proposal generation)
+  API->>LLM: runProposal (proposal generation)
   LLM-->>API: {operations: [{kind: "todo", action: "update"}]}
   API-->>UI: SSE: ops event with validation results
   
@@ -125,7 +125,7 @@ sequenceDiagram
 **LLM Pipeline**:
 - `apps/server/llm/clients.js`: Ollama client wrappers, model configuration
 - `apps/server/llm/router.js`: Intent routing, decision making, confidence scoring
-- `apps/server/llm/ops_agent.js`: Operation generation, validation, repair
+- `apps/server/llm/proposal.js`: Operation generation, validation, repair
 - `apps/server/llm/conversation_agent.js`: Conversation orchestration, audit logging
 
 **Client Layer**:
@@ -141,13 +141,13 @@ sequenceDiagram
 
 **Local Setup**:
 1. Install dependencies: `npm install` (server), `flutter pub get` (client)
-2. Start Ollama: `ollama serve` (requires gpt-oss:20b model)
+2. Start Ollama: `ollama serve` (requires qwen3-coder:30b model)
 3. Start server: `npm start` (runs on port 3000)
 4. Build client: `flutter build web` (served by Express)
 
 **Key Environment Variables**:
-- `CONVO_MODEL`: Conversation LLM (default: gpt-oss:20b)
-- `CODE_MODEL`: Code generation LLM (default: gpt-oss:20b)
+- `CONVO_MODEL`: Conversation LLM (default: qwen3-coder:30b)
+- `CODE_MODEL`: Code generation LLM (default: qwen3-coder:30b)
 - `OLLAMA_HOST`: Ollama host (default: 127.0.0.1)
 - `OLLAMA_PORT`: Ollama port (default: 11434)
 - `TZ_NAME`: Timezone (default: America/New_York)

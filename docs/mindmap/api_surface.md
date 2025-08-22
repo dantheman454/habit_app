@@ -397,6 +397,12 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 - `applyOperationsMCP(operations)` → `List<Map<String, dynamic>>`
 - `dryRunOperationsMCP(operations)` → `List<Map<String, dynamic>>`
 
+**MCP Operations**:
+- `listMCPTools()` → `List<Map<String, dynamic>>`
+- `listMCPResources()` → `List<Map<String, dynamic>>`
+- `readMCPResource(type, name)` → `Map<String, dynamic>?`
+- `callMCPTool(name, arguments)` → `Map<String, dynamic>`
+
 ### Error Handling
 
 **Common Error Codes**:
