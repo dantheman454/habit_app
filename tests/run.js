@@ -279,9 +279,18 @@ async function main() {
       let gotStage = false;
       let gotDone = false;
       res.setEncoding('utf8');
+      let seenSummaryOrResult = false;
       res.on('data', (chunk) => {
         if (chunk.includes('event: stage')) gotStage = true;
-        if (chunk.includes('event: done')) gotDone = true;
+        if (chunk.includes('event: summary') || chunk.includes('event: result')) seenSummaryOrResult = true;
+        if (chunk.includes('event: done')) {
+          // done should occur after summary/result
+          if (!seenSummaryOrResult) {
+            reject(new Error('SSE: done received before summary/result'));
+            return;
+          }
+          gotDone = true;
+        }
       });
       res.on('end', () => {
         try {

@@ -2035,16 +2035,7 @@ app.post('/api/assistant/message', async (req, res) => {
       return res.json({ text: fallbackText, operations: [], correlationId });
     }
     
-    // Check if OpsAgent needs clarification
-    if (oa.needsClarification) {
-      return res.json({ 
-        clarify: { 
-          question: oa.question, 
-          options: oa.options 
-        }, 
-        correlationId 
-      });
-    }
+    // Clarify path removed: assistant aligns to chat/act only in default flows
     
     // Final text: chat-generated within tool-calling flow
     const summaryText = String(oa.text || '').trim();
@@ -2145,16 +2136,7 @@ app.get('/api/assistant/message/stream', async (req, res) => {
       return res.end();
     }
     
-    // Check if OpsAgent needs clarification
-    if (oa.needsClarification) {
-      send('clarify', JSON.stringify({ 
-        question: oa.question, 
-        options: oa.options, 
-        correlationId 
-      }));
-      send('done', 'true');
-      return res.end();
-    }
+    // Clarify path removed: assistant aligns to chat/act only in default flows
     
     // End-of-run summary only (per decision)
     const summaryText = String(oa.text || '').trim();

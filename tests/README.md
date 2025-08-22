@@ -90,76 +90,89 @@ Issues: {issues}
 Summary:
 ```
 
-## LLM Testing Suite
+## Test Suite Overview
 
-The LLM testing tools have been moved to a dedicated directory: `tests/llm/`
+The testing suite consists of three main components:
 
-For detailed documentation and usage instructions, see: [tests/llm/README.md](llm/README.md)
+1. **Unit Tests** (`unit/`) - Individual component tests with network-free defaults
+2. **Integration Tests** (`all.js`, `run.js`) - End-to-end API testing with stubbed LLM
+3. **LLM Testing Suite** (`llm/suite/`) - Opt-in manual tools for LLM evaluation
 
-### Quick Reference
+## Default Test Suite (Network-Free)
 
-```bash
-# Enhanced model comparison testing
-node tests/llm/improved/improved_model_comparison.js --run-tests --task router --models llama3.2:3b,granite-code:8b
-
-# Model comparison across tasks
-node tests/llm/improved/improved_model_comparison.js --compare-models --tasks router,proposal,repair --models llama3.2:3b,granite-code:8b
-
-# Validation review interface
-node tests/llm/improved/improved_model_comparison.js --validate-scenarios
-
-# Generate detailed reports
-node tests/llm/improved/improved_model_comparison.js --generate-report --input results.json --output detailed
-```
-
-**Note**: The enhanced LLM testing suite provides semantic validation, real LLM integration, and comprehensive performance metrics.
-
-For detailed information about the enhanced testing suite, see the [LLM Testing Suite documentation](llm/IMPROVEMENT_GUIDE.md).
-
-## Configuration
-
-For LLM-specific configuration and model recommendations, see the [LLM Testing Suite documentation](llm/IMPROVEMENT_GUIDE.md).
-
-## Running Tests
-
-### Main Test Suite
+The default test suite runs without external LLM dependencies:
 
 ```bash
-# Run all tests (unit + integration)
+# Run all tests (unit + integration smoke)
 npm test
 
 # Run unit tests only
 node --test tests/unit
 
-# Run integration tests only
+# Run integration smoke tests
+node tests/all.js
+
+# Run MCP/SSE integration tests
 node tests/run.js
 ```
 
-### LLM Testing Suite
+## Opt-in LLM Suite
 
-For LLM-specific testing, see the [LLM Testing Suite documentation](llm/IMPROVEMENT_GUIDE.md).
+The LLM testing suite is **not run by default** and requires real model access:
 
-**Note**: The enhanced LLM testing suite provides semantic validation, real LLM integration, and comprehensive performance metrics.
+```bash
+# Router decision testing
+node tests/llm/suite/improved_model_comparison.js --run-tests --task router --models llama3.2:3b --iterations 1
+
+# Model comparison across tasks
+node tests/llm/suite/improved_model_comparison.js --compare-models --tasks router,proposal,repair --models llama3.2:3b,granite-code:8b
+
+# Validation review interface
+node tests/llm/suite/improved_model_comparison.js --validate-scenarios
+```
+
+**Note**: The LLM suite is manual/opt-in and may require real model access. It is not included in `npm test` or CI by default.
+
+## Configuration
+
+For LLM-specific configuration and model recommendations, see the [LLM Testing Suite documentation](llm/suite/README.md).
+
+## Router Tests (Chat/Act Only)
+
+The router tests validate the chat/act decision behavior:
+
+- **Unit tests**: `tests/unit/router_chat_act.test.js` - Tests router decisions without network calls
+- **Integration**: Router behavior is exercised in `tests/all.js` with stubbed LLM
+- **Scope**: Only validates `chat` and `act` decisions (no plan/clarify in default path)
+
+## Assistant Endpoints
+
+Assistant endpoints (`/api/assistant/message` and `/api/assistant/message/stream`) are aligned to chat/act behavior:
+
+- **Chat path**: Returns `{ text, operations: [] }` 
+- **Act path**: Returns `{ text, steps, operations, tools, notes }`
+- **Fallback**: Graceful chat fallback on execution failures
+- **Testing**: Exercised in integration smoke tests with stubbed LLM
 
 ## Interpreting Results
 
-For information about interpreting LLM test results, see the [LLM Testing Suite documentation](llm/IMPROVEMENT_GUIDE.md).
+For information about interpreting LLM test results, see the [LLM Testing Suite documentation](llm/suite/README.md).
 
 ## Best Practices
 
-For LLM-specific best practices, see the [LLM Testing Suite documentation](llm/IMPROVEMENT_GUIDE.md).
+For LLM-specific best practices, see the [LLM Testing Suite documentation](llm/suite/README.md).
 
 ## Troubleshooting
 
-For LLM-specific troubleshooting, see the [LLM Testing Suite documentation](llm/IMPROVEMENT_GUIDE.md).
+For LLM-specific troubleshooting, see the [LLM Testing Suite documentation](llm/suite/README.md).
 
 ## Integration with Development
 
-For information about integrating LLM testing into your development workflow, see the [LLM Testing Suite documentation](llm/IMPROVEMENT_GUIDE.md).
+For information about integrating LLM testing into your development workflow, see the [LLM Testing Suite documentation](llm/suite/README.md).
 
 ## Future Enhancements
 
-For information about future LLM testing enhancements, see the [LLM Testing Suite documentation](llm/IMPROVEMENT_GUIDE.md).
+For information about future LLM testing enhancements, see the [LLM Testing Suite documentation](llm/suite/README.md).
 
 ## Contributing
 
@@ -169,7 +182,7 @@ When adding new test scenarios or prompt variations:
 2. Update quality assessment logic
 3. Test with multiple models
 4. Document expected behavior
-5. Add to the [LLM Testing Suite documentation](llm/README.md)
+5. Add to the [LLM Testing Suite documentation](llm/suite/README.md)
 
 ## Support
 
@@ -177,4 +190,4 @@ For issues or questions:
 1. Check the troubleshooting section
 2. Review the test output for specific errors
 3. Ensure all prerequisites are met
-4. For LLM-specific issues, see the [LLM Testing Suite documentation](llm/IMPROVEMENT_GUIDE.md)
+4. For LLM-specific issues, see the [LLM Testing Suite documentation](llm/suite/README.md)

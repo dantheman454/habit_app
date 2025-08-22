@@ -14,7 +14,7 @@ const TIMEZONE = process.env.TZ_NAME || 'America/New_York';
 // Cache models locally for this module so logs and calls stay consistent.
 const MODELS = (typeof getModels === 'function') ? getModels() : { convo: process.env.CONVO_MODEL || 'qwen3-coder:30b' };
 
-export async function runRouter({ instruction, transcript = [] }) {
+export async function runRouter({ instruction, transcript = [], llmClient = qwenConvoLLM }) {
   const msg = String(instruction || '').trim();
   if (!msg) return { decision: 'chat', confidence: 0 };
 
@@ -51,7 +51,7 @@ CONFIDENCE SCORING:
 Is this an actionable request or a question? Respond with JSON only:`
   });
 
-  const raw = await qwenConvoLLM(qwenPrompt, { stream: false, model: MODELS.convo });
+  const raw = await llmClient(qwenPrompt, { stream: false, model: MODELS.convo });
   logIO('router', { model: MODELS.convo, prompt: JSON.stringify(qwenPrompt), output: raw, meta: { correlationId, module: 'router' } });
   
   // Extract final response from Qwen response

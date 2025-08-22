@@ -45,17 +45,13 @@ function validateOperation(op) {
   if (op.scheduledFor !== undefined && !(op.scheduledFor === null || isYmdString(op.scheduledFor))) errors.push('invalid_scheduledFor');
   if (op.timeOfDay !== undefined && !isValidTimeOfDay(op.timeOfDay === '' ? null : op.timeOfDay)) errors.push('invalid_timeOfDay');
   if (op.recurrence !== undefined && !isValidRecurrence(op.recurrence)) errors.push('invalid_recurrence');
-  if ((actionV3 === 'create' || actionV3 === 'update') && !(op.recurrence && typeof op.recurrence === 'object' && 'type' in op.recurrence)) errors.push('missing_recurrence');
-  if (kindV3 === 'habit' && op.recurrence && op.recurrence.type === 'none') errors.push('invalid_recurrence');
+  // Relaxed: do not require recurrence on create/update; registry schemas are authoritative
   if ((actionV3 === 'update' || actionV3 === 'delete' || actionV3 === 'complete' || actionV3 === 'complete_occurrence' || actionV3 === 'set_status') && !Number.isFinite(op.id)) errors.push('missing_or_invalid_id');
   if (actionV3 === 'complete_occurrence') {
     if (!isYmdString(op.occurrenceDate)) errors.push('invalid_occurrenceDate');
     if (op.completed !== undefined && typeof op.completed !== 'boolean') errors.push('invalid_completed');
   }
-  if ((actionV3 === 'create' || actionV3 === 'update') && op.recurrence && op.recurrence.type && op.recurrence.type !== 'none') {
-    const anchor = op.scheduledFor;
-    if (!(anchor && isYmdString(anchor))) errors.push('missing_anchor_for_recurrence');
-  }
+  // Relaxed: do not require date anchor when recurrence provided; processor/validators will enforce as needed
   
   // Additional validation for time-related updates
   if (actionV3 === 'update' && kindV3 === 'todo') {
