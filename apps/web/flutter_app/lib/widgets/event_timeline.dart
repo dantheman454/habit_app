@@ -251,7 +251,7 @@ class _EventBlock extends StatelessWidget {
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(

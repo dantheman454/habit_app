@@ -22,8 +22,8 @@ class ContextColors {
 
   static Color getContextButtonColor(String? context, bool isSelected) {
     if (context == null) {
-      // "All" button - always grey background with opacity variation
-      return Colors.grey.shade600.withOpacity(isSelected ? 1.0 : 0.15);
+      // "All" button - lighter grey when selected
+      return isSelected ? Colors.grey.shade300 : Colors.grey.shade600.withOpacity(0.15);
     }
     final baseColor = getContextColor(context);
     return baseColor.withOpacity(isSelected ? 1.0 : 0.15); // Always colored, different opacity
