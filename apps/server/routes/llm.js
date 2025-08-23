@@ -18,7 +18,7 @@ router.post('/api/llm/message', async (req, res) => {
     const system = 'You are a helpful assistant for a todo app. Keep answers concise and clear. Prefer 1–3 short sentences; no lists or JSON.';
     const prompt = `${system}\n\nToday: ${todayYmd} (${TIMEZONE})\nConversation (last 3):\n${convo}\nUser: ${msg}`;
     const raw = await convoLLM(prompt, { stream: false });
-    logIO('router', { model: 'convo', prompt, output: raw, meta: { correlationId, path: '/api/llm/message' } });
+    logIO('router', { model: 'convo', prompt, output: JSON.stringify(raw), meta: { correlationId, path: '/api/llm/message' } });
     let text = String(raw || '').replace(/```[\s\S]*?```/g, '').replace(/[\r\n]+/g, ' ').trim();
     if (!text) text = 'Okay.';
     return res.json({ ok: true, text, correlationId });

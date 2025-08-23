@@ -30,6 +30,9 @@ export async function runConversationAgent({ instruction, transcript = [], timez
     where: result.where || null,
   };
 
+  console.log('Conversation agent router result:', result);
+  console.log('Conversation agent normalized output:', out);
+
   try { 
     db.logAudit({ 
       action: 'conversation_agent.output', 

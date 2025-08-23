@@ -11,7 +11,7 @@ import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import db from './database/DbService.js';
 import Ajv from 'ajv';
-import app from './app.js';
+import app, { setOperationProcessor } from './app.js';
 import { getModels } from './llm/clients.js';
 import { ymd, parseYMD, addDays, ymdInTimeZone, weekRangeFromToday } from './utils/date.js';
 import { isYmdString, isValidTimeOfDay, isValidRecurrence } from './utils/recurrence.js';
@@ -241,6 +241,9 @@ const operationProcessor = new OperationProcessor();
 operationProcessor.setDbService(db);
 const operationRegistry = new OperationRegistry(db);
 operationRegistry.registerAllOperations(operationProcessor);
+
+// Set the operation processor in the assistant routes
+setOperationProcessor(operationProcessor);
 
 const mcpServer = new HabitusMCPServer(app);
 mcpServer.setOperationProcessor(operationProcessor);

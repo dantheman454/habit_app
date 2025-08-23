@@ -120,16 +120,37 @@ export async function qwenConvoLLM(qwenPrompt, { model = DEFAULT_CONVO_MODEL, st
 
 export async function qwenToolLLM(qwenToolPrompt, { model = DEFAULT_CODE_MODEL, config = {} } = {}) {
   const finalConfig = { ...QWEN_CONFIG, ...config };
+  const messages = Array.isArray(qwenToolPrompt?.messages) ? qwenToolPrompt.messages : [];
+  const tools = Array.isArray(qwenToolPrompt?.tools) ? qwenToolPrompt.tools : [];
+
+  const systemMsg = (messages.find(m => m.role === 'system')?.content) || '';
+  const userMsg = (messages.find(m => m.role === 'user')?.content) || '';
+
+  const toolsDoc = tools.map((t, i) => {
+    const name = t?.function?.name || `tool_${i+1}`;
+    const params = t?.function?.parameters || { type: 'object', additionalProperties: true };
+    return `- ${name}: parameters=${JSON.stringify(params)}`;
+  }).join('\n');
+
+  const system = `${systemMsg}\n\nTOOLS:\n${toolsDoc}\n\nSTRICT OUTPUT:\n- Output MUST be a single JSON object, no prose, no code fences\n- Prefer and USE tool_calls whenever an action is possible (do not return errors)\n- Map time synonyms to the schema (e.g., time/startTime → timeOfDay for todos)\n- If using tools, respond as: {\"tool_calls\":[{\"id\":\"id1\",\"function\":{\"name\":\"tool.name\",\"arguments\":{}}}],\"message\":\"status\"}\n- If not using tools, respond as: {\"message\":\"final text\"}`;
+
+  const prompt = createQwenPrompt({ system, user: userMsg });
   const payload = { 
     model, 
-    messages: qwenToolPrompt.messages,
-    tools: qwenToolPrompt.tools,
-    tool_choice: qwenToolPrompt.tool_choice,
+    prompt, 
     stream: false,
     ...finalConfig
   };
-  const { status, body } = await postJson('/api/chat', payload);
+
+  const { status, body } = await postJson('/api/generate', payload);
   if (status !== 200) throw new Error(`qwenToolLLM ${model} failed: ${status}`);
-  
-  return parseQwenResponse(body);
+
+  let responseText = String(body || '');
+  if (responseText.includes('"response"')) {
+    try {
+      const parsed = JSON.parse(responseText);
+      responseText = parsed.response || responseText;
+    } catch {}
+  }
+  return parseQwenResponse(responseText);
 }

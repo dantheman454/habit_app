@@ -48,6 +48,12 @@ export function parseQwenResponse(response) {
     // Try to extract JSON from string response
     try {
       const parsed = JSON.parse(response);
+      // Handle Ollama API response format
+      if (parsed.response) {
+        return {
+          final: parsed.response
+        };
+      }
       return {
         final: parsed.final || parsed.response || response
       };
@@ -60,6 +66,12 @@ export function parseQwenResponse(response) {
   }
   
   // If already an object, extract final content
+  // Handle Ollama API response format
+  if (response.response) {
+    return {
+      final: response.response
+    };
+  }
   return {
     final: response.final || response.response || response
   };

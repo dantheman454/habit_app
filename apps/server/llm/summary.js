@@ -48,7 +48,7 @@ Generate a clear, user-friendly summary of what will happen:`
   });
 
   const raw = await qwenConvoLLM(qwenPrompt, { stream: false, model: MODELS.convo });
-  logIO('summary', { model: MODELS.convo, prompt: JSON.stringify(qwenPrompt), output: raw, meta: { correlationId, module: 'summary' } });
+  logIO('summary', { model: MODELS.convo, prompt: JSON.stringify(qwenPrompt), output: JSON.stringify(raw), meta: { correlationId, module: 'summary' } });
 
   // Enhanced response cleaning
   function cleanSummaryResponse(raw) {

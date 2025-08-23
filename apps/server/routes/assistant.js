@@ -7,6 +7,14 @@ import { runChat } from '../llm/chat.js';
 const router = Router();
 const TIMEZONE = process.env.TZ_NAME || 'America/New_York';
 
+// Store the operation processor reference
+let operationProcessor = null;
+
+// Function to set the operation processor
+export function setOperationProcessor(processor) {
+  operationProcessor = processor;
+}
+
 function filterLLMResponse(data) {
   if (typeof data === 'string') {
     try {
@@ -32,20 +40,25 @@ router.post('/api/assistant/message', async (req, res) => {
       return res.status(400).json({ error: 'invalid_message' });
     }
     const ca = await runConversationAgent({ instruction: message.trim(), transcript, timezone: TIMEZONE });
+    console.log('Conversation agent decision:', ca.decision, 'confidence:', ca.confidence, 'where:', ca.where);
     if (ca.decision === 'chat') {
       const chatText = await runChat({ instruction: message.trim(), transcript, timezone: TIMEZONE });
       return res.json({ text: chatText, operations: [], correlationId });
     }
+    console.log('Operation processor available:', !!operationProcessor);
     let oa;
     try {
-      oa = await runOpsAgentToolCalling({ taskBrief: message.trim(), where: ca.where, transcript, timezone: TIMEZONE });
+      oa = await runOpsAgentToolCalling({ taskBrief: message.trim(), where: ca.where, transcript, timezone: TIMEZONE, operationProcessor });
+      console.log('Ops agent result:', oa);
     } catch (err) {
+      console.error('Ops agent error:', err);
       const fallbackText = await (async () => { try { return await runChat({ instruction: message.trim(), transcript, timezone: TIMEZONE }); } catch { return 'Sorry, I could not process that right now.'; } })();
       return res.json({ text: fallbackText, operations: [], correlationId });
     }
     const summaryText = String(oa.text || '').trim();
     return res.json({ text: summaryText, steps: oa.steps, operations: oa.operations, tools: oa.tools, notes: oa.notes, correlationId });
   } catch (err) {
+    console.error('Assistant route error:', err);
     res.status(502).json({ error: 'assistant_failure', detail: String(err && err.message ? err.message : err) });
   }
 });
@@ -75,7 +88,7 @@ router.get('/api/assistant/message/stream', async (req, res) => {
     send('stage', JSON.stringify({ stage: 'act', correlationId }));
     let oa;
     try {
-      oa = await runOpsAgentToolCalling({ taskBrief: message.trim(), where: ca.where, transcript, timezone: TIMEZONE });
+      oa = await runOpsAgentToolCalling({ taskBrief: message.trim(), where: ca.where, transcript, timezone: TIMEZONE, operationProcessor });
     } catch (err) {
       const fallbackText = await (async () => { try { return await runChat({ instruction: message.trim(), transcript, timezone: TIMEZONE }); } catch { return 'Sorry, I could not process that right now.'; } })();
       send('summary', JSON.stringify({ text: fallbackText, operations: [], correlationId }));

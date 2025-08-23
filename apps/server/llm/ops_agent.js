@@ -4,6 +4,7 @@ import { buildFocusedContext } from './context.js';
 import { extractFirstJson } from './json_extract.js';
 import { mkCorrelationId } from './logging.js';
 import db from '../database/DbService.js';
+import { OperationRegistry } from '../operations/operation_registry.js';
 
 // Lightweight validation helpers (kept minimal to avoid cycles with server.js)
 function isYmdString(value) {
@@ -55,10 +56,8 @@ function validateOperation(op) {
   
   // Additional validation for time-related updates
   if (actionV3 === 'update' && kindV3 === 'todo') {
-    // If this is a time-related update (has scheduledFor but no timeOfDay), suggest adding timeOfDay
     if (op.scheduledFor && op.timeOfDay === undefined) {
-      // This is not an error, but we could add a warning or suggestion
-      // For now, we'll let the repair system handle this
+      // let repair handle
     }
   }
   
@@ -81,10 +80,7 @@ function detectAmbiguity(taskBrief, context) {
     return { needsClarification: false };
   }
   
-  // Check for ambiguous references
   const items = context.focused || [];
-  
-  // If no specific items mentioned and multiple items exist
   if (items.length > 1 && !lowerBrief.match(/#\d+/)) {
     return {
       needsClarification: true,
@@ -96,12 +92,9 @@ function detectAmbiguity(taskBrief, context) {
       }))
     };
   }
-  
-  // If title contains matches multiple items
   const titleMatches = items.filter(item => 
     item.title && lowerBrief.includes(item.title.toLowerCase())
   );
-  
   if (titleMatches.length > 1) {
     return {
       needsClarification: true,
@@ -113,7 +106,6 @@ function detectAmbiguity(taskBrief, context) {
       }))
     };
   }
-  
   return { needsClarification: false };
 }
 
@@ -133,14 +125,11 @@ export async function runOpsAgent({ taskBrief, where = {}, transcript = [], time
     }); 
   } catch {}
 
-  // 1) Propose
   const proposalRaw = await runProposal({ instruction: taskBrief, transcript, focusedWhere: where });
-  // runProposal now returns { version, steps, operations, tools, notes } by contract
-  let proposedOps = Array.isArray(proposalRaw && proposalRaw.operations) ? proposalRaw.operations : [];
-  let proposedSteps = Array.isArray(proposalRaw && proposalRaw.steps) ? proposalRaw.steps : [];
-  let proposedTools = Array.isArray(proposalRaw && proposalRaw.tools) ? proposalRaw.tools : [];
+  let proposedOps = Array.isArray(proposalRaw && proposalRaw.operations) ? proposedOps : [];
+  let proposedSteps = Array.isArray(proposalRaw && proposalRaw.steps) ? proposedSteps : [];
+  let proposedTools = Array.isArray(proposalRaw && proposalRaw.tools) ? proposedTools : [];
 
-  // If raw might be text (LLM body), try extracting JSON
   if (!proposedOps.length && typeof proposalRaw === 'string') {
     const parsed = extractFirstJson(proposalRaw);
     if (parsed && Array.isArray(parsed.operations)) proposedOps = parsed.operations;
@@ -148,15 +137,12 @@ export async function runOpsAgent({ taskBrief, where = {}, transcript = [], time
     if (parsed && Array.isArray(parsed.tools)) proposedTools = parsed.tools;
   }
 
-  // Normalize shapes and limit to 20 ops
   proposedOps = proposedOps.map(inferOperationShape).filter(Boolean).slice(0, 20);
 
-  // 2) Validate
   let validation = validateProposal(proposedOps);
 
   let repairedCount = 0;
   if (validation.errors.length) {
-    // Run repair once
     try {
       const repairRaw = await runRepair({ errors: validation.results.filter(r => r.errors.length), original: proposedOps, focusedContext });
       let repaired = Array.isArray(repairRaw && repairRaw.operations) ? repairRaw.operations : [];
@@ -165,21 +151,17 @@ export async function runOpsAgent({ taskBrief, where = {}, transcript = [], time
         if (parsed && Array.isArray(parsed.operations)) repaired = parsed.operations;
       }
       repaired = repaired.map(inferOperationShape).filter(Boolean);
-      // Re-validate repaired ops
       const reval = validateProposal(repaired);
       const validRepaired = reval.results.filter(r => r.errors.length === 0).map(r => r.op);
       repairedCount = validRepaired.length;
-      // Keep valid repaired ops; append them to any originally-valid ops
       const originallyValid = validation.results.filter(r => r.errors.length === 0).map(r => r.op);
-      proposedOps = [...originallyValid, ...validRepaired].slice(0, 20); // Limit to 20 ops
+      proposedOps = [...originallyValid, ...validRepaired].slice(0, 20);
       validation = validateProposal(proposedOps);
     } catch (e) {
-      // falling back to original validation
       console.error('Repair failed:', e);
     }
   }
 
-  // 3) Build tools[] mirror (use proposed tools if available, otherwise generate from ops)
   const tools = proposedTools.length > 0 ? proposedTools : proposedOps.map((op) => {
     const name = `${String(op.kind || 'unknown')}.${String(op.action || 'unknown')}`;
     const args = { ...op };
@@ -214,7 +196,6 @@ export async function runOpsAgent({ taskBrief, where = {}, transcript = [], time
 }
 
 export async function runOpsAgentWithProcessor({ taskBrief, where = {}, transcript = [], timezone, operationProcessor } = {}) {
-  // Legacy compatibility wrapper retained until server is switched over.
   const focusedContext = buildFocusedContext(where, { timezone });
   const correlationId = mkCorrelationId();
   
@@ -231,11 +212,9 @@ export async function runOpsAgentWithProcessor({ taskBrief, where = {}, transcri
     }); 
   } catch {}
 
-  // Check for ambiguity before generating operations
   const ambiguityCheck = detectAmbiguity(taskBrief, focusedContext);
   
   if (ambiguityCheck.needsClarification) {
-    // Return clarification response
     return {
       needsClarification: true,
       question: ambiguityCheck.question,
@@ -244,13 +223,11 @@ export async function runOpsAgentWithProcessor({ taskBrief, where = {}, transcri
     };
   }
 
-  // 1) Propose (same as original)
   const proposalRaw = await runProposal({ instruction: taskBrief, transcript, focusedWhere: where });
-  let proposedOps = Array.isArray(proposalRaw && proposalRaw.operations) ? proposalRaw.operations : [];
-  let proposedSteps = Array.isArray(proposalRaw && proposalRaw.steps) ? proposalRaw.steps : [];
-  let proposedTools = Array.isArray(proposalRaw && proposalRaw.tools) ? proposalRaw.tools : [];
+  let proposedOps = Array.isArray(proposalRaw && proposalRaw.operations) ? proposedOps : [];
+  let proposedSteps = Array.isArray(proposalRaw && proposalRaw.steps) ? proposedSteps : [];
+  let proposedTools = Array.isArray(proposalRaw && proposalRaw.tools) ? proposedTools : [];
 
-  // If raw might be text (LLM body), try extracting JSON
   if (!proposedOps.length && typeof proposalRaw === 'string') {
     const parsed = extractFirstJson(proposalRaw);
     if (parsed && Array.isArray(parsed.operations)) proposedOps = parsed.operations;
@@ -258,22 +235,16 @@ export async function runOpsAgentWithProcessor({ taskBrief, where = {}, transcri
     if (parsed && Array.isArray(parsed.tools)) proposedTools = parsed.tools;
   }
 
-  // Normalize shapes and limit to 20 ops
   proposedOps = proposedOps.map(inferOperationShape).filter(Boolean).slice(0, 20);
 
-  // 2) Use operation processor for validation and execution
   let processorResults = null;
   let repairedCount = 0;
   
   if (proposedOps.length > 0 && operationProcessor) {
     try {
-      // Process operations through the operation processor
       processorResults = await operationProcessor.processOperations(proposedOps, correlationId);
-      
-      // Check if any operations failed and need repair
       const failedOps = processorResults.results.filter(r => !r.ok);
       if (failedOps.length > 0) {
-        // Run repair for failed operations
         try {
           const repairRaw = await runRepair({ 
             errors: failedOps.map(r => ({ index: r.op ? proposedOps.indexOf(r.op) : 0, errors: [r.error] })), 
@@ -287,17 +258,12 @@ export async function runOpsAgentWithProcessor({ taskBrief, where = {}, transcri
           }
           repaired = repaired.map(inferOperationShape).filter(Boolean);
           
-          // Process repaired operations
           if (repaired.length > 0) {
             const repairedResults = await operationProcessor.processOperations(repaired, correlationId);
             const validRepaired = repairedResults.results.filter(r => r.ok).map(r => r.op);
             repairedCount = validRepaired.length;
-            
-            // Combine originally valid and repaired valid operations
             const originallyValid = processorResults.results.filter(r => r.ok).map(r => r.op);
             const allValidOps = [...originallyValid, ...validRepaired].slice(0, 20);
-            
-            // Final processing of combined operations
             processorResults = await operationProcessor.processOperations(allValidOps, correlationId);
           }
         } catch (e) {
@@ -306,7 +272,6 @@ export async function runOpsAgentWithProcessor({ taskBrief, where = {}, transcri
       }
     } catch (e) {
       console.error('Operation processor failed:', e);
-      // Fall back to legacy validation
       const validation = validateProposal(proposedOps);
       processorResults = {
         results: validation.results.map(r => ({ 
@@ -319,7 +284,6 @@ export async function runOpsAgentWithProcessor({ taskBrief, where = {}, transcri
       };
     }
   } else {
-    // No operations or no processor - use legacy validation
     const validation = validateProposal(proposedOps);
     processorResults = {
       results: validation.results.map(r => ({ 
@@ -332,7 +296,6 @@ export async function runOpsAgentWithProcessor({ taskBrief, where = {}, transcri
     };
   }
 
-  // 3) Build tools[] mirror (use proposed tools if available, otherwise generate from ops)
   const validOps = processorResults.results.filter(r => r.ok).map(r => r.op);
   const tools = proposedTools.length > 0 ? proposedTools : validOps.map((op) => {
     const name = `${String(op.kind || 'unknown')}.${String(op.action || 'unknown')}`;
@@ -368,8 +331,6 @@ export async function runOpsAgentWithProcessor({ taskBrief, where = {}, transcri
   return out;
 }
 
-// --- New: Native tool-calling executor (final path) ---
-
 function toolCallToOperation(name, args) {
   const [kind, action] = String(name || '').split('.')
     .map(s => String(s || '').trim().toLowerCase());
@@ -386,27 +347,34 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
   const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
   const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
 
-  // Define tool surface (v1 approved list)
-  const operationTools = [
+  // Build tool surface with JSON Schemas from OperationRegistry
+  const registry = new OperationRegistry(db);
+  const toolNames = [
     'todo.create','todo.update','todo.delete','todo.set_status',
     'event.create','event.update','event.delete',
     'habit.create','habit.update','habit.delete','habit.set_occurrence_status'
-  ].map((name) => ({
-    type: 'function',
-    function: {
-      name,
-      description: `Execute operation ${name}`,
-      parameters: { type: 'object', additionalProperties: true }
-    }
-  }));
+  ];
+  const operationTools = toolNames.map((name) => {
+    const [k, a] = name.split('.');
+    const opType = `${k}_${a}`;
+    const schema = registry.getOperationSchema(opType) || { type: 'object', additionalProperties: true };
+    return ({
+      type: 'function',
+      function: {
+        name,
+        description: `Execute operation ${name}`,
+        parameters: schema
+      }
+    });
+  });
 
-  const system = 'You are an operations executor for a todo application. Use tools to perform user actions precisely. Never invent IDs. Validate dates (YYYY-MM-DD) and times (HH:MM). Keep operations under 20 total.';
+  const system = 'You are an operations executor for a todo application. Use tools to perform user actions precisely. Never invent IDs. Validate dates (YYYY-MM-DD) and times (HH:MM). Keep operations under 20 total. Output MUST be a single JSON object, no code fences, no extra text.';
   const user = `Task: ${instruction}\nWhere: ${JSON.stringify(where)}\nFocused Context:\n${contextJson}\nRecent Conversation:\n${convo}`;
 
-  // Start conversation
   const prompt = createQwenToolPrompt({ system, user, tools: operationTools });
 
   const executedOps = [];
+  const executedKeys = new Set();
   const toolCallsLog = [];
   const notes = { errors: [] };
   const steps = [ { name: 'Identify targets' }, { name: 'Execute operations' } ];
@@ -420,35 +388,82 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
   while (rounds < MAX_ROUNDS && executedOps.length < MAX_OPS) {
     const resp = await qwenToolLLM({ messages, tools: operationTools, tool_choice: 'auto' });
 
-    // Try to recover tool_calls or assistant message from response
     const text = typeof resp === 'string' ? resp : (resp.final || resp.message || resp.content || '');
 
-    // Attempt to parse JSON looking for tool_calls
-    let parsed = null;
-    try { parsed = JSON.parse(text); } catch {}
+    const jsonCandidate = extractFirstJson(String(text || '')) || {};
 
-    const toolCalls = Array.isArray(parsed?.tool_calls) ? parsed.tool_calls : [];
+    const toolCallsArr = Array.isArray(jsonCandidate.tool_calls) ? jsonCandidate.tool_calls
+      : (jsonCandidate.tool_call ? [jsonCandidate.tool_call] : []);
 
-    if (!toolCalls.length) {
-      finalText = String(text || '').trim();
+    if (!toolCallsArr.length) {
+      // Fallback: attempt to synthesize an operation from router 'where' and instruction
+      const idFromWhere = (where && Number(where.id)) || null;
+      const timeRegex = /\b([01]?\d|2[0-3]):([0-5]\d)\b/;
+      const timeFromWhere = (where && (where.timeOfDay || where.time || where.startTime || where.scheduledTime || where.scheduledForTime)) || null;
+      const timeFromInstruction = (typeof instruction === 'string' && (instruction.match(timeRegex) || [])[0]) || null;
+      const timeCandidate = timeFromWhere || timeFromInstruction || jsonCandidate?.time || null;
+
+      if (idFromWhere && timeCandidate) {
+        const normalizedTime = (() => {
+          const m = String(timeCandidate).match(timeRegex);
+          if (!m) return null;
+          const hh = m[1].padStart(2, '0');
+          const mm = m[2];
+          return `${hh}:${mm}`;
+        })();
+        if (normalizedTime) {
+          const op = { kind: 'todo', action: 'update', id: idFromWhere, timeOfDay: normalizedTime };
+          try {
+            const result = await operationProcessor.processOperations([op], correlationId);
+            const ok = result?.results?.[0]?.ok;
+            if (ok) {
+              executedOps.push(op);
+              toolCallsLog.push({ name: 'todo.update', args: op });
+              finalText = `Updated time to ${normalizedTime}.`;
+              break;
+            }
+          } catch {}
+        }
+      }
+
+      finalText = String(jsonCandidate.message || text || '').trim();
       break;
     }
 
-    for (const call of toolCalls) {
+    for (const call of toolCallsArr) {
       if (executedOps.length >= MAX_OPS) break;
       const name = call?.function?.name || call?.name;
-      const args = call?.function?.arguments || call?.arguments || {};
-      let parsedArgs = args;
-      if (typeof args === 'string') {
-        try { parsedArgs = JSON.parse(args); } catch { parsedArgs = {}; }
+      const argsRaw = call?.function?.arguments || call?.arguments || {};
+      let parsedArgs = argsRaw;
+      if (typeof argsRaw === 'string') {
+        try { parsedArgs = JSON.parse(argsRaw); } catch { parsedArgs = {}; }
       }
+
+      // Normalize common arg variants
+      if (name === 'todo.update' && parsedArgs) {
+        if (parsedArgs.where && parsedArgs.where.id && parsedArgs.id === undefined) parsedArgs.id = parsedArgs.where.id;
+        if (parsedArgs.data && typeof parsedArgs.data === 'object') {
+          for (const [k,v] of Object.entries(parsedArgs.data)) { if (parsedArgs[k] === undefined) parsedArgs[k] = v; }
+          delete parsedArgs.data;
+        }
+        const timeAliases = ['time','scheduledTime','scheduledForTime','startTime'];
+        for (const alias of timeAliases) {
+          if (parsedArgs[alias] && !parsedArgs.timeOfDay) { parsedArgs.timeOfDay = parsedArgs[alias]; delete parsedArgs[alias]; }
+        }
+      }
+
       const op = toolCallToOperation(name, parsedArgs);
       toolCallsLog.push({ name, args: parsedArgs });
       try {
         const result = await operationProcessor.processOperations([op], correlationId);
         const ok = result?.results?.[0]?.ok;
-        if (ok) executedOps.push(op);
-        // Append tool result message for the model
+        if (ok) {
+          const key = [op.kind, op.action, op.id, op.scheduledFor || '', op.timeOfDay || '', op.title || '', op.status || '', op.occurrenceDate || ''].join('|');
+          if (!executedKeys.has(key)) {
+            executedKeys.add(key);
+            executedOps.push(op);
+          }
+        }
         messages.push({ role: 'tool', tool_call_id: call.id || name, content: JSON.stringify(result) });
       } catch (e) {
         notes.errors.push(String(e?.message || e));
@@ -457,7 +472,6 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
     }
 
     rounds += 1;
-    // Add assistant acknowledgement to continue loop
     messages = [ ...prompt.messages, ...messages.filter(m => m.role === 'tool') ];
   }
 

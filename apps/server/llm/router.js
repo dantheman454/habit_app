@@ -2,7 +2,7 @@
 // Decision: chat | act
 
 import { qwenConvoLLM, getModels } from './clients.js';
-import { createQwenPrompt, getQwenFinalResponse } from './qwen_utils.js';
+import { createQwenPrompt, getQwenFinalResponse, parseQwenResponse } from './qwen_utils.js';
 import { buildRouterSnapshots } from './context.js';
 import { mkCorrelationId, logIO } from './logging.js';
 import { extractFirstJson } from './json_extract.js';
@@ -52,10 +52,11 @@ Is this an actionable request or a question? Respond with JSON only:`
   });
 
   const raw = await llmClient(qwenPrompt, { stream: false, model: MODELS.convo });
-  logIO('router', { model: MODELS.convo, prompt: JSON.stringify(qwenPrompt), output: raw, meta: { correlationId, module: 'router' } });
+  logIO('router', { model: MODELS.convo, prompt: JSON.stringify(qwenPrompt), output: JSON.stringify(raw), meta: { correlationId, module: 'router' } });
   
-  // Extract final response from Qwen response
-  const finalResponse = getQwenFinalResponse(raw);
+  // Parse Qwen response and extract final response
+  const parsedResponse = parseQwenResponse(raw);
+  const finalResponse = getQwenFinalResponse(parsedResponse);
   const parsed = extractFirstJson(String(finalResponse || '')) || {};
   let decision = parsed.decision || 'chat';
   const confidence = Number(parsed.confidence || 0);

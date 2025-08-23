@@ -7,7 +7,7 @@ import habitsRouter from './routes/habits.js';
 import goalsRouter from './routes/goals.js';
 import searchRouter from './routes/search.js';
 import scheduleRouter from './routes/schedule.js';
-import assistantRouter from './routes/assistant.js';
+import assistantRouter, { setOperationProcessor } from './routes/assistant.js';
 import llmRouter from './routes/llm.js';
 
 const app = express();
@@ -26,6 +26,7 @@ app.use(scheduleRouter);
 app.use(assistantRouter);
 app.use(llmRouter);
 
+export { setOperationProcessor };
 export default app;
 
 
