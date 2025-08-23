@@ -1,0 +1,91 @@
+import { describe, test, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import app from '../../apps/server/app.js';
+import db from '../../apps/server/database/DbService.js';
+
+let server;
+let base;
+
+function request(method, url, body = null) {
+  return new Promise((resolve, reject) => {
+    const data = body ? Buffer.from(JSON.stringify(body)) : null;
+    const req = http.request(base + url, {
+      method,
+      headers: { 'Content-Type': 'application/json', 'Content-Length': data ? data.length : 0 },
+    }, (res) => {
+      let s = '';
+      res.on('data', d => s += d.toString());
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, body: s ? JSON.parse(s) : {} }); } catch { resolve({ status: res.statusCode, body: {} }); }
+      });
+    });
+    req.on('error', reject);
+    if (data) req.write(data);
+    req.end();
+  });
+}
+
+describe('routes: /api/search', () => {
+  before(async () => {
+    // Isolate DB
+    const testDataDir = path.join(process.cwd(), 'data', 'test');
+    try { fs.mkdirSync(testDataDir, { recursive: true }); } catch {}
+    const testDbPath = path.join(testDataDir, 'app.db');
+    process.env.APP_DB_PATH = testDbPath;
+    for (const f of ['app.db', 'app.db-shm', 'app.db-wal']) {
+      try { fs.unlinkSync(path.join(testDataDir, f)); } catch {}
+    }
+    // Bootstrap schema
+    const schemaSql = fs.readFileSync(path.join(process.cwd(), 'apps', 'server', 'database', 'schema.sql'), 'utf8');
+    db.bootstrapSchema(schemaSql);
+    // Start app on ephemeral port
+    await new Promise((resolve) => {
+      server = app.listen(0, '127.0.0.1', () => {
+        const addr = server.address();
+        base = `http://127.0.0.1:${addr.port}`;
+        resolve();
+      });
+    });
+  });
+
+  after(async () => {
+    try { await new Promise((r) => server.close(() => r())); } catch {}
+  });
+
+  test('happy path: returns 200 with items array', async () => {
+    const res = await request('GET', '/api/search?q=smoke');
+    assert.equal(res.status, 200);
+    assert.ok(Array.isArray(res.body.items));
+  });
+
+  test('invalid query: empty q returns 400', async () => {
+    const res = await request('GET', '/api/search?q=');
+    assert.equal(res.status, 400);
+    assert.equal(typeof res.body.error, 'string');
+  });
+
+  test('invalid scope returns 400', async () => {
+    const res = await request('GET', '/api/search?q=smoke&scope=unknown');
+    assert.equal(res.status, 400);
+  });
+
+  test('invalid completed flag returns 400', async () => {
+    const res = await request('GET', '/api/search?q=smoke&completed=maybe');
+    assert.equal(res.status, 400);
+  });
+
+  test('invalid status_todo returns 400', async () => {
+    const res = await request('GET', '/api/search?q=smoke&status_todo=done');
+    assert.equal(res.status, 400);
+  });
+
+  test('invalid context returns 400', async () => {
+    const res = await request('GET', '/api/search?q=smoke&context=home');
+    assert.equal(res.status, 400);
+  });
+});
+
+

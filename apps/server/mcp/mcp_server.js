@@ -135,20 +135,6 @@ export class HabitusMCPServer {
       }
     });
 
-    this.tools.set('set_event_occurrence_status', {
-      name: 'set_event_occurrence_status',
-      description: 'Set the status of a specific occurrence of a recurring event',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          id: { type: 'integer' },
-          occurrenceDate: { type: 'string', format: 'date' },
-          status: { type: 'string', enum: ['pending', 'completed', 'skipped'] }
-        },
-        required: ['id', 'occurrenceDate', 'status']
-      }
-    });
-
     // Habit tools (minimal alignment)
     this.tools.set('create_habit', {
       name: 'create_habit',
@@ -254,11 +240,11 @@ export class HabitusMCPServer {
     if (mSetStatus) {
       return { kind: mSetStatus[1], action: 'set_status', ...args };
     }
-    const mSetOccurrenceStatus = name.match(/^set_(todo|event|habit)_occurrence_status$/);
+    const mSetOccurrenceStatus = name.match(/^set_(todo|habit)_occurrence_status$/);
     if (mSetOccurrenceStatus) {
       return { kind: mSetOccurrenceStatus[1], action: 'set_occurrence_status', ...args };
     }
-    const mCompleteOcc = name.match(/^complete_(todo|event|habit)_occurrence$/);
+    const mCompleteOcc = name.match(/^complete_(todo|habit)_occurrence$/);
     if (mCompleteOcc) {
       return { kind: mCompleteOcc[1], action: 'complete_occurrence', ...args };
     }
@@ -315,10 +301,7 @@ Marks a specific occurrence of a recurring todo as completed.
 ## Event Operations
 
 ### create_event, update_event, delete_event
-Manage calendar events with start/end times, location, and recurrence.
-
-### set_event_occurrence_status
-Sets the status of a specific occurrence of a recurring event (pending, completed, skipped).
+Manage calendar events with start/end times, location, and recurrence. Event completion is not supported.
 
 ## Habit Operations
 

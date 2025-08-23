@@ -1787,15 +1787,8 @@ class _HomePageState extends State<HomePage> {
   Future<void> _toggleCompleted(Todo t) async {
     try {
       if (t.kind == 'event') {
-          if (t.masterId != null && t.scheduledFor != null) {
-            await api.toggleEventOccurrence(
-              t.masterId!,
-              t.scheduledFor!,
-              !t.completed,
-            );
-          } else {
-            await api.updateEvent(t.id, {'completed': !t.completed});
-          }
+          // Event completion is not supported
+          setState(() => message = 'Event completion is not supported.');
       } else if (t.kind == 'habit') {
           if (t.masterId != null && t.scheduledFor != null) {
             await api.toggleHabitOccurrence(

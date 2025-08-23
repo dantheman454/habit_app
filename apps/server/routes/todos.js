@@ -1,0 +1,252 @@
+import { Router } from 'express';
+import Ajv from 'ajv';
+import db from '../database/DbService.js';
+import { ymd, parseYMD, ymdInTimeZone } from '../utils/date.js';
+import { isYmdString, isValidTimeOfDay, isValidRecurrence, expandOccurrences } from '../utils/recurrence.js';
+
+const router = Router();
+const ajv = new Ajv({ allErrors: true });
+
+const todoCreateSchema = {
+  type: 'object',
+  properties: {
+    title: { type: 'string', minLength: 1, maxLength: 255 },
+    notes: { type: 'string' },
+    scheduledFor: { anyOf: [ { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' }, { type: 'null' } ] },
+    timeOfDay: { anyOf: [ { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }, { type: 'null' } ] },
+    recurrence: {
+      type: 'object',
+      properties: {
+        type: { type: 'string', enum: ['none','daily','weekdays','weekly','every_n_days'] },
+        intervalDays: { type: 'integer', minimum: 1 },
+        until: { anyOf: [ { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' }, { type: 'null' } ] }
+      },
+      required: ['type']
+    },
+    context: { type: 'string', enum: ['school','personal','work'] }
+  },
+  required: ['title','recurrence'],
+  additionalProperties: true
+};
+const validateTodoCreate = ajv.compile(todoCreateSchema);
+
+function createTodoDb({ title, notes = '', scheduledFor = null, timeOfDay = null, recurrence = undefined, context = 'personal' }) {
+  return db.createTodo({ title, notes, scheduledFor, timeOfDay, recurrence: recurrence || { type: 'none' }, completed: false, context });
+}
+
+function findTodoById(id) { return db.getTodoById(parseInt(id, 10)); }
+
+const TIMEZONE = process.env.TZ_NAME || 'America/New_York';
+
+router.post('/api/todos', (req, res) => {
+  const ok = validateTodoCreate(req.body || {});
+  if (!ok) return res.status(400).json({ error: 'invalid_body' });
+  const { title, notes, scheduledFor, timeOfDay, recurrence, context } = req.body || {};
+  if (typeof title !== 'string' || title.trim() === '') {
+    return res.status(400).json({ error: 'invalid_title' });
+  }
+  if (!(recurrence && typeof recurrence === 'object' && typeof recurrence.type === 'string')) {
+    return res.status(400).json({ error: 'missing_recurrence' });
+  }
+  if (notes !== undefined && typeof notes !== 'string') {
+    return res.status(400).json({ error: 'invalid_notes' });
+  }
+  if (!(scheduledFor === undefined || scheduledFor === null || isYmdString(scheduledFor))) {
+    return res.status(400).json({ error: 'invalid_scheduledFor' });
+  }
+  if (!isValidTimeOfDay(timeOfDay === '' ? null : timeOfDay)) {
+    return res.status(400).json({ error: 'invalid_timeOfDay' });
+  }
+  if (!isValidRecurrence(recurrence)) {
+    return res.status(400).json({ error: 'invalid_recurrence' });
+  }
+  if (recurrence && recurrence.type && recurrence.type !== 'none') {
+    if (!(scheduledFor !== null && isYmdString(scheduledFor))) {
+      return res.status(400).json({ error: 'missing_anchor_for_recurrence' });
+    }
+  }
+  if (context !== undefined && !['school','personal','work'].includes(String(context))) {
+    return res.status(400).json({ error: 'invalid_context' });
+  }
+
+  const todo = createTodoDb({ title: title.trim(), notes: notes || '', scheduledFor: scheduledFor ?? null, timeOfDay: (timeOfDay === '' ? null : timeOfDay) ?? null, recurrence: recurrence, context: context || 'personal' });
+  res.json({ todo });
+});
+
+router.get('/api/todos', (req, res) => {
+  const { from, to, completed, status, context } = req.query;
+  if (from !== undefined && !isYmdString(from)) return res.status(400).json({ error: 'invalid_from' });
+  if (to !== undefined && !isYmdString(to)) return res.status(400).json({ error: 'invalid_to' });
+  let completedBool;
+  if (completed !== undefined) {
+    if (completed === 'true' || completed === true) completedBool = true;
+    else if (completed === 'false' || completed === false) completedBool = false;
+    else return res.status(400).json({ error: 'invalid_completed' });
+  }
+  if (status !== undefined && !['pending','completed','skipped'].includes(String(status))) return res.status(400).json({ error: 'invalid_status' });
+  if (context !== undefined && !['school','personal','work'].includes(String(context))) return res.status(400).json({ error: 'invalid_context' });
+
+  const fromDate = from ? parseYMD(from) : null;
+  const toDate = to ? parseYMD(to) : null;
+
+  let items = db.listTodos({ from: null, to: null, status: status || null }).filter(t => t.scheduledFor !== null);
+  if (completedBool !== undefined) items = items.filter(t => t.completed === completedBool);
+  if (context !== undefined) items = items.filter(t => String(t.context) === String(context));
+
+  const doExpand = !!(fromDate && toDate);
+  if (!doExpand) {
+    if (fromDate || toDate) {
+      items = items.filter(t => {
+        if (!t.scheduledFor) return false;
+        const td = parseYMD(t.scheduledFor);
+        if (!td) return false;
+        if (fromDate && td < fromDate) return false;
+        if (toDate) {
+          const inclusiveEnd = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate() + 1);
+          if (td >= inclusiveEnd) return false;
+        }
+        return true;
+      });
+    }
+    return res.json({ todos: items });
+  }
+
+  const expanded = [];
+  for (const t of items) {
+    const isRepeating = (t.recurrence && t.recurrence.type && t.recurrence.type !== 'none');
+    if (!isRepeating) {
+      const td = t.scheduledFor ? parseYMD(t.scheduledFor) : null;
+      if (td && (!fromDate || td >= fromDate) && (!toDate || td < new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate() + 1))) {
+        expanded.push(t);
+      }
+    } else {
+      const occs = expandOccurrences(t, fromDate, toDate, { ymd, parseYMD });
+      for (const occ of occs) {
+        expanded.push({ ...t, scheduledFor: occ.scheduledFor, masterId: t.id });
+      }
+    }
+  }
+  if (completedBool !== undefined || status !== undefined || context !== undefined) {
+    const filtered = expanded.filter(x => (
+      (completedBool === undefined || (typeof x.completed === 'boolean' && x.completed === completedBool)) &&
+      (status === undefined || (typeof x.status === 'string' && x.status === status)) &&
+      (context === undefined || (typeof x.context === 'string' && x.context === context))
+    ));
+    return res.json({ todos: filtered });
+  }
+  res.json({ todos: expanded });
+});
+
+router.get('/api/todos/search', (req, res) => {
+  const qRaw = String(req.query.query || '');
+  const q = qRaw.trim();
+  if (q.length === 0) return res.status(400).json({ error: 'invalid_query' });
+  const status = (req.query.status === undefined) ? undefined : String(req.query.status);
+  if (status !== undefined && !['pending','completed','skipped'].includes(status)) return res.status(400).json({ error: 'invalid_status' });
+  const context = (req.query.context === undefined) ? undefined : String(req.query.context);
+  if (context !== undefined && !['school','personal','work'].includes(context)) return res.status(400).json({ error: 'invalid_context' });
+  try {
+    let items = db.searchTodos({ q, status, context });
+    if (q.length < 2) {
+      const ql = q.toLowerCase();
+      items = items.filter(t => String(t.title || '').toLowerCase().includes(ql) || String(t.notes || '').toLowerCase().includes(ql));
+    }
+    const todayY = ymdInTimeZone(new Date(), TIMEZONE);
+    const score = (t) => {
+      let s = 0;
+      const overdue = ((t.status !== 'completed' && t.status !== 'skipped') && t.scheduledFor && String(t.scheduledFor) < String(todayY));
+      if (overdue) s += 0.5;
+      return s;
+    };
+    items = items.map(t => ({ t, s: score(t) }))
+      .sort((a, b) => b.s - a.s || String(a.t.scheduledFor || '').localeCompare(String(b.t.scheduledFor || '')) || (a.t.id - b.t.id))
+      .map(x => x.t);
+    return res.json({ todos: items });
+  } catch (e) {
+    return res.status(500).json({ error: 'search_failed' });
+  }
+});
+
+router.get('/api/todos/:id', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
+  const t = findTodoById(id);
+  if (!t) return res.status(404).json({ error: 'not_found' });
+  res.json({ todo: t });
+});
+
+router.patch('/api/todos/:id', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
+  const t = findTodoById(id);
+  if (!t) return res.status(404).json({ error: 'not_found' });
+  const body = req.body || {};
+  if (body.title !== undefined) {
+    if (typeof body.title !== 'string' || body.title.trim() === '') return res.status(400).json({ error: 'invalid_title' });
+    t.title = body.title.trim();
+  }
+  if (body.notes !== undefined) {
+    if (typeof body.notes !== 'string') return res.status(400).json({ error: 'invalid_notes' });
+    t.notes = body.notes;
+  }
+  if (body.scheduledFor !== undefined) {
+    if (!(body.scheduledFor === null || isYmdString(body.scheduledFor))) return res.status(400).json({ error: 'invalid_scheduledFor' });
+    if (t.recurrence && t.recurrence.type && t.recurrence.type !== 'none') {
+      if (!(body.scheduledFor !== null && isYmdString(body.scheduledFor))) return res.status(400).json({ error: 'missing_anchor_for_recurrence' });
+    }
+    t.scheduledFor = body.scheduledFor;
+  }
+  if (body.timeOfDay !== undefined) {
+    if (!isValidTimeOfDay(body.timeOfDay === '' ? null : body.timeOfDay)) return res.status(400).json({ error: 'invalid_timeOfDay' });
+    t.timeOfDay = (body.timeOfDay === '' ? null : body.timeOfDay);
+  }
+  if (body.recurrence !== undefined) {
+    if (!isValidRecurrence(body.recurrence)) return res.status(400).json({ error: 'invalid_recurrence' });
+    if (body.recurrence && body.recurrence.type && body.recurrence.type !== 'none') {
+      const anchor = (body.scheduledFor !== undefined) ? body.scheduledFor : t.scheduledFor;
+      if (!(anchor !== null && isYmdString(anchor))) return res.status(400).json({ error: 'missing_anchor_for_recurrence' });
+    }
+    t.recurrence = { ...(t.recurrence || {}), ...body.recurrence };
+  }
+  if (body.status !== undefined) {
+    if (!['pending','completed','skipped'].includes(String(body.status))) return res.status(400).json({ error: 'invalid_status' });
+    t.status = String(body.status);
+  }
+  if (body.context !== undefined) {
+    if (!['school','personal','work'].includes(String(body.context))) return res.status(400).json({ error: 'invalid_context' });
+    t.context = String(body.context);
+  }
+  try { const updated = db.updateTodo(id, t); res.json({ todo: updated }); } catch { res.json({ todo: t }); }
+});
+
+router.patch('/api/todos/:id/occurrence', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
+  const occurrenceDate = String(req.body?.occurrenceDate || '');
+  if (!isYmdString(occurrenceDate)) return res.status(400).json({ error: 'invalid_occurrenceDate' });
+  const todo = findTodoById(id);
+  if (!todo) return res.status(404).json({ error: 'not_found' });
+  let status = req.body?.status;
+  if (status === undefined) {
+    if (typeof req.body?.completed === 'boolean') {
+      status = req.body.completed ? 'completed' : 'pending';
+    }
+  }
+  status = String(status || '');
+  if (!['pending','completed','skipped'].includes(status)) return res.status(400).json({ error: 'invalid_status' });
+  try {
+    const updated = db.setTodoOccurrenceStatus({ id, occurrenceDate, status });
+    return res.json({ todo: updated });
+  } catch (e) { return res.status(500).json({ error: 'update_failed' }); }
+});
+
+router.delete('/api/todos/:id', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
+  db.deleteTodo(id);
+  res.json({ ok: true });
+});
+
+export default router;
+
+

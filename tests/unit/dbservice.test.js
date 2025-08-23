@@ -68,7 +68,7 @@ test('todos: create/get/update/delete + search + list + toggle occurrence', () =
   assert.equal(db.getTodoById(t1.id), null);
 });
 
-test('events: create/get/update/list/search/toggle occurrence/delete', () => {
+test('events: create/get/update/list/search/delete', () => {
   const today = ymd();
   const e1 = db.createEvent({ title: 'Meeting', scheduledFor: today, startTime: '09:00', endTime: '10:00', recurrence: { type: 'none' } });
   assert.ok(e1 && e1.id);
@@ -79,10 +79,7 @@ test('events: create/get/update/list/search/toggle occurrence/delete', () => {
   assert.ok(list.some(x => x.id === e1.id));
   const search = db.searchEvents({ q: 'meeting' });
   assert.ok(search.some(x => x.id === e1.id));
-  // repeating occurrence toggle
-  const e2 = db.createEvent({ title: 'Standup', scheduledFor: today, startTime: '10:00', endTime: '10:15', recurrence: { type: 'daily' } });
-  const e2T = db.toggleEventOccurrence({ id: e2.id, occurrenceDate: today, completed: true });
-  assert.ok(Array.isArray(e2T.completedDates) && e2T.completedDates.includes(today));
+  // event occurrence completion not supported
   db.deleteEvent(e1.id);
   assert.equal(db.getEventById(e1.id), null);
 });

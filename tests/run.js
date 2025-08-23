@@ -132,14 +132,14 @@ async function main() {
   assert.equal(events.status, 200);
   assert.ok(Array.isArray(events.body.events));
 
-  // Create an event (MCP apply), update, complete occurrence, delete
+  // Create an event (MCP apply), update, delete (event completion not supported)
   const evCreate = await applyOperationsMCP([
     { kind: 'event', action: 'create', title: 'Meeting', scheduledFor: ymd(), startTime: '09:00', endTime: '10:00', recurrence: { type: 'none' } }
   ]);
   const evId = (() => { try { return evCreate.results.find(x => x.event)?.event.id; } catch { return null; } })();
   assert.ok(Number.isFinite(evId));
   const evUpdate = await applyOperationsMCP([{ kind: 'event', action: 'update', id: evId, recurrence: { type: 'none' } }]);
-  const evOcc = await applyOperationsMCP([{ kind: 'event', action: 'complete_occurrence', id: evId, occurrenceDate: ymd(), completed: true }]);
+  // No event completion
   const evDelete = await applyOperationsMCP([{ kind: 'event', action: 'delete', id: evId }]);
 
   // Create a repeating todo and toggle an occurrence

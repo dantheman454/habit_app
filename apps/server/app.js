@@ -1,0 +1,31 @@
+import express from 'express';
+import cors from 'cors';
+import healthRouter from './routes/health.js';
+import todosRouter from './routes/todos.js';
+import eventsRouter from './routes/events.js';
+import habitsRouter from './routes/habits.js';
+import goalsRouter from './routes/goals.js';
+import searchRouter from './routes/search.js';
+import scheduleRouter from './routes/schedule.js';
+import assistantRouter from './routes/assistant.js';
+import llmRouter from './routes/llm.js';
+
+const app = express();
+app.disable('x-powered-by');
+app.use(cors());
+app.use(express.json({ limit: '256kb' }));
+
+// Mount routes
+app.use(healthRouter);
+app.use(todosRouter);
+app.use(eventsRouter);
+app.use(habitsRouter);
+app.use(goalsRouter);
+app.use(searchRouter);
+app.use(scheduleRouter);
+app.use(assistantRouter);
+app.use(llmRouter);
+
+export default app;
+
+

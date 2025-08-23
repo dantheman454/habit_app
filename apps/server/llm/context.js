@@ -114,10 +114,8 @@ export function buildRouterSnapshots({ timezone = DEFAULT_TZ } = {}) {
   const eventsWeek = filterByWhere(listAllEventsRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false }, { todayY: ymdInTimeZone(new Date(), tz) });
   const habitsWeek = filterByWhere(listAllHabitsRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false }, { todayY: ymdInTimeZone(new Date(), tz) });
   const weekItems = [...todosWeek, ...eventsWeek, ...habitsWeek];
-  const backlogTodos = filterByWhere(listAllTodosRaw(), { completed: false }, { todayY: ymdInTimeZone(new Date(), tz) });
-  const backlogSample = backlogTodos.filter(t => t.scheduledFor === null).slice(0, 40);
   const compact = (t) => ({ id: t.id, title: t.title, scheduledFor: t.scheduledFor });
-  return { week: { from: fromYmd, to: toYmd, items: weekItems.map(compact) }, backlog: backlogSample.map(compact) };
+  return { week: { from: fromYmd, to: toYmd, items: weekItems.map(compact) } };
 }
 
 export function buildFocusedContext(where = {}, { timezone = DEFAULT_TZ } = {}) {

@@ -16,15 +16,15 @@
     "test": "node tests/all.js",
     "test:with-server": "node scripts/test_with_server.js",
     "db:migrate": "node apps/server/database/migration_script.js",
-    
-  "db:dump": "node scripts/db_dump.js",
-  "db:seed:tasks-events": "node scripts/seed_tasks_and_events.js"
+    "db:dump": "node scripts/db_dump.js",
+    "db:seed:tasks-events": "node scripts/seed_tasks_and_events.js"
   },
   "dependencies": {
-    "cors": "^2.8.5",
-    "express": "^5.1.0",
+    "@modelcontextprotocol/sdk": "^0.4.0",
+    "ajv": "^8.17.1",
     "better-sqlite3": "^9.0.0",
-    "@modelcontextprotocol/sdk": "^0.4.0"
+    "cors": "^2.8.5",
+    "express": "^5.1.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"

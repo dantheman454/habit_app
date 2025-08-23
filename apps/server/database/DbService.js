@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import Database from 'better-sqlite3';
+import { ymdInTimeZone } from '../utils/date.js';
 
 export class DbService {
   constructor(dbPath = './data/app.db') {
@@ -56,6 +57,14 @@ export class DbService {
   // Minimal Todos subset to validate wiring later (Todos now use status + skipped_dates)
   createTodo({ title, notes = '', scheduledFor = null, timeOfDay = null, recurrence = { type: 'none' }, status = 'pending', context = 'personal' }) {
     this.openIfNeeded();
+    const tz = process.env.TZ_NAME || 'America/New_York';
+    const isRepeating = !!(recurrence && recurrence.type && recurrence.type !== 'none');
+    if (isRepeating && (scheduledFor === null || scheduledFor === undefined)) {
+      throw new Error('missing_anchor_for_recurrence');
+    }
+    if (!isRepeating && (scheduledFor === null || scheduledFor === undefined)) {
+      try { scheduledFor = ymdInTimeZone(new Date(), tz); } catch { scheduledFor = new Date().toISOString().slice(0,10); }
+    }
     const now = new Date().toISOString();
     const stmt = this.db.prepare(`
       INSERT INTO todos(title, notes, scheduled_for, time_of_day, status, recurrence, completed_dates, skipped_dates, context, created_at, updated_at)
@@ -87,6 +96,14 @@ export class DbService {
     const t = this.getTodoById(id);
     if (!t) throw new Error('not_found');
     const merged = { ...t, ...patch };
+    const tz = process.env.TZ_NAME || 'America/New_York';
+    const isRepeating = !!(merged.recurrence && merged.recurrence.type && merged.recurrence.type !== 'none');
+    if (isRepeating && (merged.scheduledFor === null || merged.scheduledFor === undefined)) {
+      throw new Error('missing_anchor_for_recurrence');
+    }
+    if (!isRepeating && (merged.scheduledFor === null || merged.scheduledFor === undefined)) {
+      try { merged.scheduledFor = ymdInTimeZone(new Date(), tz); } catch { merged.scheduledFor = new Date().toISOString().slice(0,10); }
+    }
     // Back-compat: if callers pass completed boolean, map to status
     if (Object.prototype.hasOwnProperty.call(patch || {}, 'completed') && patch.completed !== undefined) {
       try { merged.status = patch.completed ? 'completed' : 'pending'; } catch {}
@@ -109,6 +126,14 @@ export class DbService {
   // Events
   createEvent({ title, notes = '', scheduledFor = null, startTime = null, endTime = null, location = null, recurrence = { type: 'none' }, completed = false, context = 'personal' }) {
     this.openIfNeeded();
+    const tz = process.env.TZ_NAME || 'America/New_York';
+    const isRepeating = !!(recurrence && recurrence.type && recurrence.type !== 'none');
+    if (isRepeating && (scheduledFor === null || scheduledFor === undefined)) {
+      throw new Error('missing_anchor_for_recurrence');
+    }
+    if (!isRepeating && (scheduledFor === null || scheduledFor === undefined)) {
+      try { scheduledFor = ymdInTimeZone(new Date(), tz); } catch { scheduledFor = new Date().toISOString().slice(0,10); }
+    }
     const now = new Date().toISOString();
     const stmt = this.db.prepare(`
       INSERT INTO events(title, notes, scheduled_for, start_time, end_time, location, completed, recurrence, completed_dates, context, created_at, updated_at)
@@ -303,6 +328,14 @@ export class DbService {
     const e = this.getEventById(id);
     if (!e) throw new Error('not_found');
     const merged = { ...e, ...patch };
+    const tz = process.env.TZ_NAME || 'America/New_York';
+    const isRepeating = !!(merged.recurrence && merged.recurrence.type && merged.recurrence.type !== 'none');
+    if (isRepeating && (merged.scheduledFor === null || merged.scheduledFor === undefined)) {
+      throw new Error('missing_anchor_for_recurrence');
+    }
+    if (!isRepeating && (merged.scheduledFor === null || merged.scheduledFor === undefined)) {
+      try { merged.scheduledFor = ymdInTimeZone(new Date(), tz); } catch { merged.scheduledFor = new Date().toISOString().slice(0,10); }
+    }
     const now = new Date().toISOString();
     this.db.prepare(`UPDATE events SET title=@title, notes=@notes, scheduled_for=@scheduled_for, start_time=@start_time, end_time=@end_time, location=@location, completed=@completed, recurrence=@recurrence, context=@context, updated_at=@updated_at WHERE id=@id`).run({
       id,
@@ -351,29 +384,6 @@ export class DbService {
     let items = rows.map(r => this._mapEvent(r));
     if (completed !== null && completed !== undefined) items = items.filter(e => !!e.completed === !!completed);
     return items;
-  }
-
-  toggleEventOccurrence({ id, occurrenceDate, completed }) {
-    this.openIfNeeded();
-    const e = this.getEventById(id);
-    if (!e) throw new Error('not_found');
-    const type = e.recurrence && e.recurrence.type;
-    if (!type || type === 'none') throw new Error('not_repeating');
-    const arr = Array.isArray(e.completedDates) ? e.completedDates.slice() : [];
-    const idx = arr.indexOf(occurrenceDate);
-    const shouldComplete = (completed === undefined) ? true : !!completed;
-    if (shouldComplete) {
-      if (idx === -1) arr.push(occurrenceDate);
-    } else if (idx !== -1) {
-      arr.splice(idx, 1);
-    }
-    const now = new Date().toISOString();
-    this.db.prepare('UPDATE events SET completed_dates=@completed_dates, updated_at=@updated_at WHERE id=@id').run({
-      id,
-      completed_dates: JSON.stringify(arr),
-      updated_at: now,
-    });
-    return this.getEventById(id);
   }
 
   deleteTodo(id) {

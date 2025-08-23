@@ -196,27 +196,7 @@ export class OperationValidators {
     };
   }
 
-  static eventSetOccurrenceStatus(op) {
-    const errors = [];
-    
-    if (!op.id || typeof op.id !== 'number' || op.id <= 0) {
-      errors.push('Valid ID is required');
-    }
-    
-    if (!op.occurrenceDate || !OperationValidators.isValidDate(op.occurrenceDate)) {
-      errors.push('Valid occurrenceDate is required in YYYY-MM-DD format');
-    }
-    
-    const s = (op.status === undefined || op.status === null) ? null : String(op.status);
-    if (!s || !['pending','completed','skipped'].includes(s)) {
-      errors.push('invalid_status');
-    }
-    
-    return {
-      valid: errors.length === 0,
-      errors
-    };
-  }
+  // Event occurrence status removed: not supported
   
   static habitCreate(op) {
     const errors = [];
@@ -342,7 +322,7 @@ export class OperationValidators {
   static isValidRecurrence(recurrence) {
     if (!recurrence || typeof recurrence !== 'object') return false;
     
-    const validTypes = ['none', 'daily', 'weekly', 'monthly', 'yearly', 'every_n_days'];
+    const validTypes = ['none', 'daily', 'weekdays', 'weekly', 'every_n_days'];
     if (!validTypes.includes(recurrence.type)) return false;
     
     if (recurrence.until && !OperationValidators.isValidDate(recurrence.until)) return false;

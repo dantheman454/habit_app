@@ -3,18 +3,12 @@ Keep in mind:
 -Core abstractions/entities
 
 ASAP:
--update test suite
 -refactor codebase to get rid of legacy code and monolithic files
 
 Get done by 8/24 night:
     -Get fundamental functions of tasks and events working
         *views working properly
     -Clean up UI 
-        *Fix header to have sections
-            >make searchbar smaller 
-            >make skip an x in the top right corner for events and tasks
-            >clean update Mr Assisters toggle button
-        *Make events and tasks visually distinct in all views (also make sure different contexts work in month view)
         *Make sure the scroll wheel (< Today >) switches with the view
         *Switch the Day/Week/Month pill and All/Tasks/Events (figure out better way to layout)
         *make sure no weird wrapping in pills (Day/Week/Month pill is wack right now)

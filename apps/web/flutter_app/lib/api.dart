@@ -48,17 +48,7 @@ Future<List<dynamic>> fetchScheduledAllTime({
   return (res.data['todos'] as List<dynamic>);
 }
 
-Future<List<dynamic>> fetchBacklog({String? status, String? context}) async {
-  final res = await api.get(
-    '/api/todos/backlog',
-    queryParameters: {
-      if (status != null) 'status': status,
-      if (context != null) 'context': context,
-    },
-  );
-  final items = (res.data['todos'] as List<dynamic>);
-  return items;
-}
+// Removed: fetchBacklog (endpoint deleted)
 
 Future<List<dynamic>> searchTodos(
   String q, {
@@ -398,17 +388,7 @@ Future<void> deleteEvent(int id) async {
   await api.delete('/api/events/$id');
 }
 
-Future<Map<String, dynamic>> toggleEventOccurrence(
-  int id,
-  String occurrenceDate,
-  bool completed,
-) async {
-  final res = await api.patch(
-    '/api/events/$id/occurrence',
-    data: {'occurrenceDate': occurrenceDate, 'completed': completed},
-  );
-  return Map<String, dynamic>.from(res.data['event']);
-}
+// Removed: toggleEventOccurrence (event completion not supported)
 
 Future<List<dynamic>> searchEvents(
   String q, {

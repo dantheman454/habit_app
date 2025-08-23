@@ -146,20 +146,7 @@ export class OperationExecutors {
     }
   }
 
-  async eventSetOccurrenceStatus(op) {
-    try {
-      const status = String(op.status);
-      const completed = status === 'completed';
-      const updated = await this.db.toggleEventOccurrence({ 
-        id: op.id, 
-        occurrenceDate: op.occurrenceDate, 
-        completed 
-      });
-      return { event: updated, updated: true };
-    } catch (error) {
-      throw new Error(`Failed to set event occurrence status: ${error.message}`);
-    }
-  }
+  // Event occurrence status removed: not supported
   
   async habitCreate(op) {
     try {

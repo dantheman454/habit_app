@@ -45,10 +45,7 @@ export class OperationRegistry {
       executor: this.executors.eventDelete.bind(this.executors)
     });
 
-    processor.registerOperationType('event_set_occurrence_status', {
-      validator: OperationValidators.eventSetOccurrenceStatus,
-      executor: this.executors.eventSetOccurrenceStatus.bind(this.executors)
-    });
+    // Event occurrence status removed (no completion semantics for events)
     
     // Habit operations
     processor.registerOperationType('habit_create', {
@@ -81,7 +78,7 @@ export class OperationRegistry {
       'event_create',
       'event_update',
       'event_delete',
-      'event_set_occurrence_status',
+      
       'habit_create',
       'habit_update',
       'habit_delete',
@@ -208,15 +205,7 @@ export class OperationRegistry {
         },
         required: ['id']
       },
-      'event_set_occurrence_status': {
-        type: 'object',
-        properties: {
-          id: { type: 'number', minimum: 1 },
-          occurrenceDate: { type: 'string', format: 'date' },
-          status: { type: 'string', enum: ['pending', 'completed', 'skipped'] }
-        },
-        required: ['id', 'occurrenceDate', 'status']
-      },
+      
       'habit_create': {
         type: 'object',
         properties: {
@@ -392,21 +381,7 @@ export class OperationRegistry {
           }
         ]
       },
-      'event_set_occurrence_status': {
-        description: 'Set the status of a specific occurrence of a recurring event',
-        examples: [
-          {
-            description: 'Set occurrence status',
-            operation: { 
-              kind: 'event', 
-              action: 'set_occurrence_status', 
-              id: 1, 
-              occurrenceDate: '2025-08-18',
-              status: 'completed' 
-            }
-          }
-        ]
-      },
+      
       'habit_create': {
         description: 'Create a new habit to track',
         examples: [
