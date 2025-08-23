@@ -15,6 +15,7 @@ function isYmdString(value) {
 - **Pattern**: `^\d{4}-\d{2}-\d{2}$` (YYYY-MM-DD)
 - **Usage**: All date fields (`scheduledFor`, `until`, `occurrenceDate`)
 - **Null handling**: Returns `false` for null/undefined
+- **Location**: `apps/server/utils/recurrence.js`
 
 **Time Validation**:
 ```javascript
@@ -27,6 +28,7 @@ function isValidTimeOfDay(value) {
 - **Pattern**: `^([01]\d|2[0-3]):[0-5]\d$` (HH:MM, 00:00-23:59)
 - **Usage**: `timeOfDay`, `startTime`, `endTime`
 - **Null handling**: Returns `true` for null/undefined (all-day items)
+- **Location**: `apps/server/utils/recurrence.js`
 
 **Recurrence Validation**:
 ```javascript
@@ -50,6 +52,7 @@ function isValidRecurrence(rec) {
 - **Type validation**: Only allowed recurrence types
 - **Interval validation**: `intervalDays >= 1` for `every_n_days`
 - **Until validation**: Must be valid YYYY-MM-DD or null
+- **Location**: `apps/server/utils/recurrence.js`
 
 #### Normalization Helpers
 
@@ -67,39 +70,60 @@ function normalizeRecurrence(recurrence) {
 **Todo Normalization**:
 ```javascript
 function normalizeTodo(todo) {
-  return {
-    ...todo,
-    timeOfDay: todo.timeOfDay || null,
-    recurrence: normalizeRecurrence(todo.recurrence),
-    status: todo.status || 'pending',
-    context: todo.context || 'personal',
-    completedDates: todo.recurrence?.type !== 'none' ? (todo.completedDates || []) : null,
-    skippedDates: todo.recurrence?.type !== 'none' ? (todo.skippedDates || []) : null
-  };
+  const t = { ...todo };
+  if (t.timeOfDay === undefined) t.timeOfDay = null;
+  if (!t || typeof t.recurrence !== 'object') {
+    t.recurrence = { type: 'none', until: endOfCurrentYearYmd() };
+  } else {
+    if (!t.recurrence.type) t.recurrence.type = 'none';
+    if (t.recurrence.until === undefined) t.recurrence.until = endOfCurrentYearYmd();
+  }
+  if (t.recurrence.type !== 'none') {
+    if (!Array.isArray(t.completedDates)) t.completedDates = [];
+  }
+  if (typeof t.completed !== 'boolean') t.completed = false;
+  return t;
 }
 ```
+- **Location**: `apps/server/utils/normalize.js`
+
+**Habit Normalization**:
+```javascript
+function normalizeHabit(habit) {
+  const h = { ...habit };
+  if (h.timeOfDay === undefined) h.timeOfDay = null;
+  if (!h || typeof h.recurrence !== 'object') {
+    h.recurrence = { type: 'daily', until: endOfCurrentYearYmd() };
+  } else {
+    if (!h.recurrence.type) h.recurrence.type = 'daily';
+    if (h.recurrence.until === undefined) h.recurrence.until = endOfCurrentYearYmd();
+  }
+  if (!Array.isArray(h.completedDates)) h.completedDates = [];
+  if (typeof h.completed !== 'boolean') h.completed = false;
+  return h;
+}
+```
+- **Location**: `apps/server/utils/normalize.js`
 
 **Recurrence Mutation**:
 ```javascript
-function applyRecurrenceMutation(target, incoming) {
-  const newRecurrence = normalizeRecurrence(incoming);
-  
-  // Clear completion tracking when switching to non-repeating
-  if (target.recurrence?.type !== 'none' && newRecurrence.type === 'none') {
-    target.completedDates = null;
-    target.skippedDates = null;
+function applyRecurrenceMutation(targetTodo, incomingRecurrence) {
+  const t = targetTodo;
+  const nextType = incomingRecurrence?.type || 'none';
+  const prevType = t?.recurrence?.type || 'none';
+  t.recurrence = { ...(t.recurrence || {}), ...(incomingRecurrence || {}) };
+  if (prevType === 'none' && nextType !== 'none') {
+    t.completedDates = Array.isArray(t.completedDates) ? t.completedDates : [];
+    t.skippedDates = Array.isArray(t.skippedDates) ? t.skippedDates : [];
   }
-  
-  // Initialize arrays when switching to repeating
-  if (target.recurrence?.type === 'none' && newRecurrence.type !== 'none') {
-    target.completedDates = [];
-    target.skippedDates = [];
+  if (nextType === 'none') {
+    delete t.completedDates;
+    delete t.skippedDates;
   }
-  
-  target.recurrence = newRecurrence;
-  return target;
+  return t;
 }
 ```
+- **Location**: `apps/server/utils/normalize.js`
 
 #### Endpoint-Level Validation
 
@@ -116,7 +140,7 @@ function applyRecurrenceMutation(target, incoming) {
 - `endTime` must be after `startTime` if both provided
 
 **Habit Validation Rules**:
-- Must be repeating (`recurrence.type != 'none'`)
+- Must be repeating (recurrence.type cannot be 'none')
 - `recurrence` object required on create and update
 - Anchor date required for repeating habits
 
@@ -218,68 +242,61 @@ function matchesRule(dateObj, anchorDateObj, recurrence) {
   const type = recurrence?.type || 'none';
   if (type === 'none') return false;
   
-  if (type === 'daily') return true;
+  if (type === 'daily') return daysBetween(anchorDateObj, dateObj) >= 0;
   
   if (type === 'weekdays') {
-    const wd = dateObj.getDay(); // 0=Sun..6=Sat
-    return wd >= 1 && wd <= 5; // Monday through Friday
+    const diff = daysBetween(anchorDateObj, dateObj);
+    const wd = dateObj.getDay();
+    return diff >= 0 && wd >= 1 && wd <= 5;
   }
   
   if (type === 'weekly') {
-    return dateObj.getDay() === anchorDateObj.getDay();
+    const diff = daysBetween(anchorDateObj, dateObj);
+    return diff >= 0 && diff % 7 === 0;
   }
   
   if (type === 'every_n_days') {
-    const step = Number(recurrence.intervalDays) || 1;
+    const step = Number.isInteger(recurrence.intervalDays) ? recurrence.intervalDays : 0;
     const diff = daysBetween(anchorDateObj, dateObj);
-    return diff >= 0 && diff % step === 0;
+    return step >= 1 && diff >= 0 && diff % step === 0;
   }
   
   return false;
 }
 
 function daysBetween(a, b) {
-  const ms = (new Date(b.getFullYear(), b.getMonth(), b.getDate())) - 
-             (new Date(a.getFullYear(), a.getMonth(), a.getDate()));
-  return Math.round(ms / (24*60*60*1000));
+  const MS_PER_DAY = 24 * 60 * 60 * 1000;
+  const aMid = new Date(a.getFullYear(), a.getMonth(), a.getDate());
+  const bMid = new Date(b.getFullYear(), b.getMonth(), b.getDate());
+  return Math.round((bMid.getTime() - aMid.getTime()) / MS_PER_DAY);
 }
 ```
+- **Location**: `apps/server/utils/recurrence.js`
 
 #### Occurrence Expansion Algorithm
 
 ```javascript
-function expandOccurrences(todo, fromDate, toDate) {
+function expandOccurrences(master, fromDate, toDate, { ymd, parseYMD } = {}) {
+  if (typeof ymd !== 'function' || typeof parseYMD !== 'function') {
+    throw new Error('expandOccurrences requires ymd and parseYMD helpers');
+  }
   const occurrences = [];
-  const anchor = todo.scheduledFor ? parseYMD(todo.scheduledFor) : null;
+  const anchor = master.scheduledFor ? parseYMD(master.scheduledFor) : null;
   if (!anchor) return occurrences;
   
-  const untilYmd = todo.recurrence?.until ?? undefined;
+  const untilYmd = master.recurrence?.until ?? undefined;
   const untilDate = (untilYmd && isYmdString(untilYmd)) ? parseYMD(untilYmd) : null;
   
-  const start = new Date(Math.max(fromDate.getTime(), anchor.getTime()));
   const inclusiveEnd = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate() + 1);
   
-  for (let d = new Date(start); d < inclusiveEnd; d = addDays(d, 1)) {
+  for (let d = new Date(Math.max(fromDate.getTime(), anchor.getTime())); d < inclusiveEnd; d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)) {
     if (untilDate && d > untilDate) break;
     
-    if (matchesRule(d, anchor, todo.recurrence)) {
-      const dateStr = ymd(d);
-      const occCompleted = Array.isArray(todo.completedDates) && todo.completedDates.includes(dateStr);
-      const occSkipped = Array.isArray(todo.skippedDates) && todo.skippedDates.includes(dateStr);
-      
+    if (matchesRule(d, anchor, master.recurrence)) {
       occurrences.push({
-        id: todo.id,
-        masterId: todo.id,
-        title: todo.title,
-        notes: todo.notes,
-        scheduledFor: dateStr,
-        timeOfDay: todo.timeOfDay,
-        completed: !!occCompleted,
-        status: occCompleted ? 'completed' : (occSkipped ? 'skipped' : 'pending'),
-        recurrence: todo.recurrence,
-        context: todo.context,
-        createdAt: todo.createdAt,
-        updatedAt: todo.updatedAt,
+        id: master.id,
+        masterId: master.id,
+        scheduledFor: ymd(d),
       });
     }
   }
@@ -287,6 +304,7 @@ function expandOccurrences(todo, fromDate, toDate) {
   return occurrences;
 }
 ```
+- **Location**: `apps/server/utils/recurrence.js`
 
 #### Edge Behaviors
 
@@ -440,6 +458,7 @@ const routerPrompt = {
   `
 };
 ```
+- **Location**: `apps/server/llm/router.js`
 
 **Decision Processing**:
 ```javascript
@@ -465,6 +484,7 @@ function processRouterDecision(parsed, snapshots) {
   };
 }
 ```
+- **Location**: `apps/server/llm/router.js`
 
 #### Tool Calling Generation Algorithm
 
@@ -633,6 +653,7 @@ class OperationProcessor {
   }
 }
 ```
+- **Location**: `apps/server/operations/operation_processor.js`
 
 #### Transaction Management
 

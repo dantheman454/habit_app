@@ -88,6 +88,7 @@ db.logAudit({
   meta: { correlationId }
 });
 ```
+- **Location**: `apps/server/llm/conversation_agent.js`
 
 ### 3. Router Decision
 
@@ -161,6 +162,7 @@ if (decision === 'act' && typeof where === 'string' && where.trim()) {
   where = { title_contains: where }; // Convert string to object
 }
 ```
+- **Location**: `apps/server/llm/router.js`
 
 ### 4. OpsAgent with Processor
 
@@ -346,6 +348,7 @@ For the query "update my task for today":
 // Decision types: 'chat', 'act'
 // Confidence thresholds: CONFIDENCE_THRESHOLD = 0.5
 ```
+- **Location**: `apps/server/llm/conversation_agent.js`
 
 **Input Context**:
 - Current week snapshot (Mon-Sun)
@@ -371,6 +374,7 @@ For the query "update my task for today":
 - **Events**: `create|update|delete|complete|complete_occurrence`
 - **Habits**: `create|update|delete|complete|complete_occurrence`
 - **Goals**: `create|update|delete|add_items|remove_item|add_child|remove_child`
+- **Location**: `apps/server/llm/router.js`
 
 ### 3. OpsAgent with Processor (`runOpsAgentToolCalling`)
 **Tool Calling**:
@@ -378,6 +382,7 @@ For the query "update my task for today":
 - Tool surface defined with operation types
 - Automatic tool call execution
 - Error handling and repair
+- **Location**: `apps/server/llm/ops_agent.js`
 
 **Validation Checks**:
 - Recurrence presence and shape
@@ -396,6 +401,7 @@ For the query "update my task for today":
 - `todo_create`, `todo_update`, `todo_delete`, `todo_set_status`
 - `event_create`, `event_update`, `event_delete`, `event_set_occurrence_status`
 - `habit_create`, `habit_update`, `habit_delete`, `habit_set_occurrence_status`
+- **Location**: `apps/server/operations/operation_processor.js`
 
 **Execution Flow**:
 1. Infer operation type from kind/action
@@ -417,6 +423,7 @@ Future<Map<String, dynamic>> assistantMessage(
   void Function(List<Map<String, dynamic>> operations, int version, int validCount, int invalidCount)? onOps,
 })
 ```
+- **Location**: `apps/web/flutter_app/lib/api.dart`
 
 ### 2. SSE Event Handling
 **Event Types**:
@@ -436,6 +443,7 @@ Future<Map<String, dynamic>> assistantMessage(
 - Interactive clarification selection
 - Operation diff view
 - Apply/Discard controls
+- **Location**: `apps/web/flutter_app/lib/widgets/assistant_panel.dart`
 
 ## Clarification System
 

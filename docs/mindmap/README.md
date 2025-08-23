@@ -119,6 +119,7 @@ sequenceDiagram
 
 **Server Layer**:
 - `apps/server/server.js`: Express app, REST endpoints, SSE streaming, request validation
+- `apps/server/app.js`: Express app setup, route mounting, middleware configuration
 - `apps/server/mcp/mcp_server.js`: MCP protocol implementation, tool registry, execution engine
 - `apps/server/database/DbService.js`: Database operations, connection management
 - `apps/server/database/schema.sql`: SQLite schema definition, constraints, indexes

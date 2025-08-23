@@ -101,6 +101,7 @@ class _HomePageState extends State<HomePage> {
   String? _qaSelectedRecurrence;
 }
 ```
+- **Location**: `apps/web/flutter_app/lib/main.dart`
 
 #### Enums and Constants
 
@@ -486,6 +487,65 @@ Future<void> _sendAssistantMessage(String message) async {
 }
 ```
 
+#### SSE Implementation
+
+```dart
+CloseFn startSse({
+  required String uri,
+  required void Function(String event, String data) onEvent,
+  required void Function() onDone,
+  required void Function() onError,
+}) {
+  final es = html.EventSource(uri);
+  void handleMessage(html.MessageEvent ev, String eventName) {
+    try {
+      final d = ev.data;
+      final s = (d is String) ? d : (d == null ? '' : d.toString());
+      onEvent(eventName, s);
+    } catch (_) {}
+  }
+
+  es.addEventListener(
+    'clarify',
+    (e) => handleMessage(e as html.MessageEvent, 'clarify'),
+  );
+  es.addEventListener(
+    'stage',
+    (e) => handleMessage(e as html.MessageEvent, 'stage'),
+  );
+  es.addEventListener(
+    'ops',
+    (e) => handleMessage(e as html.MessageEvent, 'ops'),
+  );
+  es.addEventListener(
+    'summary',
+    (e) => handleMessage(e as html.MessageEvent, 'summary'),
+  );
+  es.addEventListener(
+    'result',
+    (e) => handleMessage(e as html.MessageEvent, 'result'),
+  );
+  es.addEventListener('done', (_) {
+    try {
+      es.close();
+    } catch (_) {}
+    onDone();
+  });
+  es.addEventListener('error', (_) {
+    try {
+      es.close();
+    } catch (_) {}
+    onError();
+  });
+  return () {
+    try {
+      es.close();
+    } catch (_) {}
+  };
+}
+```
+- **Location**: `apps/web/flutter_app/lib/util/sse_impl_web.dart`
+
 #### Clarification UI
 
 ```dart
@@ -791,55 +851,6 @@ class ApiClient {
 }
 ```
 
-#### SSE Implementation
-
-```dart
-class SSEHandler {
-  static Future<void> handleStream(
-    String url,
-    Map<String, Function> handlers,
-  ) async {
-    try {
-      final response = await http.get(
-        Uri.parse(url),
-        headers: {'Accept': 'text/event-stream'},
-      );
-      
-      if (response.statusCode != 200) {
-        throw Exception('SSE request failed: ${response.statusCode}');
-      }
-      
-      final lines = response.body.split('\n');
-      for (final line in lines) {
-        if (line.startsWith('event: ')) {
-          final eventType = line.substring(7);
-          final dataLine = lines[lines.indexOf(line) + 1];
-          if (dataLine.startsWith('data: ')) {
-            final data = dataLine.substring(6);
-            _handleEvent(eventType, data, handlers);
-          }
-        }
-      }
-    } catch (e) {
-      // Fallback to POST request
-      await _fallbackToPost(url, handlers);
-    }
-  }
-  
-  static void _handleEvent(String eventType, String data, Map<String, Function> handlers) {
-    final handler = handlers[eventType];
-    if (handler != null) {
-      try {
-        final jsonData = jsonDecode(data);
-        handler(jsonData);
-      } catch (e) {
-        print('Error parsing SSE data: $e');
-      }
-    }
-  }
-}
-```
-
 #### Error Handling and User Feedback
 
 ```dart
@@ -977,6 +988,7 @@ if (kDebugMode && TestHooks.skipRefresh) {
   return; // Skip refresh for testing
 }
 ```
+- **Location**: `apps/web/flutter_app/lib/main.dart`
 
 #### Development Tools
 

@@ -31,14 +31,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
   - **Behavior**: When both `from` and `to` provided, repeating todos expanded into per-day occurrences over `[from, to+1d)`; otherwise returns scheduled masters
   - **Response**: `{ todos: Todo[] }`
   - **Example**: `GET /api/todos?from=2024-01-15&to=2024-01-21&status=pending`
-
-**Backlog (Unscheduled)**
-- **GET** `/api/todos/backlog`
-  - **Query Parameters**:
-    - `status?: pending|completed|skipped` - Filter by status
-    - `context?: school|personal|work` - Filter by context
-  - **Response**: `{ todos: Todo[] }` (unscheduled only)
-  - **Example**: `GET /api/todos/backlog?context=work`
+  - **Location**: `apps/server/routes/todos.js`
 
 **Search Todos**
 - **GET** `/api/todos/search`
@@ -49,11 +42,13 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
   - **Response**: `{ todos: Todo[] }`
   - **Features**: FTS5 full-text search on title and notes
   - **Example**: `GET /api/todos/search?query=meeting&status=pending`
+  - **Location**: `apps/server/routes/todos.js`
 
 **Get Single Todo**
 - **GET** `/api/todos/:id`
   - **Response**: `{ todo: Todo }`
   - **Errors**: `404 not_found` if todo doesn't exist
+  - **Location**: `apps/server/routes/todos.js`
 
 **Create Todo**
 - **POST** `/api/todos`
@@ -83,6 +78,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
       "context": "work"
     }
     ```
+  - **Location**: `apps/server/routes/todos.js`
 
 **Update Todo**
 - **PATCH** `/api/todos/:id`
@@ -96,6 +92,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
       "notes": "Finished early"
     }
     ```
+  - **Location**: `apps/server/routes/todos.js`
 
 **Update Todo Occurrence**
 - **PATCH** `/api/todos/:id/occurrence`
@@ -108,11 +105,13 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
     ```
   - **Response**: `{ todo: Todo }`
   - **Errors**: `400 not_repeating` if todo is not repeating
+  - **Location**: `apps/server/routes/todos.js`
 
 **Delete Todo**
 - **DELETE** `/api/todos/:id`
   - **Response**: `{ ok: true }`
   - **Cascade**: Removes from linked habits and goals
+  - **Location**: `apps/server/routes/todos.js`
 
 #### Events
 
@@ -121,6 +120,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
   - **Query Parameters**: Same as todos (`from`, `to`, `completed`, `context`)
   - **Behavior**: Expands repeating events when both `from`/`to` provided
   - **Response**: `{ events: Event[] }`
+  - **Location**: `apps/server/routes/events.js`
 
 **Search Events**
 - **GET** `/api/events/search`
@@ -129,6 +129,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
     - `completed?: true|false` - Filter by completion
     - `context?: school|personal|work` - Filter by context
   - **Response**: `{ events: Event[] }`
+  - **Location**: `apps/server/routes/events.js`
 
 **Create Event**
 - **POST** `/api/events`
@@ -150,6 +151,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
     }
     ```
   - **Response**: `{ event: Event }`
+  - **Location**: `apps/server/routes/events.js`
 
 **Update Event Occurrence**
 - **PATCH** `/api/events/:id/occurrence`
@@ -161,6 +163,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
     }
     ```
   - **Response**: `{ event: Event }`
+  - **Location**: `apps/server/routes/events.js`
 
 #### Habits
 
@@ -169,12 +172,14 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
   - **Query Parameters**: `from?`, `to?`, `completed?`, `context?`
   - **Stats**: When both `from`/`to` provided, includes derived stats: `currentStreak`, `longestStreak`, `weekHeatmap`
   - **Response**: `{ habits: Habit[] }`
+  - **Location**: `apps/server/routes/habits.js`
 
 **Create Habit**
 - **POST** `/api/habits`
   - **Validation**: Must be repeating (recurrence.type cannot be 'none')
   - **Body**: Same as events but with `timeOfDay` instead of `startTime`/`endTime`
   - **Response**: `{ habit: Habit }`
+  - **Location**: `apps/server/routes/habits.js`
 
 **Link Items to Habit**
 - **POST** `/api/habits/:id/items`
@@ -186,6 +191,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
     }
     ```
   - **Response**: `204 No Content`
+  - **Location**: `apps/server/routes/habits.js`
 
 #### Goals
 
@@ -194,6 +200,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
   - **Query Parameters**:
     - `status?: active|completed|archived` - Filter by status
   - **Response**: `{ goals: Goal[] }`
+  - **Location**: `apps/server/routes/goals.js`
 
 **Get Goal with Details**
 - **GET** `/api/goals/:id`
@@ -201,6 +208,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
     - `includeItems?: boolean` - Include linked todos/events
     - `includeChildren?: boolean` - Include child goals
   - **Response**: `{ goal: Goal }`
+  - **Location**: `apps/server/routes/goals.js`
 
 **Create Goal**
 - **POST** `/api/goals`
@@ -216,6 +224,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
     }
     ```
   - **Response**: `{ goal: Goal }`
+  - **Location**: `apps/server/routes/goals.js`
 
 **Link Items to Goal**
 - **POST** `/api/goals/:id/items`
@@ -227,11 +236,13 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
     }
     ```
   - **Response**: `{ ok: true }`
+  - **Location**: `apps/server/routes/goals.js`
 
 **Add Child Goals**
 - **POST** `/api/goals/:id/children`
   - **Body**: `[childId1, childId2, ...]`
   - **Response**: `{ ok: true }`
+  - **Location**: `apps/server/routes/goals.js`
 
 #### Unified Schedule
 
@@ -245,6 +256,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
     - `status_todo?: pending|completed|skipped` - Filter todos by status
   - **Response**: `{ items: Array }` with unified items containing `kind: 'todo'|'event'|'habit'`
   - **Behavior**: Expands repeating items into per-day occurrences
+  - **Location**: `apps/server/routes/schedule.js`
 
 #### Unified Search
 
@@ -258,6 +270,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
     - `limit?: number` - Result limit (default: 30)
   - **Response**: `{ items: Array }` with unified items
   - **Features**: FTS5 search across todos, events, and habits
+  - **Location**: `apps/server/routes/search.js`
 
 #### Assistant and LLM
 
@@ -279,6 +292,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
     }
     ```
   - **Response**: `{ text, operations, steps, tools, notes, correlationId }`
+  - **Location**: `apps/server/routes/assistant.js`
 
 **Assistant Message (SSE Stream)**
 - **GET** `/api/assistant/message/stream`
@@ -291,14 +305,17 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
     - `result`: Final result
     - `heartbeat`: Keep-alive (every 10s)
     - `done`: Stream completion
+  - **Location**: `apps/server/routes/assistant.js`
 
 **LLM Health Check**
 - **GET** `/api/llm/health`
   - **Response**: `{ ok: true, models, configured, convoPresent, codePresent }`
+  - **Location**: `apps/server/routes/llm.js`
 
 **LLM Quality Report**
 - **GET** `/api/llm/quality`
   - **Response**: `{ ok: true, report }`
+  - **Location**: `apps/server/routes/llm.js`
 
 **LLM Message (Direct)**
 - **POST** `/api/llm/message`
@@ -310,20 +327,24 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
     }
     ```
   - **Response**: `{ ok: true, text, correlationId }`
+  - **Location**: `apps/server/routes/llm.js`
 
 #### MCP Tools
 
 **List Available Tools**
 - **GET** `/api/mcp/tools`
   - **Response**: `{ tools: Tool[] }`
+  - **Location**: `apps/server/mcp/mcp_server.js`
 
 **List Resources**
 - **GET** `/api/mcp/resources`
   - **Response**: `{ resources: Resource[] }`
+  - **Location**: `apps/server/mcp/mcp_server.js`
 
 **Get Resource Content**
 - **GET** `/api/mcp/resources/:type/:name`
   - **Response**: `{ uri, content }`
+  - **Location**: `apps/server/mcp/mcp_server.js`
 
 **Execute Tool**
 - **POST** `/api/mcp/tools/call`
@@ -336,6 +357,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
     ```
   - **Response**: `{ content, isError }`
   - **Features**: Idempotency support via `Idempotency-Key` header
+  - **Location**: `apps/server/mcp/mcp_server.js`
 
 ### Validation Rules
 
@@ -367,7 +389,6 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 **Todo Operations**:
 - `fetchScheduled({ from, to, status?, context? })` → `List<Todo>`
 - `fetchScheduledAllTime({ status?, context? })` → `List<Todo>`
-- `fetchBacklog({ status?, context? })` → `List<Todo>`
 - `searchTodos(query, { status?, context?, cancelToken? })` → `List<Todo>`
 - `createTodo(data)` → `Todo`
 - `updateTodo(id, patch)` → `Todo`
@@ -481,7 +502,6 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 | Endpoint | Client Function | Notes |
 |----------|----------------|-------|
 | `GET /api/todos` | `fetchScheduled`, `fetchScheduledAllTime` | Range vs all-time |
-| `GET /api/todos/backlog` | `fetchBacklog` | Unscheduled only |
 | `GET /api/todos/search` | `searchTodos` | FTS5 search |
 | `POST /api/todos` | `createTodo` | Requires recurrence |
 | `PATCH /api/todos/:id` | `updateTodo` | Partial updates |

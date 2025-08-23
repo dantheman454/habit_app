@@ -2,6 +2,9 @@ Keep in mind:
 -User behaviours
 -Core abstractions/entities
 
+8/23:
+-get views solid (use Comet for brainstorming; feed it the mindmap)
+
 Get done by 8/24 night:
     -Get fundamental functions of tasks and events working
         *views working properly

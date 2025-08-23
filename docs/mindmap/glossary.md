@@ -22,7 +22,7 @@ This glossary defines key terms and concepts used throughout the Habit App syste
 - **Example**: `["2024-01-15", "2024-01-17"]` indicates occurrences on those dates were completed
 - **Reference**: See [API Surface](./api_surface.md#update-todo-occurrence) for endpoint usage
 
-**Backlog**: Todos with `scheduledFor = null`. Served by `/api/todos/backlog`; also used in router snapshots for assistant context.
+**Backlog**: Todos with `scheduledFor = null`. Served by filtering `/api/todos` with no date range; also used in router snapshots for assistant context.
 
 - **Usage**: Represents unscheduled tasks that need to be assigned dates
 - **Example**: "Write documentation" with no scheduled date appears in backlog
