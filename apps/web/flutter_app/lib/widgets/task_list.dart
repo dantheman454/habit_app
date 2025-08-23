@@ -22,9 +22,14 @@ class TaskList extends StatelessWidget {
       separatorBuilder: (_, __) => const Divider(height: 1),
       itemBuilder: (context, index) {
         final item = tasks[index];
-        final id = (item['id'] is int) ? item['id'] as int : int.tryParse('${item['id']}') ?? -1;
+        final id = (item['id'] is int)
+            ? item['id'] as int
+            : int.tryParse('${item['id']}') ?? -1;
         final title = (item['title'] ?? '').toString();
-        final status = (item['status'] ?? (item['completed'] == true ? 'completed' : 'pending')).toString();
+        final status =
+            (item['status'] ??
+                    (item['completed'] == true ? 'completed' : 'pending'))
+                .toString();
         final completed = status == 'completed';
         return Stack(
           children: [
@@ -34,8 +39,14 @@ class TaskList extends StatelessWidget {
               ),
               child: ListTile(
                 leading: Checkbox(
-                  value: completed,
-                  onChanged: (v) => onSetStatus(id, (v ?? false) ? 'completed' : 'pending'),
+                  tristate: true,
+                  value: status == 'skipped' ? null : completed,
+                  onChanged: (_) => onSetStatus(
+                    id,
+                    status == 'skipped'
+                        ? 'pending'
+                        : (completed ? 'pending' : 'completed'),
+                  ),
                   visualDensity: VisualDensity.compact,
                 ),
                 title: Row(
@@ -69,12 +80,18 @@ class TaskList extends StatelessWidget {
               child: Tooltip(
                 message: 'Skip',
                 child: InkWell(
-                  onTap: () => onSetStatus(id, status == 'skipped' ? 'pending' : 'skipped'),
+                  onTap: () => onSetStatus(
+                    id,
+                    status == 'skipped' ? 'pending' : 'skipped',
+                  ),
                   child: Container(
                     width: 20,
                     height: 20,
                     decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surfaceContainerHighest.withAlpha((0.7 * 255).round()),
+                      color: Theme.of(context)
+                          .colorScheme
+                          .surfaceContainerHighest
+                          .withAlpha((0.7 * 255).round()),
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
@@ -117,5 +134,3 @@ class TaskList extends StatelessWidget {
     );
   }
 }
-
-

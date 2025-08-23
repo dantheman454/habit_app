@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../util/context_colors.dart';
+import 'expandable_text.dart';
 
 class TodoLike {
   final int id;
@@ -50,14 +51,16 @@ class TodoRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-  final isSkipped = (todo.status == 'skipped');
-  final isCompleted = todo.completed || (todo.status == 'completed');
-  
-  // Context-based colors
-  final contextColor = todo.context != null ? ContextColors.getContextColor(todo.context) : Colors.grey.shade600;
-  final borderColor = contextColor.withOpacity(0.3);
-  
-  return AnimatedContainer(
+    final isSkipped = (todo.status == 'skipped');
+    final isCompleted = todo.completed || (todo.status == 'completed');
+
+    // Context-based colors
+    final contextColor = todo.context != null
+        ? ContextColors.getContextColor(todo.context)
+        : Colors.grey.shade600;
+    final borderColor = contextColor.withOpacity(0.3);
+
+    return AnimatedContainer(
       duration: const Duration(milliseconds: 400),
       curve: Curves.easeOutCubic,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -70,23 +73,36 @@ class TodoRow extends StatelessWidget {
         ),
         borderRadius: BorderRadius.circular(8),
         color: highlighted
-            ? Theme.of(context).colorScheme.primary.withAlpha((0.06 * 255).round())
+            ? Theme.of(
+                context,
+              ).colorScheme.primary.withAlpha((0.06 * 255).round())
             : (isCompleted
-                ? Colors.grey.withAlpha((0.1 * 255).round())
-                : (isSkipped 
-                    ? Colors.orange.withAlpha((0.06 * 255).round()) 
-                    : ContextColors.getContextBackgroundColor(todo.context))),
+                  ? Colors.grey.withAlpha((0.1 * 255).round())
+                  : (isSkipped
+                        ? Colors.orange.withAlpha((0.06 * 255).round())
+                        : ContextColors.getContextBackgroundColor(
+                            todo.context,
+                          ))),
       ),
-              child: Row(
-          children: [
-            AnimatedScale(
-              duration: const Duration(milliseconds: 200),
-              scale: isCompleted ? 1.1 : 1.0,
-              child: Checkbox(
-                value: isCompleted,
-                onChanged: (_) => onToggleCompleted(),
-              ),
+      child: Row(
+        children: [
+          AnimatedScale(
+            duration: const Duration(milliseconds: 200),
+            scale: isCompleted ? 1.1 : 1.0,
+            child: Checkbox(
+              tristate: true,
+              value: isSkipped ? null : isCompleted,
+              fillColor: MaterialStateProperty.resolveWith<Color?>((states) {
+                if (isSkipped) return Colors.amber; // distinct look for skipped
+                if (isCompleted) return Theme.of(context).colorScheme.primary;
+                return Theme.of(
+                  context,
+                ).colorScheme.surfaceTint.withOpacity(0.4);
+              }),
+              onChanged: (_) =>
+                  isSkipped ? (onToggleSkipped?.call()) : onToggleCompleted(),
             ),
+          ),
           const SizedBox(width: 6),
           Expanded(
             child: Column(
@@ -216,8 +232,9 @@ class TodoRow extends StatelessWidget {
                 if (todo.notes.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 2),
-                    child: Text(
+                    child: ExpandableText(
                       todo.notes,
+                      maxLines: 2,
                       style: TextStyle(
                         color: Colors.grey.shade700,
                         fontSize: 12,
@@ -274,13 +291,16 @@ class TodoRow extends StatelessWidget {
   Widget _buildContextBadge(String context) {
     final color = ContextColors.getContextColor(context);
     final icon = ContextColors.getContextIcon(context);
-    
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
         color: color.withOpacity(0.08), // Very subtle background
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.3), width: 0.5), // Thin border
+        border: Border.all(
+          color: color.withOpacity(0.3),
+          width: 0.5,
+        ), // Thin border
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -303,7 +323,7 @@ class TodoRow extends StatelessWidget {
   Widget _buildKindBadge(String kind) {
     IconData icon;
     Color color;
-    
+
     switch (kind) {
       case 'event':
         icon = Icons.event;
@@ -321,7 +341,7 @@ class TodoRow extends StatelessWidget {
         icon = Icons.circle;
         color = Colors.grey;
     }
-    
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(

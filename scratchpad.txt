@@ -2,20 +2,18 @@ Keep in mind:
 -User behaviours
 -Core abstractions/entities
 
-8/23:
--get views solid 
-    >update skipped and completed views
-    >update time to be red when overdue
-    >update events to show notes and make notes for both tasks and events support multiple lines
-    >update time to American time everywhere
-
+    
 
 Get done by 8/24 night:
     -Get fundamental functions of tasks and events working
         *views working properly
     -Clean up UI 
-        *Make sure the scroll wheel (< Today >) switches with the view
+        *update time to be red when overdue
+        *update events to show notes and make notes for both tasks and events support multiple lines
+        *update time to American time everywhere
+        *make updating/creating tasks and events easier (time and date are a pain right now)
         *update subheader to be cleaner
+            >Make sure the scroll wheel (< Today >) switches with the view
         *fix it from being so snappy when deleting todos or going between tabs
         *Look at cursor, google calendar, and apple calendar/reminders for inspiration
     

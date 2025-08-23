@@ -74,7 +74,7 @@ class Todo {
     required this.scheduledFor,
     required this.timeOfDay,
     this.endTime,
-  this.priority,
+    this.priority,
     required this.completed,
     this.status,
     required this.recurrence,
@@ -92,7 +92,7 @@ class Todo {
     scheduledFor: j['scheduledFor'] as String?,
     timeOfDay: ((j['timeOfDay'] as String?) ?? (j['startTime'] as String?)),
     endTime: j['endTime'] as String?,
-  priority: j['priority'] as String?,
+    priority: j['priority'] as String?,
     completed: j['completed'] as bool? ?? false,
     status: j['status'] as String?,
     recurrence: j['recurrence'] as Map<String, dynamic>?,
@@ -159,7 +159,7 @@ class LlmOperation {
     title: j['title'] as String?,
     notes: j['notes'] as String?,
     scheduledFor: j['scheduledFor'] as String?,
-  // priority removed
+    // priority removed
     completed: j['completed'] as bool?,
     timeOfDay: j['timeOfDay'] as String?,
     startTime: j['startTime'] as String?,
@@ -167,7 +167,7 @@ class LlmOperation {
     location: j['location'] as String?,
     recurrence: j['recurrence'] == null
         ? null
-  : Map<String, dynamic>.from(j['recurrence']),
+        : Map<String, dynamic>.from(j['recurrence']),
     occurrenceDate: j['occurrenceDate'] as String?,
   );
   Map<String, dynamic> toJson() => {
@@ -178,7 +178,7 @@ class LlmOperation {
     if (title != null) 'title': title,
     if (notes != null) 'notes': notes,
     if (scheduledFor != null) 'scheduledFor': scheduledFor,
-  // priority removed
+    // priority removed
     if (completed != null) 'completed': completed,
     if (timeOfDay != null) 'timeOfDay': timeOfDay,
     if (startTime != null) 'startTime': startTime,
@@ -196,7 +196,8 @@ class AnnotatedOp {
   factory AnnotatedOp.fromJson(Map<String, dynamic> j) => AnnotatedOp(
     op: (() {
       final raw = j['op'];
-  if (raw is Map) return LlmOperation.fromJson(Map<String, dynamic>.from(raw));
+      if (raw is Map)
+        return LlmOperation.fromJson(Map<String, dynamic>.from(raw));
       // Some servers may send flat shape without wrapping under 'op'
       return LlmOperation.fromJson(j);
     })(),
@@ -277,18 +278,9 @@ class DateNavigation extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        IconButton(
-          icon: const Icon(Icons.chevron_left),
-          onPressed: onPrev,
-        ),
-        Text(
-          currentDate,
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-        IconButton(
-          icon: const Icon(Icons.chevron_right),
-          onPressed: onNext,
-        ),
+        IconButton(icon: const Icon(Icons.chevron_left), onPressed: onPrev),
+        Text(currentDate, style: Theme.of(context).textTheme.titleMedium),
+        IconButton(icon: const Icon(Icons.chevron_right), onPressed: onNext),
       ],
     );
   }
@@ -352,32 +344,34 @@ class FilterBar extends StatelessWidget {
                 selected: {currentView},
                 onSelectionChanged: (s) => onViewChanged(s.first),
               ),
-              
+
               const SizedBox(width: 16),
-              
+
               // Date navigation
-              if (onDatePrev != null && onDateNext != null && onDateToday != null)
+              if (onDatePrev != null &&
+                  onDateNext != null &&
+                  onDateToday != null)
                 DateNavigation(
                   onPrev: onDatePrev!,
                   onNext: onDateNext!,
                   onToday: onDateToday!,
                   currentDate: currentDate,
                 ),
-              
+
               const Spacer(),
             ],
           ),
-          
+
           const SizedBox(height: 8),
-          
+
           // Secondary filters row
           Row(
             children: [
               // Context filters
               _buildContextFilters(context),
-              
+
               const Spacer(),
-              
+
               // Show completed toggle
               Row(
                 children: [
@@ -411,9 +405,16 @@ class FilterBar extends StatelessWidget {
     );
   }
 
-  Widget _buildContextChip(String label, String? contextValue, IconData icon, BuildContext context) {
+  Widget _buildContextChip(
+    String label,
+    String? contextValue,
+    IconData icon,
+    BuildContext context,
+  ) {
     final active = selectedContext == contextValue;
-    final color = contextValue != null ? ContextColors.getContextColor(contextValue) : Colors.grey.shade600;
+    final color = contextValue != null
+        ? ContextColors.getContextColor(contextValue)
+        : Colors.grey.shade600;
     return AnimatedScale(
       duration: const Duration(milliseconds: 200),
       scale: active ? 1.05 : 1.0,
@@ -421,15 +422,28 @@ class FilterBar extends StatelessWidget {
         label: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 16, color: Colors.black87), // Always black for contrast
+            Icon(
+              icon,
+              size: 16,
+              color: Colors.black87,
+            ), // Always black for contrast
             const SizedBox(width: 4),
-            Text(label, style: const TextStyle(color: Colors.black87)), // Always black for contrast
+            Text(
+              label,
+              style: const TextStyle(color: Colors.black87),
+            ), // Always black for contrast
           ],
         ),
         selected: active,
         onSelected: (_) => onContextChanged(contextValue),
-        backgroundColor: ContextColors.getContextButtonColor(contextValue, false), // Always colored background
-        selectedColor: ContextColors.getContextButtonColor(contextValue, true), // Full color when selected
+        backgroundColor: ContextColors.getContextButtonColor(
+          contextValue,
+          false,
+        ), // Always colored background
+        selectedColor: ContextColors.getContextButtonColor(
+          contextValue,
+          true,
+        ), // Full color when selected
         checkmarkColor: Colors.black87, // Black checkmark for contrast
       ),
     );
@@ -444,7 +458,9 @@ DateRange rangeForView(String anchor, ViewMode view) {
   } else if (view == ViewMode.week) {
     // NEW: Sunday-based calculation
     final weekday = a.weekday; // 1=Mon..7=Sun
-    final sunday = a.subtract(Duration(days: weekday % 7)); // Sunday = 7, so 7%7=0, Monday=1, so 1%7=1, etc.
+    final sunday = a.subtract(
+      Duration(days: weekday % 7),
+    ); // Sunday = 7, so 7%7=0, Monday=1, so 1%7=1, etc.
     final saturday = sunday.add(const Duration(days: 6));
     return DateRange(from: ymd(sunday), to: ymd(saturday));
   } else {
@@ -476,13 +492,14 @@ class _HomePageState extends State<HomePage> {
   int _searchHoverIndex = -1;
   bool _searching = false;
   int? _highlightedId;
-  
+
   // Search filter state
   String _searchScope = 'all'; // 'all', 'todo', 'event', 'habit'
   String? _searchContext; // null for 'all', or 'personal', 'work', 'school'
   String _searchStatusTodo = 'pending'; // 'pending', 'completed', 'skipped'
-  bool? _searchCompleted; // null for 'all', true for completed, false for incomplete
-  
+  bool?
+  _searchCompleted; // null for 'all', true for completed, false for incomplete
+
   // Today highlight animation state
   bool _todayPulseActive = false;
 
@@ -490,9 +507,9 @@ class _HomePageState extends State<HomePage> {
   final Map<int, GlobalKey> _rowKeys = {};
 
   MainView mainView = MainView.tasks;
-  
+
   String? _goalsStatusFilter; // null=all | 'active'|'completed'|'archived'
-  
+
   // Context filter state
   String? selectedContext; // 'school', 'personal', 'work', null for 'all'
 
@@ -510,10 +527,7 @@ class _HomePageState extends State<HomePage> {
 
   // Unified schedule filters (chips)
   // Default to show both todos and events; tabs can filter to specific types.
-  Set<String> _kindFilter = <String>{
-    'todo',
-    'event',
-  };
+  Set<String> _kindFilter = <String>{'todo', 'event'};
 
   bool loading = false;
   String? message;
@@ -550,7 +564,7 @@ class _HomePageState extends State<HomePage> {
   final TextEditingController _qaTodoDate = TextEditingController();
   final TextEditingController _qaTodoNotes = TextEditingController();
   final TextEditingController _qaTodoInterval = TextEditingController();
-  
+
   final TextEditingController _qaEventTitle = TextEditingController();
   final TextEditingController _qaEventStart = TextEditingController();
   final TextEditingController _qaEventEnd = TextEditingController();
@@ -558,10 +572,10 @@ class _HomePageState extends State<HomePage> {
   final TextEditingController _qaEventDate = TextEditingController();
   final TextEditingController _qaEventNotes = TextEditingController();
   final TextEditingController _qaEventInterval = TextEditingController();
-  
+
   final TextEditingController _qaHabitTitle = TextEditingController();
   final TextEditingController _qaHabitTime = TextEditingController();
-  
+
   // Goals inline quick-add controllers
   final TextEditingController _qaGoalTitle = TextEditingController();
   final TextEditingController _qaGoalNotes = TextEditingController();
@@ -570,7 +584,7 @@ class _HomePageState extends State<HomePage> {
   final TextEditingController _qaGoalUnit = TextEditingController();
   String _qaGoalStatus = 'active';
   bool _addingQuick = false;
-  
+
   // FAB dialog state variables
   String? _qaSelectedContext;
   String? _qaSelectedRecurrence;
@@ -598,9 +612,9 @@ class _HomePageState extends State<HomePage> {
     } else {
       setState(() => loading = false);
     }
-    
-            // Initialize search context
-        _searchContext = selectedContext;
+
+    // Initialize search context
+    _searchContext = selectedContext;
   }
 
   Widget _quickAddHabitsInline() {
@@ -630,19 +644,17 @@ class _HomePageState extends State<HomePage> {
         const SizedBox(width: 8),
         FilledButton(
           onPressed: _addingQuick ? null : _submitQuickAddHabit,
-          child: _addingQuick 
-            ? const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : const Text('Add'),
+          child: _addingQuick
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('Add'),
         ),
       ],
     );
   }
-
-
 
   bool _isValidTime(String s) {
     if (s.trim().isEmpty) return true; // optional
@@ -662,7 +674,7 @@ class _HomePageState extends State<HomePage> {
     final date = _qaTodoDate.text.trim();
     final time = _qaTodoTime.text.trim();
     final notes = _qaTodoNotes.text.trim();
-    
+
     if (title.isEmpty) {
       ScaffoldMessenger.of(
         context,
@@ -675,33 +687,35 @@ class _HomePageState extends State<HomePage> {
       );
       return;
     }
-    
+
     // Validate date format if provided
     if (date.isNotEmpty) {
       final dateRegex = RegExp(r'^\d{4}-\d{2}-\d{2}$');
       if (!dateRegex.hasMatch(date)) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Use date format YYYY-MM-DD, e.g. 2024-01-15.')),
+          const SnackBar(
+            content: Text('Use date format YYYY-MM-DD, e.g. 2024-01-15.'),
+          ),
         );
         return;
       }
     }
-    
+
     setState(() => _addingQuick = true);
     // Request a frame so disabled state is paint-visible on next pump (no timers)
     WidgetsBinding.instance.scheduleFrame();
     try {
       // No extra timers; proceed to API
       final scheduledFor = date.isNotEmpty ? date : anchor;
-      final recurrence = _qaSelectedRecurrence == 'none' 
+      final recurrence = _qaSelectedRecurrence == 'none'
           ? {'type': 'none'}
           : _qaSelectedRecurrence == 'every_n_days'
-              ? {
-                  'type': 'every_n_days',
-                  'intervalDays': int.tryParse(_qaTodoInterval.text.trim()) ?? 1,
-                }
-              : {'type': _qaSelectedRecurrence};
-      
+          ? {
+              'type': 'every_n_days',
+              'intervalDays': int.tryParse(_qaTodoInterval.text.trim()) ?? 1,
+            }
+          : {'type': _qaSelectedRecurrence};
+
       final created = await createTodoFn({
         'title': title,
         'notes': notes,
@@ -733,12 +747,16 @@ class _HomePageState extends State<HomePage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('Task Creation Failed', style: TextStyle(fontWeight: FontWeight.bold)),
+                const Text(
+                  'Task Creation Failed',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
                 Text('Error: ${e.toString()}'),
                 Text('Type: ${e.runtimeType}'),
                 if (e is DioException) ...[
                   Text('Status: ${e.response?.statusCode ?? 'Unknown'}'),
-                  if (e.response?.data != null) Text('Response: ${e.response!.data}'),
+                  if (e.response?.data != null)
+                    Text('Response: ${e.response!.data}'),
                 ],
               ],
             ),
@@ -746,7 +764,8 @@ class _HomePageState extends State<HomePage> {
             duration: const Duration(seconds: 10),
             action: SnackBarAction(
               label: 'Copy Error',
-              onPressed: () => Clipboard.setData(ClipboardData(text: e.toString())),
+              onPressed: () =>
+                  Clipboard.setData(ClipboardData(text: e.toString())),
             ),
           ),
         );
@@ -766,7 +785,7 @@ class _HomePageState extends State<HomePage> {
     final end = _qaEventEnd.text.trim();
     final location = _qaEventLocation.text.trim();
     final notes = _qaEventNotes.text.trim();
-    
+
     if (title.isEmpty) {
       ScaffoldMessenger.of(
         context,
@@ -779,7 +798,7 @@ class _HomePageState extends State<HomePage> {
       );
       return;
     }
-    
+
     // Validate start ≤ end time if both are provided
     if (start.isNotEmpty && end.isNotEmpty) {
       if (start.compareTo(end) > 0) {
@@ -789,33 +808,35 @@ class _HomePageState extends State<HomePage> {
         return;
       }
     }
-    
+
     // Validate date format if provided
     if (date.isNotEmpty) {
       final dateRegex = RegExp(r'^\d{4}-\d{2}-\d{2}$');
       if (!dateRegex.hasMatch(date)) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Use date format YYYY-MM-DD, e.g. 2024-01-15.')),
+          const SnackBar(
+            content: Text('Use date format YYYY-MM-DD, e.g. 2024-01-15.'),
+          ),
         );
         return;
       }
     }
-    
+
     setState(() => _addingQuick = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {});
     await Future<void>.delayed(Duration.zero);
     try {
       await Future<void>.delayed(const Duration(milliseconds: 1));
       final scheduledFor = date.isNotEmpty ? date : anchor;
-      final recurrence = _qaSelectedRecurrence == 'none' 
+      final recurrence = _qaSelectedRecurrence == 'none'
           ? {'type': 'none'}
           : _qaSelectedRecurrence == 'every_n_days'
-              ? {
-                  'type': 'every_n_days',
-                  'intervalDays': int.tryParse(_qaEventInterval.text.trim()) ?? 1,
-                }
-              : {'type': _qaSelectedRecurrence};
-      
+          ? {
+              'type': 'every_n_days',
+              'intervalDays': int.tryParse(_qaEventInterval.text.trim()) ?? 1,
+            }
+          : {'type': _qaSelectedRecurrence};
+
       await createEventFn({
         'title': title,
         'notes': notes,
@@ -846,12 +867,16 @@ class _HomePageState extends State<HomePage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('Event Creation Failed', style: TextStyle(fontWeight: FontWeight.bold)),
+                const Text(
+                  'Event Creation Failed',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
                 Text('Error: ${e.toString()}'),
                 Text('Type: ${e.runtimeType}'),
                 if (e is DioException) ...[
                   Text('Status: ${e.response?.statusCode ?? 'Unknown'}'),
-                  if (e.response?.data != null) Text('Response: ${e.response!.data}'),
+                  if (e.response?.data != null)
+                    Text('Response: ${e.response!.data}'),
                 ],
               ],
             ),
@@ -859,7 +884,8 @@ class _HomePageState extends State<HomePage> {
             duration: const Duration(seconds: 10),
             action: SnackBarAction(
               label: 'Copy Error',
-              onPressed: () => Clipboard.setData(ClipboardData(text: e.toString())),
+              onPressed: () =>
+                  Clipboard.setData(ClipboardData(text: e.toString())),
             ),
           ),
         );
@@ -893,15 +919,15 @@ class _HomePageState extends State<HomePage> {
     await Future<void>.delayed(Duration.zero);
     try {
       await Future<void>.delayed(const Duration(milliseconds: 1));
-    await createHabitFn({
+      await createHabitFn({
         'title': title,
         'scheduledFor': anchor,
         'timeOfDay': time.isEmpty ? null : time,
         'recurrence': {'type': 'daily'},
         'context': selectedContext ?? 'personal',
       });
-  if (!mounted) return;
-  setState(() {
+      if (!mounted) return;
+      setState(() {
         _qaHabitTitle.clear();
         _qaHabitTime.clear();
       });
@@ -915,12 +941,16 @@ class _HomePageState extends State<HomePage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('Habit Creation Failed', style: TextStyle(fontWeight: FontWeight.bold)),
+                const Text(
+                  'Habit Creation Failed',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
                 Text('Error: ${e.toString()}'),
                 Text('Type: ${e.runtimeType}'),
                 if (e is DioException) ...[
                   Text('Status: ${e.response?.statusCode ?? 'Unknown'}'),
-                  if (e.response?.data != null) Text('Response: ${e.response!.data}'),
+                  if (e.response?.data != null)
+                    Text('Response: ${e.response!.data}'),
                 ],
               ],
             ),
@@ -928,7 +958,8 @@ class _HomePageState extends State<HomePage> {
             duration: const Duration(seconds: 10),
             action: SnackBarAction(
               label: 'Copy Error',
-              onPressed: () => Clipboard.setData(ClipboardData(text: e.toString())),
+              onPressed: () =>
+                  Clipboard.setData(ClipboardData(text: e.toString())),
             ),
           ),
         );
@@ -959,7 +990,7 @@ class _HomePageState extends State<HomePage> {
     await Future<void>.delayed(Duration.zero);
     try {
       await Future<void>.delayed(const Duration(milliseconds: 1));
-  await createGoalFn({
+      await createGoalFn({
         'title': title,
         if (notes.isNotEmpty) 'notes': notes,
         'status': _qaGoalStatus,
@@ -967,8 +998,8 @@ class _HomePageState extends State<HomePage> {
         if (tpv != null) 'targetProgressValue': tpv,
         if (unit.isNotEmpty) 'progressUnit': unit,
       });
-  if (!mounted) return;
-  setState(() {
+      if (!mounted) return;
+      setState(() {
         _qaGoalTitle.clear();
         _qaGoalNotes.clear();
         _qaGoalCurrent.clear();
@@ -986,12 +1017,16 @@ class _HomePageState extends State<HomePage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('Goal Creation Failed', style: TextStyle(fontWeight: FontWeight.bold)),
+                const Text(
+                  'Goal Creation Failed',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
                 Text('Error: ${e.toString()}'),
                 Text('Type: ${e.runtimeType}'),
                 if (e is DioException) ...[
                   Text('Status: ${e.response?.statusCode ?? 'Unknown'}'),
-                  if (e.response?.data != null) Text('Response: ${e.response!.data}'),
+                  if (e.response?.data != null)
+                    Text('Response: ${e.response!.data}'),
                 ],
               ],
             ),
@@ -999,7 +1034,8 @@ class _HomePageState extends State<HomePage> {
             duration: const Duration(seconds: 10),
             action: SnackBarAction(
               label: 'Copy Error',
-              onPressed: () => Clipboard.setData(ClipboardData(text: e.toString())),
+              onPressed: () =>
+                  Clipboard.setData(ClipboardData(text: e.toString())),
             ),
           ),
         );
@@ -1043,7 +1079,9 @@ class _HomePageState extends State<HomePage> {
       final r = rangeForView(anchor, view);
       // Day/Week/Month: use unified schedule for Tasks and Habits
       List<Todo> sList;
-      if (view == ViewMode.day || view == ViewMode.week || view == ViewMode.month) {
+      if (view == ViewMode.day ||
+          view == ViewMode.week ||
+          view == ViewMode.month) {
         // Select kinds strictly by tab: tasks (todo or event) or habits
         final kinds = (mainView == MainView.habits)
             ? <String>['habit']
@@ -1056,14 +1094,17 @@ class _HomePageState extends State<HomePage> {
           statusTodo: showCompleted ? null : 'pending',
           context: selectedContext,
         );
-    sList = raw
-  .map((e) => Todo.fromJson(Map<String, dynamic>.from(e)))
-      .toList();
-        
+        sList = raw
+            .map((e) => Todo.fromJson(Map<String, dynamic>.from(e)))
+            .toList();
 
         // Load habit stats for the same range to display streak badges
         try {
-          final habitsRaw = await api.listHabits(from: r.from, to: r.to, context: selectedContext);
+          final habitsRaw = await api.listHabits(
+            from: r.from,
+            to: r.to,
+            context: selectedContext,
+          );
           final Map<int, Map<String, dynamic>> statsMap = {};
           for (final h in habitsRaw) {
             final m = Map<String, dynamic>.from(h);
@@ -1107,7 +1148,8 @@ class _HomePageState extends State<HomePage> {
       );
       // Load events data when needed for "All" or "Events" views
       List<Todo> eventsAllList = const <Todo>[];
-      if (mainView == MainView.tasks && (_kindFilter.contains('event') || _kindFilter.contains('todo'))) {
+      if (mainView == MainView.tasks &&
+          (_kindFilter.contains('event') || _kindFilter.contains('todo'))) {
         try {
           final evAllRaw = await api.listEvents(context: selectedContext);
           eventsAllList = evAllRaw
@@ -1115,64 +1157,79 @@ class _HomePageState extends State<HomePage> {
               .toList();
         } catch (_) {}
       }
-    final sAllList = scheduledAllRaw
-      .map((e) => Todo.fromJson(e as Map<String, dynamic>))
-      .toList();
+      final sAllList = scheduledAllRaw
+          .map((e) => Todo.fromJson(e as Map<String, dynamic>))
+          .toList();
       // Completed filter already applied above; priority now requested server-side
       final nowYmd = ymd(DateTime.now());
-  int todayCount;
-  int allCount;
+      int todayCount;
+      int allCount;
       if (mainView == MainView.habits) {
         todayCount = sList
             .where((t) => t.kind == 'habit' && t.scheduledFor == nowYmd)
             .length;
         allCount = sList.where((t) => t.kind == 'habit').length;
       } else if (mainView == MainView.tasks) {
-        final bool eventsMode = _kindFilter.contains('event') && !_kindFilter.contains('todo');
-        final bool todosMode = _kindFilter.contains('todo') && !_kindFilter.contains('event');
-        
+        final bool eventsMode =
+            _kindFilter.contains('event') && !_kindFilter.contains('todo');
+        final bool todosMode =
+            _kindFilter.contains('todo') && !_kindFilter.contains('event');
+
         todayCount = sList
-            .where((t) => (eventsMode ? t.kind == 'event' : (todosMode ? (t.kind == 'todo' || t.kind == null) : true)) && t.scheduledFor == nowYmd)
+            .where(
+              (t) =>
+                  (eventsMode
+                      ? t.kind == 'event'
+                      : (todosMode
+                            ? (t.kind == 'todo' || t.kind == null)
+                            : true)) &&
+                  t.scheduledFor == nowYmd,
+            )
             .length;
-        
+
         if (eventsMode) {
           allCount = eventsAllList.length;
         } else if (todosMode) {
-          allCount = sAllList.where((t) => (t.kind == null || t.kind == 'todo')).length;
+          allCount = sAllList
+              .where((t) => (t.kind == null || t.kind == 'todo'))
+              .length;
         } else {
           // All mode: combine counts
-          allCount = sAllList.where((t) => (t.kind == null || t.kind == 'todo')).length + eventsAllList.length;
+          allCount =
+              sAllList
+                  .where((t) => (t.kind == null || t.kind == 'todo'))
+                  .length +
+              eventsAllList.length;
         }
       } else {
-  // goals tab
-  todayCount = 0;
-  allCount = 0;
+        // goals tab
+        todayCount = 0;
+        allCount = 0;
       }
-        // Calculate context counts (using unfiltered data for counts)
-        int schoolCount = 0;
-        int personalCount = 0;
-        int workCount = 0;
-        try {
-          // Count items by context from all data (not filtered by selectedContext)
-          for (final item in sAllList) {
-            switch (item.context) {
-              case 'school':
-                schoolCount++;
-                break;
-              case 'personal':
-                personalCount++;
-                break;
-              case 'work':
-                workCount++;
-                break;
-            }
+      // Calculate context counts (using unfiltered data for counts)
+      int schoolCount = 0;
+      int personalCount = 0;
+      int workCount = 0;
+      try {
+        // Count items by context from all data (not filtered by selectedContext)
+        for (final item in sAllList) {
+          switch (item.context) {
+            case 'school':
+              schoolCount++;
+              break;
+            case 'personal':
+              personalCount++;
+              break;
+            case 'work':
+              workCount++;
+              break;
           }
-
-        } catch (_) {
-          // If context counting fails, use zeros
         }
-        
-        final counts = <String, int>{
+      } catch (_) {
+        // If context counting fails, use zeros
+      }
+
+      final counts = <String, int>{
         'today': todayCount,
         'all': allCount,
         'school': schoolCount,
@@ -1182,10 +1239,13 @@ class _HomePageState extends State<HomePage> {
       setState(() {
         scheduled = sList;
         // Combine todos and events for "All" view, or use specific list for filtered views
-        if (mainView == MainView.tasks && _kindFilter.contains('todo') && _kindFilter.contains('event')) {
+        if (mainView == MainView.tasks &&
+            _kindFilter.contains('todo') &&
+            _kindFilter.contains('event')) {
           // "All" view: combine todos and events
           scheduledAllTime = [...sAllList, ...eventsAllList];
-        } else if (mainView == MainView.tasks && _kindFilter.contains('event')) {
+        } else if (mainView == MainView.tasks &&
+            _kindFilter.contains('event')) {
           // "Events" view: events only
           scheduledAllTime = eventsAllList;
         } else {
@@ -1215,6 +1275,7 @@ class _HomePageState extends State<HomePage> {
           'scheduledFor': t.scheduledFor,
           'startTime': t.timeOfDay, // unified model uses timeOfDay for start
           'endTime': t.endTime,
+          'notes': t.notes,
           'completed': t.completed,
           'location': null,
           'context': t.context,
@@ -1228,6 +1289,27 @@ class _HomePageState extends State<HomePage> {
     final List<Map<String, dynamic>> list = [];
     for (final t in _currentList()) {
       if ((t.kind == 'todo' || t.kind == null) && t.scheduledFor == anchor) {
+        // Compute overdue only when viewing today's Day view
+        bool isOverdue = false;
+        try {
+          final bool isResolved =
+              ((t.status == 'completed') || (t.status == 'skipped'));
+          if (!isResolved && t.scheduledFor != null && t.timeOfDay != null) {
+            final todayYmd = ymd(DateTime.now());
+            final viewingToday = (anchor == todayYmd);
+            if (viewingToday && t.scheduledFor == todayYmd) {
+              final parts = (t.timeOfDay ?? '').split(':');
+              if (parts.length == 2) {
+                final now = DateTime.now();
+                final hh = int.tryParse(parts[0]) ?? 0;
+                final mm = int.tryParse(parts[1]) ?? 0;
+                final when = DateTime(now.year, now.month, now.day, hh, mm);
+                isOverdue = now.isAfter(when);
+              }
+            }
+          }
+        } catch (_) {}
+
         list.add({
           'id': t.id,
           'title': t.title,
@@ -1236,6 +1318,7 @@ class _HomePageState extends State<HomePage> {
           'completed': t.completed,
           'status': t.status,
           'notes': t.notes,
+          'overdue': isOverdue,
           'context': t.context,
         });
       }
@@ -1243,12 +1326,12 @@ class _HomePageState extends State<HomePage> {
     return list;
   }
 
-
-
   Future<void> _onSetTodoStatusOrOccurrenceNew(int id, String status) async {
     try {
       final t = _currentList().firstWhere(
-        (e) => (e.kind == 'todo' || e.kind == null) && (e.id == id || e.masterId == id),
+        (e) =>
+            (e.kind == 'todo' || e.kind == null) &&
+            (e.id == id || e.masterId == id),
         orElse: () => throw Exception('todo_not_found'),
       );
       if (t.masterId != null && t.scheduledFor != null) {
@@ -1272,7 +1355,7 @@ class _HomePageState extends State<HomePage> {
       final goals = await api.listGoals();
       final Map<String, Map<String, dynamic>> map = {};
       for (final g in goals) {
-  final gm = Map<String, dynamic>.from(g);
+        final gm = Map<String, dynamic>.from(g);
         final gid = gm['id'] as int?;
         if (gid == null) continue;
         final detail = await api.getGoal(
@@ -1338,7 +1421,7 @@ class _HomePageState extends State<HomePage> {
         limit: 30,
       );
       final items = raw.map((e) {
-  final m = Map<String, dynamic>.from(e);
+        final m = Map<String, dynamic>.from(e);
         // Normalize event times for unified rendering
         if ((m['kind'] as String?) == 'event' &&
             m['startTime'] != null &&
@@ -1413,9 +1496,9 @@ class _HomePageState extends State<HomePage> {
       selectedColor: Theme.of(context).colorScheme.primaryContainer,
       checkmarkColor: Theme.of(context).colorScheme.onPrimaryContainer,
       labelStyle: TextStyle(
-        color: selected 
-          ? Theme.of(context).colorScheme.onPrimaryContainer
-          : Theme.of(context).colorScheme.onSurface,
+        color: selected
+            ? Theme.of(context).colorScheme.onPrimaryContainer
+            : Theme.of(context).colorScheme.onSurface,
       ),
     );
   }
@@ -1431,9 +1514,14 @@ class _HomePageState extends State<HomePage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Application Settings', style: TextStyle(fontWeight: FontWeight.bold)),
+              Text(
+                'Application Settings',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
               SizedBox(height: 16),
-              Text('Settings dialog implemented. Additional settings can be added here.'),
+              Text(
+                'Settings dialog implemented. Additional settings can be added here.',
+              ),
             ],
           ),
         ),
@@ -1482,7 +1570,9 @@ class _HomePageState extends State<HomePage> {
                           child: Container(
                             margin: const EdgeInsets.only(left: 0, right: 0),
                             decoration: BoxDecoration(
-                              color: Colors.white.withAlpha((0.72 * 255).round()),
+                              color: Colors.white.withAlpha(
+                                (0.72 * 255).round(),
+                              ),
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
                                 color: theme.colorScheme.outline.withAlpha(
@@ -1491,7 +1581,9 @@ class _HomePageState extends State<HomePage> {
                               ),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.black.withAlpha((0.08 * 255).round()),
+                                  color: Colors.black.withAlpha(
+                                    (0.08 * 255).round(),
+                                  ),
                                   blurRadius: 16,
                                   offset: const Offset(0, 8),
                                 ),
@@ -1504,17 +1596,34 @@ class _HomePageState extends State<HomePage> {
                                 Padding(
                                   padding: const EdgeInsets.all(12),
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       // Scope chips
                                       Wrap(
                                         spacing: 6,
                                         runSpacing: 6,
                                         children: [
-                                          _buildFilterChip('All', _searchScope == 'all', () => _setSearchScope('all')),
-                                          _buildFilterChip('Todos', _searchScope == 'todo', () => _setSearchScope('todo')),
-                                          _buildFilterChip('Events', _searchScope == 'event', () => _setSearchScope('event')),
-                                          _buildFilterChip('Habits', _searchScope == 'habit', () => _setSearchScope('habit')),
+                                          _buildFilterChip(
+                                            'All',
+                                            _searchScope == 'all',
+                                            () => _setSearchScope('all'),
+                                          ),
+                                          _buildFilterChip(
+                                            'Todos',
+                                            _searchScope == 'todo',
+                                            () => _setSearchScope('todo'),
+                                          ),
+                                          _buildFilterChip(
+                                            'Events',
+                                            _searchScope == 'event',
+                                            () => _setSearchScope('event'),
+                                          ),
+                                          _buildFilterChip(
+                                            'Habits',
+                                            _searchScope == 'habit',
+                                            () => _setSearchScope('habit'),
+                                          ),
                                         ],
                                       ),
                                       const SizedBox(height: 8),
@@ -1523,38 +1632,86 @@ class _HomePageState extends State<HomePage> {
                                         spacing: 6,
                                         runSpacing: 6,
                                         children: [
-                                          _buildFilterChip('All ctx', _searchContext == null, () => _setSearchContext(null)),
-                                          _buildFilterChip('Personal', _searchContext == 'personal', () => _setSearchContext('personal')),
-                                          _buildFilterChip('Work', _searchContext == 'work', () => _setSearchContext('work')),
-                                          _buildFilterChip('School', _searchContext == 'school', () => _setSearchContext('school')),
+                                          _buildFilterChip(
+                                            'All ctx',
+                                            _searchContext == null,
+                                            () => _setSearchContext(null),
+                                          ),
+                                          _buildFilterChip(
+                                            'Personal',
+                                            _searchContext == 'personal',
+                                            () => _setSearchContext('personal'),
+                                          ),
+                                          _buildFilterChip(
+                                            'Work',
+                                            _searchContext == 'work',
+                                            () => _setSearchContext('work'),
+                                          ),
+                                          _buildFilterChip(
+                                            'School',
+                                            _searchContext == 'school',
+                                            () => _setSearchContext('school'),
+                                          ),
                                         ],
                                       ),
-                                                                             if (_searchScope == 'todo') ...[
-                                         const SizedBox(height: 8),
-                                         // Todo status chips (only when scope is todo)
-                                         Wrap(
-                                           spacing: 6,
-                                           runSpacing: 6,
-                                           children: [
-                                             _buildFilterChip('Pending', _searchStatusTodo == 'pending', () => _setSearchStatusTodo('pending')),
-                                             _buildFilterChip('Completed', _searchStatusTodo == 'completed', () => _setSearchStatusTodo('completed')),
-                                             _buildFilterChip('Skipped', _searchStatusTodo == 'skipped', () => _setSearchStatusTodo('skipped')),
-                                           ],
-                                         ),
-                                       ],
-                                       if (_searchScope == 'event' || _searchScope == 'habit' || _searchScope == 'all') ...[
-                                         const SizedBox(height: 8),
-                                         // Completed status chips (for events/habits)
-                                         Wrap(
-                                           spacing: 6,
-                                           runSpacing: 6,
-                                           children: [
-                                             _buildFilterChip('All', _searchCompleted == null, () => _setSearchCompleted(null)),
-                                             _buildFilterChip('Completed', _searchCompleted == true, () => _setSearchCompleted(true)),
-                                             _buildFilterChip('Incomplete', _searchCompleted == false, () => _setSearchCompleted(false)),
-                                           ],
-                                         ),
-                                       ],
+                                      if (_searchScope == 'todo') ...[
+                                        const SizedBox(height: 8),
+                                        // Todo status chips (only when scope is todo)
+                                        Wrap(
+                                          spacing: 6,
+                                          runSpacing: 6,
+                                          children: [
+                                            _buildFilterChip(
+                                              'Pending',
+                                              _searchStatusTodo == 'pending',
+                                              () => _setSearchStatusTodo(
+                                                'pending',
+                                              ),
+                                            ),
+                                            _buildFilterChip(
+                                              'Completed',
+                                              _searchStatusTodo == 'completed',
+                                              () => _setSearchStatusTodo(
+                                                'completed',
+                                              ),
+                                            ),
+                                            _buildFilterChip(
+                                              'Skipped',
+                                              _searchStatusTodo == 'skipped',
+                                              () => _setSearchStatusTodo(
+                                                'skipped',
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                      if (_searchScope == 'event' ||
+                                          _searchScope == 'habit' ||
+                                          _searchScope == 'all') ...[
+                                        const SizedBox(height: 8),
+                                        // Completed status chips (for events/habits)
+                                        Wrap(
+                                          spacing: 6,
+                                          runSpacing: 6,
+                                          children: [
+                                            _buildFilterChip(
+                                              'All',
+                                              _searchCompleted == null,
+                                              () => _setSearchCompleted(null),
+                                            ),
+                                            _buildFilterChip(
+                                              'Completed',
+                                              _searchCompleted == true,
+                                              () => _setSearchCompleted(true),
+                                            ),
+                                            _buildFilterChip(
+                                              'Incomplete',
+                                              _searchCompleted == false,
+                                              () => _setSearchCompleted(false),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
                                       const SizedBox(height: 8),
                                       // Reset button
                                       TextButton(
@@ -1582,71 +1739,76 @@ class _HomePageState extends State<HomePage> {
                                 else
                                   Flexible(
                                     child: ListView.separated(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 6,
-                                    ),
-                                    shrinkWrap: true,
-                                    itemBuilder: (c, i) {
-                                      final t = results[i];
-                                      final selected = i == _searchHoverIndex;
-                                      return InkWell(
-                                        onTap: () => _selectSearchResult(t),
-                                        onHover: (h) => setState(
-                                          () => _searchHoverIndex = h
-                                              ? i
-                                              : _searchHoverIndex,
-                                        ),
-                                        child: Container(
-                                          color: selected
-                                              ? theme.colorScheme.primary
-                                                    .withAlpha((0.08 * 255).round())
-                                              : Colors.transparent,
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 12,
-                                            vertical: 8,
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 6,
+                                      ),
+                                      shrinkWrap: true,
+                                      itemBuilder: (c, i) {
+                                        final t = results[i];
+                                        final selected = i == _searchHoverIndex;
+                                        return InkWell(
+                                          onTap: () => _selectSearchResult(t),
+                                          onHover: (h) => setState(
+                                            () => _searchHoverIndex = h
+                                                ? i
+                                                : _searchHoverIndex,
                                           ),
-                                          child: Row(
-                                            children: [
-                                              Expanded(
-                                                child: Column(
-                                                  crossAxisAlignment:
-                                                      CrossAxisAlignment.start,
-                                                  children: [
-                                                    Text(
+                                          child: Container(
+                                            color: selected
+                                                ? theme.colorScheme.primary
+                                                      .withAlpha(
+                                                        (0.08 * 255).round(),
+                                                      )
+                                                : Colors.transparent,
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                              vertical: 8,
+                                            ),
+                                            child: Row(
+                                              children: [
+                                                Expanded(
+                                                  child: Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .start,
+                                                    children: [
+                                                      Text(
                                                         t.title,
-                                                      maxLines: 1,
-                                                      overflow:
-                                                          TextOverflow.ellipsis,
-                                                    ),
-                                                    const SizedBox(height: 4),
-                                                    Wrap(
-                                                      spacing: 6,
-                                                      runSpacing: 4,
-                                                      children: [
-                                                        _chip(
-                                                          (t.scheduledFor ??
-                                                              'unscheduled'),
-                                                        ),
-                                                        
-                                                        _buildKindChip(t.kind ?? 'todo'),
-                                                      ],
-                                                    ),
-                                                  ],
+                                                        maxLines: 1,
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                      ),
+                                                      const SizedBox(height: 4),
+                                                      Wrap(
+                                                        spacing: 6,
+                                                        runSpacing: 4,
+                                                        children: [
+                                                          _chip(
+                                                            (t.scheduledFor ??
+                                                                'unscheduled'),
+                                                          ),
+
+                                                          _buildKindChip(
+                                                            t.kind ?? 'todo',
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ],
+                                                  ),
                                                 ),
-                                              ),
-                                            ],
+                                              ],
+                                            ),
                                           ),
-                                        ),
-                                      );
-                                    },
-                                    separatorBuilder: (_, __) => Divider(
-                                      height: 1,
-                                      color: theme.colorScheme.outline
-                                          .withAlpha((0.2 * 255).round()),
+                                        );
+                                      },
+                                      separatorBuilder: (_, __) => Divider(
+                                        height: 1,
+                                        color: theme.colorScheme.outline
+                                            .withAlpha((0.2 * 255).round()),
+                                      ),
+                                      itemCount: results.length,
                                     ),
-                                    itemCount: results.length,
                                   ),
-                                ),
                               ],
                             ),
                           ),
@@ -1694,7 +1856,7 @@ class _HomePageState extends State<HomePage> {
   Widget _buildKindChip(String kind) {
     IconData icon;
     Color color;
-    
+
     switch (kind) {
       case 'event':
         icon = Icons.event;
@@ -1712,7 +1874,7 @@ class _HomePageState extends State<HomePage> {
         icon = Icons.circle;
         color = Colors.grey;
     }
-    
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
@@ -1759,7 +1921,8 @@ class _HomePageState extends State<HomePage> {
         });
         await _refreshAll();
       }
-    } else { // treat default as todo
+    } else {
+      // treat default as todo
       if (!(mainView == MainView.tasks && _kindFilter.contains('todo'))) {
         setState(() {
           mainView = MainView.tasks;
@@ -1789,37 +1952,37 @@ class _HomePageState extends State<HomePage> {
   Future<void> _toggleCompleted(Todo t) async {
     try {
       if (t.kind == 'event') {
-          // Event completion is not supported
-          setState(() => message = 'Event completion is not supported.');
+        // Event completion is not supported
+        setState(() => message = 'Event completion is not supported.');
       } else if (t.kind == 'habit') {
-          if (t.masterId != null && t.scheduledFor != null) {
-            await api.toggleHabitOccurrence(
-              t.masterId!,
-              t.scheduledFor!,
-              !t.completed,
-            );
-          } else {
-            await api.updateHabit(t.id, {
-              'completed': !t.completed,
-              if (t.recurrence != null) 'recurrence': t.recurrence,
-            });
-          }
+        if (t.masterId != null && t.scheduledFor != null) {
+          await api.toggleHabitOccurrence(
+            t.masterId!,
+            t.scheduledFor!,
+            !t.completed,
+          );
+        } else {
+          await api.updateHabit(t.id, {
+            'completed': !t.completed,
+            if (t.recurrence != null) 'recurrence': t.recurrence,
+          });
+        }
       } else {
         // todo: use status model
-          if (t.masterId != null && t.scheduledFor != null) {
-            final next = (t.status == 'completed') ? 'pending' : 'completed';
-            await api.callMCPTool('set_todo_status', {
-              'id': t.masterId!,
-              'status': next,
-              'occurrenceDate': t.scheduledFor!,
-            });
-          } else {
-            final next = (t.status == 'completed') ? 'pending' : 'completed';
-            await api.callMCPTool('set_todo_status', {
-              'id': t.id,
-              'status': next,
-            });
-          }
+        if (t.masterId != null && t.scheduledFor != null) {
+          final next = (t.status == 'completed') ? 'pending' : 'completed';
+          await api.callMCPTool('set_todo_status', {
+            'id': t.masterId!,
+            'status': next,
+            'occurrenceDate': t.scheduledFor!,
+          });
+        } else {
+          final next = (t.status == 'completed') ? 'pending' : 'completed';
+          await api.callMCPTool('set_todo_status', {
+            'id': t.id,
+            'status': next,
+          });
+        }
       }
       await _refreshAll();
     } catch (e) {
@@ -1839,10 +2002,7 @@ class _HomePageState extends State<HomePage> {
         });
       } else {
         final next = (t.status == 'skipped') ? 'pending' : 'skipped';
-        await api.callMCPTool('set_todo_status', {
-          'id': t.id,
-          'status': next,
-        });
+        await api.callMCPTool('set_todo_status', {'id': t.id, 'status': next});
       }
       await _refreshAll();
     } catch (e) {
@@ -1897,7 +2057,7 @@ class _HomePageState extends State<HomePage> {
           ? '${t.recurrence!['intervalDays']}'
           : '1',
     );
-  
+
     String recurType = (t.recurrence != null && t.recurrence!['type'] is String)
         ? (t.recurrence!['type'] as String)
         : 'daily';
@@ -2116,7 +2276,7 @@ class _HomePageState extends State<HomePage> {
     if (normalized != (t.scheduledFor ?? '')) {
       patch['scheduledFor'] = normalized;
     }
-  // priority removed
+    // priority removed
     final time = timeCtrl.text.trim();
     if ((time.isEmpty ? null : time) != (t.timeOfDay)) {
       patch['timeOfDay'] = time.isEmpty ? null : time;
@@ -2153,11 +2313,17 @@ class _HomePageState extends State<HomePage> {
       }
       return false;
     }();
-    final nextAnchor = (patch.containsKey('scheduledFor')) ? (patch['scheduledFor'] as String?) : (t.scheduledFor);
+    final nextAnchor = (patch.containsKey('scheduledFor'))
+        ? (patch['scheduledFor'] as String?)
+        : (t.scheduledFor);
     if (willRepeat && (nextAnchor == null || nextAnchor.trim().isEmpty)) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Set an anchor date (YYYY-MM-DD) for repeating habits.')),
+          const SnackBar(
+            content: Text(
+              'Set an anchor date (YYYY-MM-DD) for repeating habits.',
+            ),
+          ),
         );
       }
       return;
@@ -2188,7 +2354,7 @@ class _HomePageState extends State<HomePage> {
           ? '${t.recurrence!['intervalDays']}'
           : '1',
     );
-  
+
     String recurType = (t.recurrence != null && t.recurrence!['type'] is String)
         ? (t.recurrence!['type'] as String)
         : 'none';
@@ -2229,11 +2395,15 @@ class _HomePageState extends State<HomePage> {
                     value: selectedContext,
                     decoration: const InputDecoration(labelText: 'Context'),
                     items: const [
-                      DropdownMenuItem(value: 'personal', child: Text('Personal')),
+                      DropdownMenuItem(
+                        value: 'personal',
+                        child: Text('Personal'),
+                      ),
                       DropdownMenuItem(value: 'work', child: Text('Work')),
                       DropdownMenuItem(value: 'school', child: Text('School')),
                     ],
-                    onChanged: (v) => setDlgState(() => selectedContext = v ?? 'personal'),
+                    onChanged: (v) =>
+                        setDlgState(() => selectedContext = v ?? 'personal'),
                   ),
                   const SizedBox(height: 8),
                   const SizedBox.shrink(),
@@ -2307,7 +2477,7 @@ class _HomePageState extends State<HomePage> {
     if (normalized != (t.scheduledFor ?? '')) {
       patch['scheduledFor'] = normalized;
     }
-  // priority removed
+    // priority removed
     final time = timeCtrl.text.trim();
     if ((time.isEmpty ? null : time) != (t.timeOfDay)) {
       patch['timeOfDay'] = time.isEmpty ? null : time;
@@ -2345,11 +2515,17 @@ class _HomePageState extends State<HomePage> {
       }
       return false;
     }();
-    final nextAnchor = (patch.containsKey('scheduledFor')) ? (patch['scheduledFor'] as String?) : (t.scheduledFor);
+    final nextAnchor = (patch.containsKey('scheduledFor'))
+        ? (patch['scheduledFor'] as String?)
+        : (t.scheduledFor);
     if (willRepeat && (nextAnchor == null || nextAnchor.trim().isEmpty)) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Set an anchor date (YYYY-MM-DD) for repeating todos.')),
+          const SnackBar(
+            content: Text(
+              'Set an anchor date (YYYY-MM-DD) for repeating todos.',
+            ),
+          ),
         );
       }
       return;
@@ -2377,13 +2553,17 @@ class _HomePageState extends State<HomePage> {
         print('Failed to fetch original event data: $e');
       }
     }
-    
+
     final titleCtrl = TextEditingController(text: t.title);
     final notesCtrl = TextEditingController(text: t.notes);
     final dateCtrl = TextEditingController(text: t.scheduledFor ?? '');
     final startCtrl = TextEditingController(text: t.timeOfDay ?? '');
-    final endCtrl = TextEditingController(text: originalEventData?['endTime'] ?? '');
-    final locationCtrl = TextEditingController(text: originalEventData?['location'] ?? '');
+    final endCtrl = TextEditingController(
+      text: originalEventData?['endTime'] ?? '',
+    );
+    final locationCtrl = TextEditingController(
+      text: originalEventData?['location'] ?? '',
+    );
     String recurType = (t.recurrence != null && t.recurrence!['type'] is String)
         ? (t.recurrence!['type'] as String)
         : 'none';
@@ -2448,11 +2628,15 @@ class _HomePageState extends State<HomePage> {
                     value: selectedContext,
                     decoration: const InputDecoration(labelText: 'Context'),
                     items: const [
-                      DropdownMenuItem(value: 'personal', child: Text('Personal')),
+                      DropdownMenuItem(
+                        value: 'personal',
+                        child: Text('Personal'),
+                      ),
                       DropdownMenuItem(value: 'work', child: Text('Work')),
                       DropdownMenuItem(value: 'school', child: Text('School')),
                     ],
-                    onChanged: (v) => setDlgState(() => selectedContext = v ?? 'personal'),
+                    onChanged: (v) =>
+                        setDlgState(() => selectedContext = v ?? 'personal'),
                   ),
                   const SizedBox(height: 8),
                   const SizedBox.shrink(),
@@ -2497,9 +2681,7 @@ class _HomePageState extends State<HomePage> {
               ),
               TextButton(
                 onPressed: () => Navigator.pop(c, 'delete'),
-                style: TextButton.styleFrom(
-                  foregroundColor: Colors.red,
-                ),
+                style: TextButton.styleFrom(foregroundColor: Colors.red),
                 child: const Text('Delete'),
               ),
               FilledButton(
@@ -2530,7 +2712,7 @@ class _HomePageState extends State<HomePage> {
     if (normalized != (t.scheduledFor ?? '')) {
       patch['scheduledFor'] = normalized;
     }
-  // priority removed
+    // priority removed
     final start = startCtrl.text.trim();
     final end = endCtrl.text.trim();
     patch['startTime'] = start.isEmpty ? null : start;
@@ -2559,11 +2741,17 @@ class _HomePageState extends State<HomePage> {
       }
       return false;
     }();
-    final nextAnchor = (patch.containsKey('scheduledFor')) ? (patch['scheduledFor'] as String?) : (t.scheduledFor);
+    final nextAnchor = (patch.containsKey('scheduledFor'))
+        ? (patch['scheduledFor'] as String?)
+        : (t.scheduledFor);
     if (willRepeat && (nextAnchor == null || nextAnchor.trim().isEmpty)) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Set an anchor date (YYYY-MM-DD) for repeating events.')),
+          const SnackBar(
+            content: Text(
+              'Set an anchor date (YYYY-MM-DD) for repeating events.',
+            ),
+          ),
         );
       }
       return;
@@ -2596,27 +2784,28 @@ class _HomePageState extends State<HomePage> {
       final recent = assistantTranscript.length <= 3
           ? assistantTranscript
           : assistantTranscript.sublist(assistantTranscript.length - 3);
-  final res = await api.assistantMessage(
+      final res = await api.assistantMessage(
         text,
         transcript: recent,
         streamSummary: true,
-    clientContext: () {
+        clientContext: () {
           // Limit to current view as requested: derive range and kinds
           final dr = rangeForView(anchor, view);
           final kinds = (mainView == MainView.habits)
               ? <String>['habit']
               : (mainView == MainView.goals)
-                  ? <String>['goal']
-                  : (_kindFilter.contains('event')
-                      ? <String>['event']
-                      : <String>['todo']);
+              ? <String>['goal']
+              : (_kindFilter.contains('event')
+                    ? <String>['event']
+                    : <String>['todo']);
           return {
             'range': {'from': dr.from, 'to': dr.to},
             'kinds': kinds,
-  'mainView': mainView.name,
-  // New: include completion and search context to further scope planning
-  'completed': showCompleted,
-  if (searchCtrl.text.trim().isNotEmpty) 'search': searchCtrl.text.trim(),
+            'mainView': mainView.name,
+            // New: include completion and search context to further scope planning
+            'completed': showCompleted,
+            if (searchCtrl.text.trim().isNotEmpty)
+              'search': searchCtrl.text.trim(),
           };
         }(),
         onTraceId: (cid) {
@@ -2640,7 +2829,7 @@ class _HomePageState extends State<HomePage> {
             }
           });
         },
-  onClarify: (q, options) {
+        onClarify: (q, options) {
           if (!mounted) return;
           setState(() {
             // Replace placeholder with clarify question if emitted
@@ -2708,8 +2897,8 @@ class _HomePageState extends State<HomePage> {
           });
         },
       );
-  final reply = (res['text'] as String?) ?? '';
-  final corr = (res['correlationId'] as String?) ?? _lastCorrelationId;
+      final reply = (res['text'] as String?) ?? '';
+      final corr = (res['correlationId'] as String?) ?? _lastCorrelationId;
       final opsRaw = res['operations'] as List<dynamic>?;
       final ops = opsRaw == null
           ? <AnnotatedOp>[]
@@ -2729,8 +2918,8 @@ class _HomePageState extends State<HomePage> {
             assistantTranscript.add({'role': 'assistant', 'text': reply});
           }
         }
-  assistantStreamingIndex = null;
-  _lastCorrelationId = corr;
+        assistantStreamingIndex = null;
+        _lastCorrelationId = corr;
         // Preserve any user selections made during streaming by reconciling with the final ops
         final prior = assistantOps;
         final priorChecked = assistantOpsChecked;
@@ -2755,7 +2944,7 @@ class _HomePageState extends State<HomePage> {
               ? priorChecked[i]
               : true);
         }
-  assistantOpsChecked = List<bool>.generate(assistantOps.length, (i) {
+        assistantOpsChecked = List<bool>.generate(assistantOps.length, (i) {
           final key = kOp(assistantOps[i]);
           final preserved = prevMap[key] ?? assistantOps[i].errors.isEmpty;
           return preserved && assistantOps[i].errors.isEmpty;
@@ -2765,10 +2954,10 @@ class _HomePageState extends State<HomePage> {
         _pendingClarifyOptions = const [];
         _clarifySelectedIds.clear();
         _clarifySelectedDate = null;
-  _progressStage = '';
-  _progressValid = 0;
-  _progressInvalid = 0;
-  _progressStart = null;
+        _progressStage = '';
+        _progressValid = 0;
+        _progressInvalid = 0;
+        _progressStart = null;
       });
     } catch (e) {
       setState(() {
@@ -2850,7 +3039,10 @@ class _HomePageState extends State<HomePage> {
       } catch (_) {
         // Ignore dry-run failures; continue to apply
       }
-        final res = await api.applyOperationsMCP(selectedOps, correlationId: _lastCorrelationId);
+      final res = await api.applyOperationsMCP(
+        selectedOps,
+        correlationId: _lastCorrelationId,
+      );
       final summary = res['summary'];
       if (mounted) {
         setState(() {
@@ -2895,10 +3087,6 @@ class _HomePageState extends State<HomePage> {
     return scheduled;
   }
 
-
-
-
-
   String? _getCurrentViewDate() {
     // Always return the anchor date
     return anchor;
@@ -2908,10 +3096,10 @@ class _HomePageState extends State<HomePage> {
     // Reset state variables
     _qaSelectedContext = selectedContext ?? 'personal';
     _qaSelectedRecurrence = 'none';
-    
+
     // Set default date to today
     _qaTodoDate.text = anchor;
-    
+
     showDialog<void>(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -2934,7 +3122,9 @@ class _HomePageState extends State<HomePage> {
                       Expanded(
                         child: TextField(
                           controller: _qaTodoDate,
-                          decoration: const InputDecoration(labelText: 'Date (YYYY-MM-DD)'),
+                          decoration: const InputDecoration(
+                            labelText: 'Date (YYYY-MM-DD)',
+                          ),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -2951,7 +3141,9 @@ class _HomePageState extends State<HomePage> {
                       Expanded(
                         child: TextField(
                           controller: _qaTodoTime,
-                          decoration: const InputDecoration(labelText: 'Time (HH:MM)'),
+                          decoration: const InputDecoration(
+                            labelText: 'Time (HH:MM)',
+                          ),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -2973,11 +3165,15 @@ class _HomePageState extends State<HomePage> {
                     value: _qaSelectedContext,
                     decoration: const InputDecoration(labelText: 'Context'),
                     items: const [
-                      DropdownMenuItem(value: 'personal', child: Text('Personal')),
+                      DropdownMenuItem(
+                        value: 'personal',
+                        child: Text('Personal'),
+                      ),
                       DropdownMenuItem(value: 'work', child: Text('Work')),
                       DropdownMenuItem(value: 'school', child: Text('School')),
                     ],
-                    onChanged: (v) => setDialogState(() => _qaSelectedContext = v),
+                    onChanged: (v) =>
+                        setDialogState(() => _qaSelectedContext = v),
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
@@ -2986,11 +3182,18 @@ class _HomePageState extends State<HomePage> {
                     items: const [
                       DropdownMenuItem(value: 'none', child: Text('None')),
                       DropdownMenuItem(value: 'daily', child: Text('Daily')),
-                      DropdownMenuItem(value: 'weekdays', child: Text('Weekdays')),
+                      DropdownMenuItem(
+                        value: 'weekdays',
+                        child: Text('Weekdays'),
+                      ),
                       DropdownMenuItem(value: 'weekly', child: Text('Weekly')),
-                      DropdownMenuItem(value: 'every_n_days', child: Text('Every N days')),
+                      DropdownMenuItem(
+                        value: 'every_n_days',
+                        child: Text('Every N days'),
+                      ),
                     ],
-                    onChanged: (v) => setDialogState(() => _qaSelectedRecurrence = v),
+                    onChanged: (v) =>
+                        setDialogState(() => _qaSelectedRecurrence = v),
                   ),
                   if (_qaSelectedRecurrence == 'every_n_days')
                     TextField(
@@ -3010,17 +3213,19 @@ class _HomePageState extends State<HomePage> {
               child: const Text('Cancel'),
             ),
             FilledButton(
-              onPressed: _addingQuick ? null : () async {
-                Navigator.of(context).pop();
-                await _submitQuickAddTodo();
-              },
-              child: _addingQuick 
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Text('Add'),
+              onPressed: _addingQuick
+                  ? null
+                  : () async {
+                      Navigator.of(context).pop();
+                      await _submitQuickAddTodo();
+                    },
+              child: _addingQuick
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Add'),
             ),
           ],
         ),
@@ -3032,10 +3237,10 @@ class _HomePageState extends State<HomePage> {
     // Reset state variables
     _qaSelectedContext = selectedContext ?? 'personal';
     _qaSelectedRecurrence = 'none';
-    
+
     // Set default date to today
     _qaEventDate.text = anchor;
-    
+
     showDialog<void>(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -3058,7 +3263,9 @@ class _HomePageState extends State<HomePage> {
                       Expanded(
                         child: TextField(
                           controller: _qaEventDate,
-                          decoration: const InputDecoration(labelText: 'Date (YYYY-MM-DD)'),
+                          decoration: const InputDecoration(
+                            labelText: 'Date (YYYY-MM-DD)',
+                          ),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -3075,7 +3282,9 @@ class _HomePageState extends State<HomePage> {
                       Expanded(
                         child: TextField(
                           controller: _qaEventStart,
-                          decoration: const InputDecoration(labelText: 'Start Time (HH:MM)'),
+                          decoration: const InputDecoration(
+                            labelText: 'Start Time (HH:MM)',
+                          ),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -3092,7 +3301,9 @@ class _HomePageState extends State<HomePage> {
                       Expanded(
                         child: TextField(
                           controller: _qaEventEnd,
-                          decoration: const InputDecoration(labelText: 'End Time (HH:MM)'),
+                          decoration: const InputDecoration(
+                            labelText: 'End Time (HH:MM)',
+                          ),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -3119,11 +3330,15 @@ class _HomePageState extends State<HomePage> {
                     value: _qaSelectedContext,
                     decoration: const InputDecoration(labelText: 'Context'),
                     items: const [
-                      DropdownMenuItem(value: 'personal', child: Text('Personal')),
+                      DropdownMenuItem(
+                        value: 'personal',
+                        child: Text('Personal'),
+                      ),
                       DropdownMenuItem(value: 'work', child: Text('Work')),
                       DropdownMenuItem(value: 'school', child: Text('School')),
                     ],
-                    onChanged: (v) => setDialogState(() => _qaSelectedContext = v),
+                    onChanged: (v) =>
+                        setDialogState(() => _qaSelectedContext = v),
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
@@ -3132,11 +3347,18 @@ class _HomePageState extends State<HomePage> {
                     items: const [
                       DropdownMenuItem(value: 'none', child: Text('None')),
                       DropdownMenuItem(value: 'daily', child: Text('Daily')),
-                      DropdownMenuItem(value: 'weekdays', child: Text('Weekdays')),
+                      DropdownMenuItem(
+                        value: 'weekdays',
+                        child: Text('Weekdays'),
+                      ),
                       DropdownMenuItem(value: 'weekly', child: Text('Weekly')),
-                      DropdownMenuItem(value: 'every_n_days', child: Text('Every N days')),
+                      DropdownMenuItem(
+                        value: 'every_n_days',
+                        child: Text('Every N days'),
+                      ),
                     ],
-                    onChanged: (v) => setDialogState(() => _qaSelectedRecurrence = v),
+                    onChanged: (v) =>
+                        setDialogState(() => _qaSelectedRecurrence = v),
                   ),
                   if (_qaSelectedRecurrence == 'every_n_days')
                     TextField(
@@ -3156,17 +3378,19 @@ class _HomePageState extends State<HomePage> {
               child: const Text('Cancel'),
             ),
             FilledButton(
-              onPressed: _addingQuick ? null : () async {
-                Navigator.of(context).pop();
-                await _submitQuickAddEvent();
-              },
-              child: _addingQuick 
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Text('Add'),
+              onPressed: _addingQuick
+                  ? null
+                  : () async {
+                      Navigator.of(context).pop();
+                      await _submitQuickAddEvent();
+                    },
+              child: _addingQuick
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Add'),
             ),
           ],
         ),
@@ -3176,7 +3400,6 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-
     final body = loading
         ? const Center(child: CircularProgressIndicator())
         : Column(
@@ -3184,7 +3407,10 @@ class _HomePageState extends State<HomePage> {
               // Header with 3-section layout: Left (Logo), Center (Search), Right (Actions)
               Container(
                 color: Theme.of(context).colorScheme.surface,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
                 child: Row(
                   children: [
                     // Left: Logo
@@ -3207,7 +3433,9 @@ class _HomePageState extends State<HomePage> {
                                   style: TextStyle(
                                     fontSize: 24,
                                     fontWeight: FontWeight.w600,
-                                    color: Theme.of(context).colorScheme.onSurface,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onSurface,
                                     letterSpacing: 0.2,
                                   ),
                                 ),
@@ -3241,10 +3469,7 @@ class _HomePageState extends State<HomePage> {
                                 if (event is! KeyDownEvent) {
                                   return KeyEventResult.ignored;
                                 }
-                                final len = math.min(
-                                  searchResults.length,
-                                  7,
-                                );
+                                final len = math.min(searchResults.length, 7);
                                 if (event.logicalKey ==
                                     LogicalKeyboardKey.arrowDown) {
                                   setState(() {
@@ -3259,16 +3484,13 @@ class _HomePageState extends State<HomePage> {
                                   setState(() {
                                     _searchHoverIndex = len == 0
                                         ? -1
-                                        : (_searchHoverIndex - 1 + len) %
-                                              len;
+                                        : (_searchHoverIndex - 1 + len) % len;
                                   });
                                   _showSearchOverlayIfNeeded();
                                   return KeyEventResult.handled;
                                 } else if (event.logicalKey ==
                                     LogicalKeyboardKey.enter) {
-                                  final list = searchResults
-                                      .take(7)
-                                      .toList();
+                                  final list = searchResults.take(7).toList();
                                   if (list.isEmpty) {
                                     return KeyEventResult.handled;
                                   }
@@ -3292,9 +3514,7 @@ class _HomePageState extends State<HomePage> {
                                     context,
                                   ).colorScheme.surfaceContainerHigh,
                                   border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(
-                                      24,
-                                    ),
+                                    borderRadius: BorderRadius.circular(24),
                                     borderSide: BorderSide(
                                       color: Theme.of(context)
                                           .colorScheme
@@ -3303,9 +3523,7 @@ class _HomePageState extends State<HomePage> {
                                     ),
                                   ),
                                   focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(
-                                      24,
-                                    ),
+                                    borderRadius: BorderRadius.circular(24),
                                     borderSide: BorderSide(
                                       color: Theme.of(
                                         context,
@@ -3322,10 +3540,9 @@ class _HomePageState extends State<HomePage> {
                                           height: 16,
                                           child: Padding(
                                             padding: EdgeInsets.all(8),
-                                            child:
-                                                CircularProgressIndicator(
-                                                  strokeWidth: 2,
-                                                ),
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
                                           ),
                                         ),
                                       if (searchCtrl.text.isNotEmpty)
@@ -3361,9 +3578,17 @@ class _HomePageState extends State<HomePage> {
                         children: [
                           // Assistant toggle
                           IconButton(
-                            icon: Icon(assistantCollapsed ? Icons.smart_toy_outlined : Icons.smart_toy),
-                            onPressed: () => setState(() => assistantCollapsed = !assistantCollapsed),
-                            tooltip: assistantCollapsed ? 'Show Mr. Assister' : 'Hide Mr. Assister',
+                            icon: Icon(
+                              assistantCollapsed
+                                  ? Icons.smart_toy_outlined
+                                  : Icons.smart_toy,
+                            ),
+                            onPressed: () => setState(
+                              () => assistantCollapsed = !assistantCollapsed,
+                            ),
+                            tooltip: assistantCollapsed
+                                ? 'Show Mr. Assister'
+                                : 'Hide Mr. Assister',
                           ),
                         ],
                       ),
@@ -3446,9 +3671,12 @@ class _HomePageState extends State<HomePage> {
                                               right: 16,
                                               bottom: 16,
                                               child: FabActions(
-                                                onCreateTodo: () => _showQuickAddTodo(),
-                                                onCreateEvent: () => _showQuickAddEvent(),
-                                                currentDate: _getCurrentViewDate(),
+                                                onCreateTodo: () =>
+                                                    _showQuickAddTodo(),
+                                                onCreateEvent: () =>
+                                                    _showQuickAddEvent(),
+                                                currentDate:
+                                                    _getCurrentViewDate(),
                                               ),
                                             ),
                                           ],
@@ -3510,7 +3738,6 @@ class _HomePageState extends State<HomePage> {
                                       todayYmd: ymd(DateTime.now()),
                                       selectedClarifyIds: _clarifySelectedIds,
                                       selectedClarifyDate: _clarifySelectedDate,
-                                      
                                     ),
                                   ),
                               ],
@@ -3551,7 +3778,7 @@ class _HomePageState extends State<HomePage> {
   Widget _buildMainList() {
     final items = _currentList();
     final grouped = _groupByDate(items);
-    
+
     if (view == ViewMode.month) {
       if (mainView == MainView.tasks) {
         // Build simple month grid data (6x7) around anchor
@@ -3559,7 +3786,10 @@ class _HomePageState extends State<HomePage> {
         final firstOfMonth = DateTime(a.year, a.month, 1);
         final weekday = firstOfMonth.weekday % 7; // Sunday=0
         final gridStart = firstOfMonth.subtract(Duration(days: weekday));
-        final days = List<String>.generate(42, (i) => ymd(gridStart.add(Duration(days: i))));
+        final days = List<String>.generate(
+          42,
+          (i) => ymd(gridStart.add(Duration(days: i))),
+        );
         // Build maps
         final Map<String, List<Map<String, dynamic>>> evBy = {};
         final Map<String, List<Map<String, dynamic>>> tkBy = {};
@@ -3567,7 +3797,9 @@ class _HomePageState extends State<HomePage> {
           final y = t.scheduledFor ?? '';
           if (!days.contains(y)) continue;
           final isEvent = t.kind == 'event';
-          final dst = isEvent ? (evBy[y] ??= <Map<String, dynamic>>[]) : (tkBy[y] ??= <Map<String, dynamic>>[]);
+          final dst = isEvent
+              ? (evBy[y] ??= <Map<String, dynamic>>[])
+              : (tkBy[y] ??= <Map<String, dynamic>>[]);
           dst.add({
             'id': t.id,
             'title': t.title,
@@ -3600,19 +3832,19 @@ class _HomePageState extends State<HomePage> {
     }
     // Gated path for the new DayView (disabled by default)
     if (view == ViewMode.day && mainView == MainView.tasks) {
-              return Padding(
-          padding: const EdgeInsets.all(12),
-          child: DayView(
-            dateYmd: anchor,
-            events: _anchorEventsAsMaps(),
-            tasks: _anchorTasksAsMaps(),
-            onSetTodoStatusOrOccurrence: _onSetTodoStatusOrOccurrenceNew,
-            onEditTask: _onEditTask,
-            onDeleteTask: _onDeleteTask,
-            onEditEvent: _onEditEvent,
-            scrollController: _timelineScrollController,
-          ),
-        );
+      return Padding(
+        padding: const EdgeInsets.all(12),
+        child: DayView(
+          dateYmd: anchor,
+          events: _anchorEventsAsMaps(),
+          tasks: _anchorTasksAsMaps(),
+          onSetTodoStatusOrOccurrence: _onSetTodoStatusOrOccurrenceNew,
+          onEditTask: _onEditTask,
+          onDeleteTask: _onDeleteTask,
+          onEditEvent: _onEditEvent,
+          scrollController: _timelineScrollController,
+        ),
+      );
     }
 
     // Gated path for new WeekView
@@ -3620,7 +3852,10 @@ class _HomePageState extends State<HomePage> {
       // Compute Sunday..Saturday for current anchor
       final a = parseYmd(anchor);
       final sunday = a.subtract(Duration(days: a.weekday % 7));
-      final days = List<String>.generate(7, (i) => ymd(sunday.add(Duration(days: i))));
+      final days = List<String>.generate(
+        7,
+        (i) => ymd(sunday.add(Duration(days: i))),
+      );
       // Build naive maps from scheduled list
       final Map<String, List<Map<String, dynamic>>> evBy = {};
       final Map<String, List<Map<String, dynamic>>> tkBy = {};
@@ -3628,7 +3863,9 @@ class _HomePageState extends State<HomePage> {
         final y = t.scheduledFor ?? '';
         if (!days.contains(y)) continue;
         final isEvent = t.kind == 'event';
-        final dst = isEvent ? (evBy[y] ??= <Map<String, dynamic>>[]) : (tkBy[y] ??= <Map<String, dynamic>>[]);
+        final dst = isEvent
+            ? (evBy[y] ??= <Map<String, dynamic>>[])
+            : (tkBy[y] ??= <Map<String, dynamic>>[]);
         dst.add({
           'id': t.id,
           'title': t.title,
@@ -3654,22 +3891,16 @@ class _HomePageState extends State<HomePage> {
         ),
       );
     }
-    
+
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 400),
       transitionBuilder: (Widget child, Animation<double> animation) {
         return SlideTransition(
-          position: Tween<Offset>(
-            begin: const Offset(0, 0.1),
-            end: Offset.zero,
-          ).animate(CurvedAnimation(
-            parent: animation,
-            curve: Curves.easeOutCubic,
-          )),
-          child: FadeTransition(
-            opacity: animation,
-            child: child,
-          ),
+          position: Tween<Offset>(begin: const Offset(0, 0.1), end: Offset.zero)
+              .animate(
+                CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+              ),
+          child: FadeTransition(opacity: animation, child: child),
         );
       },
       child: ListView(
@@ -3684,14 +3915,25 @@ class _HomePageState extends State<HomePage> {
                 // Today label removed - just show the date
                 final label = entry.key;
                 return AnimatedContainer(
-                  duration: Duration(milliseconds: _todayPulseActive && isTodayHeader ? 350 : 300),
-                  curve: _todayPulseActive && isTodayHeader ? Curves.easeInOut : Curves.easeOutCubic,
+                  duration: Duration(
+                    milliseconds: _todayPulseActive && isTodayHeader
+                        ? 350
+                        : 300,
+                  ),
+                  curve: _todayPulseActive && isTodayHeader
+                      ? Curves.easeInOut
+                      : Curves.easeOutCubic,
                   margin: const EdgeInsets.only(top: 8, bottom: 2),
-                  padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 6,
+                    horizontal: 8,
+                  ),
                   decoration: BoxDecoration(
                     color: isTodayHeader
                         ? Theme.of(context).colorScheme.primary.withAlpha(
-                            _todayPulseActive ? (0.15 * 255).round() : (0.06 * 255).round()
+                            _todayPulseActive
+                                ? (0.15 * 255).round()
+                                : (0.06 * 255).round(),
                           )
                         : null,
                     border: Border(
@@ -3715,18 +3957,18 @@ class _HomePageState extends State<HomePage> {
                 );
               },
             ),
-            ...entry.value.map((t) => AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeOutCubic,
-              child: _buildRow(t),
-            )),
+            ...entry.value.map(
+              (t) => AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOutCubic,
+                child: _buildRow(t),
+              ),
+            ),
           ],
         ],
       ),
     );
   }
-
-
 
   Widget _buildWeekdayHeader() {
     try {
@@ -3761,9 +4003,8 @@ class _HomePageState extends State<HomePage> {
                     ),
                     decoration: isToday
                         ? BoxDecoration(
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.primary.withAlpha((0.08 * 255).round()),
+                            color: Theme.of(context).colorScheme.primary
+                                .withAlpha((0.08 * 255).round()),
                             borderRadius: BorderRadius.circular(999),
                             border: Border.all(
                               color: Theme.of(context).colorScheme.primary,
@@ -3986,13 +4227,17 @@ class _HomePageState extends State<HomePage> {
   Widget _monthItemChip(Todo t) {
     final time = t.timeOfDay;
     final label = (time == null || time.isEmpty) ? t.title : '$time ${t.title}';
-    
+
     // Context-based colors
-    final contextColor = t.context != null ? ContextColors.getContextColor(t.context) : Colors.grey.shade600;
-    final Color bg = ContextColors.getContextBackgroundColor(t.context) ?? Colors.grey.shade50;
+    final contextColor = t.context != null
+        ? ContextColors.getContextColor(t.context)
+        : Colors.grey.shade600;
+    final Color bg =
+        ContextColors.getContextBackgroundColor(t.context) ??
+        Colors.grey.shade50;
     final Color fg = Colors.black87;
     final Color border = contextColor.withOpacity(0.3);
-    
+
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
       curve: Curves.easeOutCubic,
@@ -4013,8 +4258,18 @@ class _HomePageState extends State<HomePage> {
 
   String _getMonthName(int month) {
     const monthNames = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
     ];
     return monthNames[month - 1];
   }
@@ -4035,7 +4290,7 @@ class _HomePageState extends State<HomePage> {
 
   void _goToDate(String y) async {
     setState(() {
-              view = ViewMode.day;
+      view = ViewMode.day;
       anchor = y;
       _pendingScrollYmd = y;
     });
@@ -4048,7 +4303,7 @@ class _HomePageState extends State<HomePage> {
       _todayPulseActive = true;
     });
     await _refreshAll();
-    
+
     // Trigger pulse animation
     Future.delayed(const Duration(milliseconds: 100), () {
       if (mounted) {
@@ -4088,7 +4343,7 @@ class _HomePageState extends State<HomePage> {
 
   void _maybeScrollToPendingDate() {
     if (_pendingScrollYmd == null) return;
-          if (view != ViewMode.day) {
+    if (view != ViewMode.day) {
       _pendingScrollYmd = null;
       return;
     }
@@ -4808,7 +5063,9 @@ class _HomePageState extends State<HomePage> {
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
           color: selected
-              ? Theme.of(context).colorScheme.primary.withAlpha((0.1 * 255).round())
+              ? Theme.of(
+                  context,
+                ).colorScheme.primary.withAlpha((0.1 * 255).round())
               : Colors.grey.shade100,
           borderRadius: BorderRadius.circular(999),
           border: Border.all(
@@ -4831,15 +5088,16 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildRow(Todo t) {
-    // Determine overdue: only in Today context, timed tasks, not completed, and time < now
+    // Determine overdue: only when viewing today's Day view, timed tasks, not completed, and time < now
     bool isOverdue = false;
     try {
       final bool isResolved = (t.kind == 'todo')
           ? ((t.status == 'completed') || (t.status == 'skipped'))
           : t.completed;
       if (!isResolved && t.scheduledFor != null && t.timeOfDay != null) {
-        final today = ymd(DateTime.now());
-        if (t.scheduledFor == today) {
+        final todayYmd = ymd(DateTime.now());
+        final viewingToday = (anchor == todayYmd);
+        if (viewingToday && t.scheduledFor == todayYmd) {
           final parts = (t.timeOfDay ?? '').split(':');
           if (parts.length == 2) {
             final now = DateTime.now();
@@ -4851,16 +5109,14 @@ class _HomePageState extends State<HomePage> {
         }
       }
     } catch (_) {}
-  final like = row.TodoLike(
+    final like = row.TodoLike(
       id: t.id,
       title: t.title,
       notes: t.notes,
       kind: t.kind,
       timeOfDay: t.timeOfDay,
       status: t.status,
-      completed: (t.kind == 'todo')
-          ? (t.status == 'completed')
-          : t.completed,
+      completed: (t.kind == 'todo') ? (t.status == 'completed') : t.completed,
       overdue: isOverdue,
       context: t.context,
     );
@@ -4934,9 +5190,7 @@ class _HomePageState extends State<HomePage> {
       child: row.TodoRow(
         todo: like,
         onToggleCompleted: () => _toggleCompleted(t),
-        onToggleSkipped: (t.kind == 'todo')
-            ? () => _toggleSkip(t)
-            : null,
+        onToggleSkipped: (t.kind == 'todo') ? () => _toggleSkip(t) : null,
         onEdit: () => (t.kind == 'event')
             ? _editEvent(t)
             : (t.kind == 'habit')
@@ -4945,7 +5199,7 @@ class _HomePageState extends State<HomePage> {
         onDelete: () => _deleteTodo(t),
         highlighted: _highlightedId == t.id,
         extraBadge: extraBadge,
-  onTitleEdited: (newTitle) async {
+        onTitleEdited: (newTitle) async {
           try {
             if (t.kind == 'event') {
               await api.updateEvent(t.id, {
@@ -4969,7 +5223,7 @@ class _HomePageState extends State<HomePage> {
             });
           } catch (_) {}
         },
-        
+
         onTimeEdited: (newTime) async {
           try {
             if (t.kind == 'event') {
@@ -5029,17 +5283,12 @@ class _HomePageState extends State<HomePage> {
       7,
       (i) => sunday.add(Duration(days: i)),
     );
-  final weekY = week.map((d) => ymd(d)).toList();
+    final weekY = week.map((d) => ymd(d)).toList();
     // Prepare habits
     final items = scheduled.where((t) => t.kind == 'habit').toList()
       ..sort((a, b) => (a.title).compareTo(b.title));
     final rows = items
-        .map(
-          (t) => ht.HabitRowData(
-            id: t.masterId ?? t.id,
-            title: t.title,
-          ),
-        )
+        .map((t) => ht.HabitRowData(id: t.masterId ?? t.id, title: t.title))
         .toList();
 
     // Optimistic toggle helper
@@ -5292,7 +5541,9 @@ class _HomePageState extends State<HomePage> {
     VoidCallback? onTap,
   }) {
     final bg = completed
-  ? Theme.of(context).colorScheme.surfaceContainerHighest.withAlpha((0.8 * 255).round())
+        ? Theme.of(
+            context,
+          ).colorScheme.surfaceContainerHighest.withAlpha((0.8 * 255).round())
         : Colors.transparent;
     final borderColor = Theme.of(context).colorScheme.outlineVariant;
     return InkWell(
