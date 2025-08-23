@@ -8,7 +8,7 @@ import 'package:flutter/gestures.dart';
 
 import 'widgets/todo_row.dart' as row;
 import 'widgets/habits_tracker.dart' as ht;
-import 'widgets/smart_list_tabs.dart' as slt;
+
 import 'widgets/fab_actions.dart';
 
 import 'api.dart' as api;
@@ -55,6 +55,7 @@ class Todo {
   String? kind; // 'todo'|'event'|'habit' for unified schedule rows
   String? scheduledFor; // YYYY-MM-DD or null
   String? timeOfDay; // HH:MM or null
+  String? endTime; // HH:MM or null (for events)
   String? priority; // low|medium|high
   bool completed;
   String? status; // 'pending'|'completed'|'skipped' for todos
@@ -71,6 +72,7 @@ class Todo {
     this.kind,
     required this.scheduledFor,
     required this.timeOfDay,
+    this.endTime,
   this.priority,
     required this.completed,
     this.status,
@@ -88,6 +90,7 @@ class Todo {
     kind: j['kind'] as String?,
     scheduledFor: j['scheduledFor'] as String?,
     timeOfDay: ((j['timeOfDay'] as String?) ?? (j['startTime'] as String?)),
+    endTime: j['endTime'] as String?,
   priority: j['priority'] as String?,
     completed: j['completed'] as bool? ?? false,
     status: j['status'] as String?,
@@ -297,8 +300,7 @@ class FilterBar extends StatelessWidget {
   final VoidCallback? onDateNext;
   final VoidCallback? onDateToday;
   final String currentDate;
-  final String? selectedType;
-  final void Function(String?) onTypeChanged;
+
   final String? selectedContext;
   final void Function(String?) onContextChanged;
   final bool showCompleted;
@@ -312,8 +314,7 @@ class FilterBar extends StatelessWidget {
     this.onDateNext,
     this.onDateToday,
     required this.currentDate,
-    required this.selectedType,
-    required this.onTypeChanged,
+
     required this.selectedContext,
     required this.onContextChanged,
     required this.showCompleted,
@@ -363,12 +364,6 @@ class FilterBar extends StatelessWidget {
                 ),
               
               const Spacer(),
-              
-              // Type filters
-              slt.TypeTabs(
-                selectedType: selectedType,
-                onTypeChanged: onTypeChanged,
-              ),
             ],
           ),
           
@@ -1214,7 +1209,7 @@ class _HomePageState extends State<HomePage> {
           'title': t.title,
           'scheduledFor': t.scheduledFor,
           'startTime': t.timeOfDay, // unified model uses timeOfDay for start
-          'endTime': null,
+          'endTime': t.endTime,
           'completed': t.completed,
           'location': null,
         });
@@ -2889,33 +2884,13 @@ class _HomePageState extends State<HomePage> {
   }
 
   List<Todo> _currentList() {
-    List<Todo> items = scheduled; // Always use scheduled items
-    
-    // Apply type filtering - but skip filtering when showing "All"
-    if (mainView == MainView.tasks && _kindFilter.isNotEmpty) {
-      if (_kindFilter.contains('todo') && _kindFilter.contains('event')) {
-        // "All" mode: don't filter, show everything
-        // The data combination already happened in _refreshAll()
-      } else if (_kindFilter.contains('todo')) {
-        // "Tasks" mode: show only todos
-        items = items.where((item) => item.kind == 'todo' || item.kind == null).toList();
-      } else if (_kindFilter.contains('event')) {
-        // "Events" mode: show only events  
-        items = items.where((item) => item.kind == 'event').toList();
-      }
-    }
-    
-    return items;
+    // Always return all scheduled items without type filtering
+    return scheduled;
   }
 
 
 
-  String? _getSelectedType() {
-    if (_kindFilter.length == 1) {
-      return _kindFilter.first;
-    }
-    return null; // Both todo and event
-  }
+
 
   String? _getCurrentViewDate() {
     // Always return the anchor date
@@ -3437,13 +3412,7 @@ class _HomePageState extends State<HomePage> {
                                           onDateNext: _goNext,
                                           onDateToday: _goToToday,
                                           currentDate: anchor,
-                                          selectedType: _getSelectedType(),
-                                          onTypeChanged: (type) async {
-                                            setState(() => _kindFilter = type == null 
-                                              ? <String>{'todo', 'event'} 
-                                              : <String>{type});
-                                            await _refreshAll();
-                                          },
+
                                           selectedContext: selectedContext,
                                           onContextChanged: (context) async {
                                             setState(() {
@@ -3696,7 +3665,7 @@ class _HomePageState extends State<HomePage> {
         );
       },
       child: ListView(
-        key: ValueKey('${view}_${_getSelectedType()}_$selectedContext'),
+        key: ValueKey('${view}_$selectedContext'),
         padding: const EdgeInsets.all(12),
         children: [
           if (view == ViewMode.week) _buildWeekdayHeader(),
