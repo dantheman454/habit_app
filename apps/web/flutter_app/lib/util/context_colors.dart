@@ -1,0 +1,45 @@
+import 'package:flutter/material.dart';
+
+class ContextColors {
+  static Color getSchoolColor() => Colors.blue.shade600;
+  static Color getWorkColor() => Colors.orange.shade600;
+  static Color getPersonalColor() => Colors.green.shade600;
+  static Color getDefaultColor() => Colors.grey.shade600;
+  
+  static Color getContextColor(String? context) {
+    switch (context) {
+      case 'school': return getSchoolColor();
+      case 'work': return getWorkColor();
+      case 'personal': return getPersonalColor();
+      default: return getDefaultColor();
+    }
+  }
+  
+  static Color getContextBackgroundColor(String? context) {
+    final baseColor = getContextColor(context);
+    return baseColor.withOpacity(0.15); // Subtle background
+  }
+
+  static Color getContextButtonColor(String? context, bool isSelected) {
+    if (context == null) {
+      // "All" button - always grey background with opacity variation
+      return Colors.grey.shade600.withOpacity(isSelected ? 1.0 : 0.15);
+    }
+    final baseColor = getContextColor(context);
+    return baseColor.withOpacity(isSelected ? 1.0 : 0.15); // Always colored, different opacity
+  }
+  
+  static IconData getContextIcon(String? context) {
+    switch (context) {
+      case 'school': return Icons.school;
+      case 'work': return Icons.work;
+      case 'personal': return Icons.person;
+      default: return Icons.public;
+    }
+  }
+  
+  // Helper methods for task badges (when context is not available)
+  static Color get taskBadgeBackground => Colors.grey.shade50;
+  static Color get taskBadgeBorder => Colors.grey.shade300;
+  static Color get taskBadgeText => Colors.black87;
+}

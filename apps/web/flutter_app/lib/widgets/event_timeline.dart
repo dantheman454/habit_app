@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
+import '../util/context_colors.dart';
 
 class EventTimeline extends StatelessWidget {
   final String dateYmd;
@@ -110,6 +111,7 @@ class EventTimeline extends StatelessWidget {
                           child: _EventBlock(
               id: e.id,
               title: e.title,
+              context: e.context,
               onTap: () => onTapEvent?.call(e.id),
             ),
             ),
@@ -156,6 +158,7 @@ class EventTimeline extends StatelessWidget {
       final String title = (raw['title'] ?? '').toString();
       final String? startStr = (raw['startTime'] ?? raw['timeOfDay']) as String?;
       final String? endStr = raw['endTime'] as String?;
+      final String? context = raw['context'] as String?;
       int startM = _parseHm(startStr, minHour);
       int endM = endStr != null && endStr.isNotEmpty
           ? _parseHm(endStr, minHour)
@@ -170,6 +173,7 @@ class EventTimeline extends StatelessWidget {
         startM: startM,
         endM: endM,
         lane: 0,
+        context: context,
       ));
     }
     return list;
@@ -194,12 +198,14 @@ class _NormalizedEvent {
   final String title;
   final int startM;
   final int endM;
+  final String? context;
   int lane;
   _NormalizedEvent({
     required this.id,
     required this.title,
     required this.startM,
     required this.endM,
+    this.context,
     this.lane = 0,
   });
 }
@@ -207,20 +213,24 @@ class _NormalizedEvent {
 class _EventBlock extends StatelessWidget {
   final int id;
   final String title;
+  final String? context;
   final VoidCallback? onTap;
   const _EventBlock({
     required this.id,
     required this.title,
+    this.context,
     this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    // Token-inspired colors for events (green family)
-    final Color bg = Colors.green.shade50;
-    final Color border = Colors.green.shade200;
-    final Color accent = Colors.green.shade700;
-    final Color fg = Colors.green.shade900;
+    // Context-based colors for events
+    final Color bg = ContextColors.getContextBackgroundColor(this.context) ?? Colors.green.shade50;
+    final Color contextColor = this.context != null ? ContextColors.getContextColor(this.context) : Colors.green.shade600;
+    final Color border = contextColor.withOpacity(0.3);
+    final Color accent = contextColor;
+    final Color fg = Colors.black87;
+    
     return Material(
       color: bg,
       borderRadius: BorderRadius.circular(6),
@@ -240,15 +250,20 @@ class _EventBlock extends StatelessWidget {
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                  child: Text(
-                    title.isEmpty ? 'Event' : title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: fg, fontWeight: FontWeight.w600),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        title.isEmpty ? 'Event' : title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: fg, fontWeight: FontWeight.w600),
+                      ),
+                    ],
                   ),
                 ),
               ),
-
             ],
           ),
         ),

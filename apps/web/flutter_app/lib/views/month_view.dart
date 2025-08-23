@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../util/context_colors.dart';
 
 class MonthView extends StatefulWidget {
   final List<String> gridYmd; // 42 dates (6x7), Sun..Sat rows
@@ -230,14 +231,14 @@ class _TaskBadges extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
             decoration: BoxDecoration(
-              color: Colors.blue.shade50,
-              border: Border.all(color: Colors.blue.shade200),
+              color: ContextColors.taskBadgeBackground,
+              border: Border.all(color: ContextColors.taskBadgeBorder),
               borderRadius: BorderRadius.circular(6),
             ),
             child: Text(
               (t['title'] ?? '').toString(),
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 11, color: Colors.blue.shade900),
+              style: TextStyle(fontSize: 11, color: ContextColors.taskBadgeText),
             ),
           ),
         if (more > 0)

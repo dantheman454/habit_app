@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../util/context_colors.dart';
 
 class TodoLike {
   final int id;
@@ -52,8 +53,9 @@ class TodoRow extends StatelessWidget {
   final isSkipped = (todo.status == 'skipped');
   final isCompleted = todo.completed || (todo.status == 'completed');
   
-  // Enhanced color scheme based on item type
-  final colorScheme = _getItemColorScheme(context, todo.kind ?? 'todo');
+  // Context-based colors
+  final contextColor = todo.context != null ? ContextColors.getContextColor(todo.context) : Colors.grey.shade600;
+  final borderColor = contextColor.withOpacity(0.3);
   
   return AnimatedContainer(
       duration: const Duration(milliseconds: 400),
@@ -63,7 +65,7 @@ class TodoRow extends StatelessWidget {
         border: Border.all(
           color: highlighted
               ? Theme.of(context).colorScheme.primary
-              : colorScheme.border,
+              : borderColor,
           width: highlighted ? 2 : 1,
         ),
         borderRadius: BorderRadius.circular(8),
@@ -73,7 +75,7 @@ class TodoRow extends StatelessWidget {
                 ? Colors.grey.withAlpha((0.1 * 255).round())
                 : (isSkipped 
                     ? Colors.orange.withAlpha((0.06 * 255).round()) 
-                    : colorScheme.background)),
+                    : ContextColors.getContextBackgroundColor(todo.context))),
       ),
               child: Row(
           children: [
@@ -98,7 +100,7 @@ class TodoRow extends StatelessWidget {
                     ],
                     const SizedBox(width: 6),
                     _buildKindBadge(todo.kind ?? 'todo'),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: 4), // Reduced spacing
                     Flexible(
                       child: InkWell(
                         onTap: onTitleEdited == null
@@ -210,11 +212,7 @@ class TodoRow extends StatelessWidget {
                     ],
                   ],
                 ),
-                // Context badge below title
-                if (todo.context != null) ...[
-                  const SizedBox(height: 4),
-                  _buildContextBadge(todo.context!),
-                ],
+                // Context badge moved to next to kind badge
                 if (todo.notes.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 2),
@@ -274,44 +272,26 @@ class TodoRow extends StatelessWidget {
   }
 
   Widget _buildContextBadge(String context) {
-    IconData icon;
-    Color color;
-    
-    switch (context) {
-      case 'school':
-        icon = Icons.school;
-        color = Colors.blue.shade700;
-        break;
-      case 'work':
-        icon = Icons.work;
-        color = Colors.orange.shade700;
-        break;
-      case 'personal':
-        icon = Icons.person;
-        color = Colors.green.shade700;
-        break;
-      default:
-        icon = Icons.public;
-        color = Colors.grey.shade700;
-    }
+    final color = ContextColors.getContextColor(context);
+    final icon = ContextColors.getContextIcon(context);
     
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.4), width: 1.5),
+        color: color.withOpacity(0.08), // Very subtle background
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.3), width: 0.5), // Thin border
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: color),
-          const SizedBox(width: 4),
+          Icon(icon, size: 12, color: color), // Smaller icon
+          const SizedBox(width: 3),
           Text(
             context.substring(0, 1).toUpperCase() + context.substring(1),
             style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
+              fontSize: 10,
+              fontWeight: FontWeight.w500,
               color: color,
             ),
           ),
@@ -365,52 +345,5 @@ class TodoRow extends StatelessWidget {
         ],
       ),
     );
-  }
-}
-
-class ItemColorScheme {
-  final Color background;
-  final Color border;
-  final Color primary;
-  final Color text;
-  
-  const ItemColorScheme({
-    required this.background,
-    required this.border,
-    required this.primary,
-    required this.text,
-  });
-}
-
-ItemColorScheme _getItemColorScheme(BuildContext context, String kind) {
-  switch (kind) {
-    case 'event':
-      return ItemColorScheme(
-        background: Colors.green.shade50,
-        border: Colors.green.shade200,
-        primary: Colors.green.shade700,
-        text: Colors.green.shade900,
-      );
-    case 'todo':
-      return ItemColorScheme(
-        background: Colors.blue.shade50,
-        border: Colors.blue.shade200,
-        primary: Colors.blue.shade700,
-        text: Colors.blue.shade900,
-      );
-    case 'habit':
-      return ItemColorScheme(
-        background: Colors.purple.shade50,
-        border: Colors.purple.shade200,
-        primary: Colors.purple.shade700,
-        text: Colors.purple.shade900,
-      );
-    default:
-      return ItemColorScheme(
-        background: Colors.grey.shade50,
-        border: Colors.grey.shade300,
-        primary: Colors.grey.shade700,
-        text: Colors.grey.shade900,
-      );
   }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models.dart' show ViewMode;
 import '../main.dart' show DateNavigation;
+import '../util/context_colors.dart';
 
 class HabitusLogo extends StatelessWidget {
   const HabitusLogo({super.key});
@@ -147,21 +148,28 @@ class Sidebar extends StatelessWidget {
 
   Widget _contextTile(String label, String? contextValue, IconData icon, {int? count}) {
     final active = selectedContext == contextValue;
-    return ListTile(
-      leading: Icon(icon, size: 20),
-      title: Text(label),
-      trailing: (count == null)
-          ? null
-          : Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: Colors.black12,
-                borderRadius: BorderRadius.circular(999),
+    final color = contextValue != null ? ContextColors.getContextColor(contextValue) : Colors.grey.shade600;
+    
+    return Container(
+      decoration: BoxDecoration(
+        color: ContextColors.getContextButtonColor(contextValue, active), // Always colored background
+      ),
+      child: ListTile(
+        leading: Icon(icon, size: 20, color: Colors.black87), // Always black for contrast
+        title: Text(label, style: const TextStyle(color: Colors.black87)), // Always black for contrast
+        trailing: (count == null)
+            ? null
+            : Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.black12,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(_formatCount(count)),
               ),
-              child: Text(_formatCount(count)),
-            ),
-      selected: active,
-      onTap: () => onContextChanged(contextValue),
+        selected: active,
+        onTap: () => onContextChanged(contextValue),
+      ),
     );
   }
 

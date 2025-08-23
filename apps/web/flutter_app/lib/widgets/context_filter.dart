@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../util/context_colors.dart';
 
 class ContextFilter extends StatelessWidget {
   final String? selectedContext; // 'school', 'personal', 'work', null for 'all'
@@ -27,6 +28,7 @@ class ContextFilter extends StatelessWidget {
 
   Widget _contextChip(String label, String? contextValue, IconData icon) {
     final isSelected = selectedContext == contextValue;
+    final color = contextValue != null ? ContextColors.getContextColor(contextValue) : Colors.grey.shade600;
     
     return Builder(
       builder: (context) => InkWell(
@@ -35,13 +37,11 @@ class ContextFilter extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
-            color: isSelected 
-                ? Theme.of(context).colorScheme.primary.withAlpha((0.1 * 255).round())
-                : Colors.grey.shade100,
+            color: ContextColors.getContextButtonColor(contextValue, isSelected),
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
               color: isSelected
-                  ? Theme.of(context).colorScheme.primary
+                  ? color
                   : Colors.grey.shade300,
               width: 1,
             ),
@@ -52,17 +52,13 @@ class ContextFilter extends StatelessWidget {
               Icon(
                 icon,
                 size: 16,
-                color: isSelected
-                    ? Theme.of(context).colorScheme.primary
-                    : Colors.grey.shade600,
+                color: Colors.black87,
               ),
               const SizedBox(width: 6),
               Text(
                 label,
                 style: TextStyle(
-                  color: isSelected
-                      ? Theme.of(context).colorScheme.primary
-                      : Colors.black87,
+                  color: Colors.black87,
                   fontSize: 14,
                   fontWeight: isSelected ? FontWeight.w500 : FontWeight.normal,
                 ),

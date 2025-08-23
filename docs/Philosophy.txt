@@ -1,6 +1,6 @@
 Vision:
 -Make a virtual seceratary to go over calendar and ask for vision to then put into concrete tasks
--Help tie actual tasks to overall habits
+-Help tie actual tasks/events to overall habits/goals
 -Track task success rates to be able to make informed decisions based on success rates of tasks
 
 

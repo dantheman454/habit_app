@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
+import 'util/context_colors.dart';
 import 'widgets/assistant_panel.dart';
 import 'views/day_view.dart';
 import 'views/week_view.dart';
@@ -412,6 +413,7 @@ class FilterBar extends StatelessWidget {
 
   Widget _buildContextChip(String label, String? contextValue, IconData icon, BuildContext context) {
     final active = selectedContext == contextValue;
+    final color = contextValue != null ? ContextColors.getContextColor(contextValue) : Colors.grey.shade600;
     return AnimatedScale(
       duration: const Duration(milliseconds: 200),
       scale: active ? 1.05 : 1.0,
@@ -419,13 +421,16 @@ class FilterBar extends StatelessWidget {
         label: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 16),
+            Icon(icon, size: 16, color: Colors.black87), // Always black for contrast
             const SizedBox(width: 4),
-            Text(label),
+            Text(label, style: const TextStyle(color: Colors.black87)), // Always black for contrast
           ],
         ),
         selected: active,
         onSelected: (_) => onContextChanged(contextValue),
+        backgroundColor: ContextColors.getContextButtonColor(contextValue, false), // Always colored background
+        selectedColor: ContextColors.getContextButtonColor(contextValue, true), // Full color when selected
+        checkmarkColor: Colors.black87, // Black checkmark for contrast
       ),
     );
   }
@@ -1212,6 +1217,7 @@ class _HomePageState extends State<HomePage> {
           'endTime': t.endTime,
           'completed': t.completed,
           'location': null,
+          'context': t.context,
         });
       }
     }
@@ -1230,6 +1236,7 @@ class _HomePageState extends State<HomePage> {
           'completed': t.completed,
           'status': t.status,
           'notes': t.notes,
+          'context': t.context,
         });
       }
     }
@@ -2208,7 +2215,7 @@ class _HomePageState extends State<HomePage> {
                   TextField(
                     controller: dateCtrl,
                     decoration: const InputDecoration(
-                      labelText: 'Scheduled (YYYY-MM-DD or empty)',
+                      labelText: 'Scheduled (YYYY-MM-DD)',
                     ),
                   ),
                   TextField(
@@ -3568,6 +3575,7 @@ class _HomePageState extends State<HomePage> {
             'timeOfDay': t.timeOfDay,
             'startTime': t.timeOfDay,
             'completed': t.completed,
+            'context': t.context,
           });
         }
         return Padding(
@@ -3979,28 +3987,11 @@ class _HomePageState extends State<HomePage> {
     final time = t.timeOfDay;
     final label = (time == null || time.isEmpty) ? t.title : '$time ${t.title}';
     
-    // Enhanced color scheme based on item type
-    Color bg;
-    Color fg;
-    Color border;
-    
-    switch (t.kind) {
-      case 'event':
-        bg = Colors.green.shade50;
-        fg = Colors.green.shade900;
-        border = Colors.green.shade200;
-        break;
-      case 'habit':
-        bg = Colors.purple.shade50;
-        fg = Colors.purple.shade900;
-        border = Colors.purple.shade200;
-        break;
-      default: // todo
-        bg = Colors.blue.shade50;
-        fg = Colors.blue.shade900;
-        border = Colors.blue.shade200;
-        break;
-    }
+    // Context-based colors
+    final contextColor = t.context != null ? ContextColors.getContextColor(t.context) : Colors.grey.shade600;
+    final Color bg = ContextColors.getContextBackgroundColor(t.context) ?? Colors.grey.shade50;
+    final Color fg = Colors.black87;
+    final Color border = contextColor.withOpacity(0.3);
     
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),

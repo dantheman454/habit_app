@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../util/context_colors.dart';
 
 class TaskList extends StatelessWidget {
   final List<Map<String, dynamic>> tasks;
@@ -27,36 +28,39 @@ class TaskList extends StatelessWidget {
         final completed = status == 'completed';
         return Stack(
           children: [
-            ListTile(
-              leading: Checkbox(
-                value: completed,
-                onChanged: (v) => onSetStatus(id, (v ?? false) ? 'completed' : 'pending'),
-                visualDensity: VisualDensity.compact,
+            Container(
+              decoration: BoxDecoration(
+                color: ContextColors.getContextBackgroundColor(item['context']),
               ),
-              title: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      title.isEmpty ? 'Task' : title,
-                      overflow: TextOverflow.ellipsis,
+              child: ListTile(
+                leading: Checkbox(
+                  value: completed,
+                  onChanged: (v) => onSetStatus(id, (v ?? false) ? 'completed' : 'pending'),
+                  visualDensity: VisualDensity.compact,
+                ),
+                title: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title.isEmpty ? 'Task' : title,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 6),
-                  _timeChip(item),
-                  const SizedBox(width: 6),
-                  _contextBadge(item),
-                ],
-              ),
-              subtitle: _buildSubtitle(item),
-              trailing: PopupMenuButton<String>(
-                onSelected: (v) {
-                  if (v == 'edit' && onEdit != null) onEdit!(id);
-                  if (v == 'delete' && onDelete != null) onDelete!(id);
-                },
-                itemBuilder: (context) => const [
-                  PopupMenuItem(value: 'edit', child: Text('Edit')),
-                  PopupMenuItem(value: 'delete', child: Text('Delete')),
-                ],
+                    const SizedBox(width: 6),
+                    _timeChip(item),
+                  ],
+                ),
+                subtitle: _buildSubtitle(item),
+                trailing: PopupMenuButton<String>(
+                  onSelected: (v) {
+                    if (v == 'edit' && onEdit != null) onEdit!(id);
+                    if (v == 'delete' && onDelete != null) onDelete!(id);
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(value: 'edit', child: Text('Edit')),
+                    PopupMenuItem(value: 'delete', child: Text('Delete')),
+                  ],
+                ),
               ),
             ),
             Positioned(
@@ -109,36 +113,6 @@ class TaskList extends StatelessWidget {
       child: Text(
         time,
         style: TextStyle(fontSize: 11, color: Colors.blue.shade900),
-      ),
-    );
-  }
-
-  Widget _contextBadge(Map<String, dynamic> item) {
-    final contextVal = (item['context'] ?? '').toString();
-    if (contextVal.isEmpty) return const SizedBox.shrink();
-    Color ring;
-    switch (contextVal) {
-      case 'school':
-        ring = Colors.blue.shade700;
-        break;
-      case 'personal':
-        ring = Colors.green.shade700;
-        break;
-      case 'work':
-        ring = Colors.orange.shade700;
-        break;
-      default:
-        ring = Colors.grey;
-    }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        border: Border.all(color: ring, width: 1.5),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        contextVal,
-        style: TextStyle(fontSize: 11, color: ring),
       ),
     );
   }
