@@ -2364,12 +2364,24 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _editEvent(Todo t) async {
+    // For events, fetch the original event data to get endTime and location
+    Map<String, dynamic>? originalEventData;
+    if (t.kind == 'event') {
+      try {
+        final res = await api.api.get('/api/events/${t.id}');
+        originalEventData = Map<String, dynamic>.from(res.data['event']);
+      } catch (e) {
+        // If fetching fails, use the Todo data
+        print('Failed to fetch original event data: $e');
+      }
+    }
+    
     final titleCtrl = TextEditingController(text: t.title);
     final notesCtrl = TextEditingController(text: t.notes);
     final dateCtrl = TextEditingController(text: t.scheduledFor ?? '');
     final startCtrl = TextEditingController(text: t.timeOfDay ?? '');
-    final endCtrl = TextEditingController();
-  final locationCtrl = TextEditingController();
+    final endCtrl = TextEditingController(text: originalEventData?['endTime'] ?? '');
+    final locationCtrl = TextEditingController(text: originalEventData?['location'] ?? '');
     String recurType = (t.recurrence != null && t.recurrence!['type'] is String)
         ? (t.recurrence!['type'] as String)
         : 'none';

@@ -2,9 +2,6 @@ Keep in mind:
 -User behaviours
 -Core abstractions/entities
 
-ASAP:
--refactor codebase to get rid of legacy code and monolithic files
-
 Get done by 8/24 night:
     -Get fundamental functions of tasks and events working
         *views working properly
@@ -16,12 +13,10 @@ Get done by 8/24 night:
         *fix it from being so snappy when deleting todos or going between tabs
         *Look at cursor, google calendar, and apple calendar/reminders for inspiration
     -Make it such that no tasks or events can be set to have no date (default should be today)
-    -Events should only get deleted, not completed
     
     -Get assistant pipeline working for basic chats about events and tasks (maybe basic functions??)
         *simplify/iron out current pipeline
-        *plug in qwen-code and update the prompts 
-        *use chain prompting with different lens?
+
 
     -have method to be able to do minimal tasks from phone. Remote client that updates locally only?
 

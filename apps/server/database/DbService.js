@@ -95,7 +95,11 @@ export class DbService {
     this.openIfNeeded();
     const t = this.getTodoById(id);
     if (!t) throw new Error('not_found');
-    const merged = { ...t, ...patch };
+    // Filter out undefined values from patch to avoid overwriting existing data
+    const filteredPatch = Object.fromEntries(
+      Object.entries(patch).filter(([_, value]) => value !== undefined)
+    );
+    const merged = { ...t, ...filteredPatch };
     const tz = process.env.TZ_NAME || 'America/New_York';
     const isRepeating = !!(merged.recurrence && merged.recurrence.type && merged.recurrence.type !== 'none');
     if (isRepeating && (merged.scheduledFor === null || merged.scheduledFor === undefined)) {
@@ -188,7 +192,11 @@ export class DbService {
     this.openIfNeeded();
     const h = this.getHabitById(id);
     if (!h) throw new Error('not_found');
-    const merged = { ...h, ...patch };
+    // Filter out undefined values from patch to avoid overwriting existing data
+    const filteredPatch = Object.fromEntries(
+      Object.entries(patch).filter(([_, value]) => value !== undefined)
+    );
+    const merged = { ...h, ...filteredPatch };
     const now = new Date().toISOString();
     this.db.prepare(`UPDATE habits SET title=@title, notes=@notes, scheduled_for=@scheduled_for, time_of_day=@time_of_day, completed=@completed, recurrence=@recurrence, context=@context, updated_at=@updated_at WHERE id=@id`).run({
       id,
@@ -327,7 +335,11 @@ export class DbService {
     this.openIfNeeded();
     const e = this.getEventById(id);
     if (!e) throw new Error('not_found');
-    const merged = { ...e, ...patch };
+    // Filter out undefined values from patch to avoid overwriting existing data
+    const filteredPatch = Object.fromEntries(
+      Object.entries(patch).filter(([_, value]) => value !== undefined)
+    );
+    const merged = { ...e, ...filteredPatch };
     const tz = process.env.TZ_NAME || 'America/New_York';
     const isRepeating = !!(merged.recurrence && merged.recurrence.type && merged.recurrence.type !== 'none');
     if (isRepeating && (merged.scheduledFor === null || merged.scheduledFor === undefined)) {
