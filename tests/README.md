@@ -16,7 +16,7 @@ The habit application uses LLMs for four main tasks:
 
 ### 1. Router Decision (`router.js`)
 **Purpose**: Determines whether to route user input to chat, plan, or clarify
-**Model**: `CONVO_MODEL` (default: `llama3.2:3b`)
+**Model**: `CONVO_MODEL` (hardcoded: `qwen3:32b`)
 **Input**: User instruction + transcript + week snapshot + backlog
 **Output**: JSON with decision, confidence, and optional clarification details
 
@@ -33,7 +33,7 @@ User: {instruction}
 
 ### 2. Proposal Generation (`proposal.js`)
 **Purpose**: Generates operations to fulfill user requests
-**Model**: `CODE_MODEL` (default: `granite-code:8b`)
+**Model**: `CODE_MODEL` (hardcoded: `qwen3:32b`)
 **Input**: Task brief + focused context + transcript
 **Output**: JSON with operations, steps, and tools
 
@@ -51,7 +51,7 @@ Transcript (last 3): {transcript}
 
 ### 3. Repair (`repair.js`)
 **Purpose**: Fixes invalid operations based on validation errors
-**Model**: `CODE_MODEL` (default: `granite-code:8b`)
+**Model**: `CODE_MODEL` (hardcoded: `qwen3:32b`)
 **Input**: Original operations + validation errors + focused context
 **Output**: JSON with repaired operations
 
@@ -75,7 +75,7 @@ Rules:
 
 ### 4. Summary (`summary.js`)
 **Purpose**: Generates human-readable summaries of operations
-**Model**: `CONVO_MODEL` (default: `llama3.2:3b`)
+**Model**: `CONVO_MODEL` (hardcoded: `qwen3:32b`)
 **Input**: Compact operation summaries + issues
 **Output**: Plain text summary
 
@@ -122,10 +122,10 @@ The LLM testing suite is **not run by default** and requires real model access:
 
 ```bash
 # Router decision testing
-node tests/llm/suite/improved_model_comparison.js --run-tests --task router --models llama3.2:3b --iterations 1
+node tests/llm/suite/improved_model_comparison.js --run-tests --task router --models qwen3:32b --iterations 1
 
 # Model comparison across tasks
-node tests/llm/suite/improved_model_comparison.js --compare-models --tasks router,proposal,repair --models llama3.2:3b,granite-code:8b
+node tests/llm/suite/improved_model_comparison.js --compare-models --tasks router,proposal,repair --models qwen3:32b
 
 # Validation review interface
 node tests/llm/suite/improved_model_comparison.js --validate-scenarios

@@ -557,7 +557,7 @@ When clarification selection is provided:
 - Main tables: todos, events, habits, goals
 
 ### 2. External Dependencies
-- Ollama local model (qwen3-coder:30b)
+- Ollama local model (qwen3:32b)
 - SSE implementation
 - JSON parsing utilities
 

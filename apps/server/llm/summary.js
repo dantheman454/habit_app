@@ -5,8 +5,8 @@ import { qwenConvoLLM, getModels } from './clients.js';
 import { createQwenPrompt, getQwenFinalResponse } from './qwen_utils.js';
 import { mkCorrelationId, logIO } from './logging.js';
 
-const TIMEZONE = process.env.TZ_NAME || 'America/New_York';
-const MODELS = (typeof getModels === 'function') ? getModels() : { convo: process.env.CONVO_MODEL || 'qwen3-coder:30b' };
+const TIMEZONE = 'America/New_York';
+const MODELS = { convo: 'qwen3:32b' };
 
 export async function runSummary({ operations = [], issues = [], timezone } = {}) {
   if (!operations.length) return 'No operations to perform.';

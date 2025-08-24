@@ -6,7 +6,7 @@ import { buildQAContext } from './context.js';
 import { mkCorrelationId, logIO } from './logging.js';
 
 const TIMEZONE = process.env.TZ_NAME || 'America/New_York';
-const MODELS = (typeof getModels === 'function') ? getModels() : { convo: process.env.CONVO_MODEL || 'qwen3-coder:30b' };
+const MODELS = { convo: 'qwen3:32b' };
 
 export async function runChat({ instruction, transcript = [], timezone } = {}) {
   const msg = String(instruction || '').trim();

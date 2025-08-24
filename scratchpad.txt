@@ -1,41 +1,47 @@
 Keep in mind:
 -User behaviours
--Core abstractions/entities
+    *current todo list and google calendar usage
+    *Daily/Weekly check in 
+    *Task allocation/planning
+    *Event tracking/planning
+    *Habit/Goal Tracking
+-Core abstractions/entities (define these)
+    *tasks
+    *events
+    *habits
+    *goals
 
     
 
 Get done by 8/24 night:
     -Get fundamental functions of tasks and events working
         *views working properly
-    -Clean up UI 
+    
+    -Clean up UI (Look at cursor, google calendar, and apple calendar/reminders for inspiration)
         *update time to be red when overdue
+        *add in morning, afternoon, and evening (12-12;12-5;5-12)
         *update events to show notes and make notes for both tasks and events support multiple lines
         *update time to American time everywhere
         *make updating/creating tasks and events easier (time and date are a pain right now)
         *update subheader to be cleaner
             >Make sure the scroll wheel (< Today >) switches with the view
         *fix it from being so snappy when deleting todos or going between tabs
-        *Look at cursor, google calendar, and apple calendar/reminders for inspiration
+    -have method to be able to do minimal tasks from phone. Remote client that updates locally until connected to server?
+    -Place work and school schedule in (leave personal on reminders app until I have a solid system for mobile and backups running)
     
-    
+    -spam flutter analyze until no issues found and functionality is preserved
+
+
+Next (after 8/24):
     -Get assistant pipeline working for basic chats about events and tasks (maybe basic functions??)
         *simplify/iron out current pipeline
         *Router -> Chat/Act -> output (have user confirm updates before applying)
-
-
-    -have method to be able to do minimal tasks from phone. Remote client that updates locally only?
-
-    -spam flutter analyze until no issues found and functionality is preserved
+        *have buttons for quick routes (daily overview, weekly planning, etc)
     -Modularize main and clean up/optimize the flutter directory??? (if access to GPT-5 again)
 
 
 
--get behaviours the app needs to faciliate 
-    *First map out current todo list and google calendar usage, then have it be able to facilitate these behaviours asap
-    *Daily/Weekly check in 
-    *Task allocation/planning
-    *Event tracking/planning
-    *Habit/Goal Tracking
+
     
 
 

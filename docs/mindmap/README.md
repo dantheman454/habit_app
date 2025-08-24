@@ -21,7 +21,7 @@ graph TD
     P[("SQLite (data/app.db)\nTables: todos, events, habits, goals\nLinking tables, audit_log, idempotency\nFTS5 virtual tables")]
   end
   subgraph "LLM (Ollama)"
-    F[["Ollama local model\nconfigurable (defaults: convo=qwen3-coder:30b, code=qwen3-coder:30b)\nQwen-optimized prompts and parsing"]]
+    F[["Ollama local model\nhardcoded (convo=qwen3:32b, code=qwen3:32b)\nQwen-optimized prompts and parsing"]]
   end
 
   A --> A2
@@ -149,13 +149,13 @@ sequenceDiagram
 
 **Local Setup**:
 1. Install dependencies: `npm install` (server), `flutter pub get` (client)
-2. Start Ollama: `ollama serve` (requires qwen3-coder:30b model)
+2. Start Ollama: `ollama serve` (requires qwen3:32b model)
 3. Start server: `npm start` (runs on port 3000)
 4. Build client: `flutter build web` (served by Express)
 
 **Key Environment Variables**:
-- `CONVO_MODEL`: Conversation LLM (default: qwen3-coder:30b)
-- `CODE_MODEL`: Code generation LLM (default: qwen3-coder:30b)
+- `CONVO_MODEL`: Conversation LLM (hardcoded: qwen3:32b)
+- `CODE_MODEL`: Code generation LLM (hardcoded: qwen3:32b)
 - `OLLAMA_HOST`: Ollama host (default: 127.0.0.1)
 - `OLLAMA_PORT`: Ollama port (default: 11434)
 - `TZ_NAME`: Timezone (default: America/New_York)
