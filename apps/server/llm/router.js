@@ -12,7 +12,7 @@ const CONFIDENCE_THRESHOLD = 0.5;
 const TIMEZONE = process.env.TZ_NAME || 'America/New_York';
 
 // Cache models locally for this module so logs and calls stay consistent.
-const MODELS = { convo: 'qwen3:32b' };
+const MODELS = { convo: 'qwen3:30b' };
 
 export async function runRouter({ instruction, transcript = [], llmClient = qwenConvoLLM }) {
   const msg = String(instruction || '').trim();

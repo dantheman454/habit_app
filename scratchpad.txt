@@ -26,10 +26,10 @@ Get done by 8/24 night:
         *update subheader to be cleaner
             >Make sure the scroll wheel (< Today >) switches with the view
         *fix it from being so snappy when deleting todos or going between tabs
-    -have method to be able to do minimal tasks from phone. Remote client that updates locally until connected to server?
     -Place work and school schedule in (leave personal on reminders app until I have a solid system for mobile and backups running)
-    
     -spam flutter analyze until no issues found and functionality is preserved
+
+    -have method to be able to do minimal tasks from phone. Remote client that updates locally until connected to server?
 
 
 Next (after 8/24):

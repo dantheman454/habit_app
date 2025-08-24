@@ -4,8 +4,8 @@
 import http from 'node:http';
 import { createQwenPrompt, parseQwenResponse } from './qwen_utils.js';
 
-const DEFAULT_CONVO_MODEL = 'qwen3:32b';
-const DEFAULT_CODE_MODEL = 'qwen3:32b';
+const DEFAULT_CONVO_MODEL = 'qwen3:30b';
+const DEFAULT_CODE_MODEL = 'qwen3:30b';
 const OLLAMA_HOST = process.env.OLLAMA_HOST || '127.0.0.1';
 const OLLAMA_PORT = Number(process.env.OLLAMA_PORT || 11434);
 const TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS || 30000);
