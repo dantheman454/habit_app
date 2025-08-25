@@ -26,6 +26,14 @@ export class OperationValidators {
       errors.push('recurrence must be a valid recurrence object');
     }
     
+    // Optional context validation
+    if (op.context !== undefined && op.context !== null) {
+      const c = String(op.context);
+      if (!['school','personal','work'].includes(c)) {
+        errors.push('invalid_context');
+      }
+    }
+    
     return {
       valid: errors.length === 0,
       errors
@@ -131,6 +139,13 @@ export class OperationValidators {
     if (op.recurrence && !OperationValidators.isValidRecurrence(op.recurrence)) {
       errors.push('recurrence must be a valid recurrence object');
     }
+    // Optional context validation
+    if (op.context !== undefined && op.context !== null) {
+      const c = String(op.context);
+      if (!['school','personal','work'].includes(c)) {
+        errors.push('invalid_context');
+      }
+    }
     
     return {
       valid: errors.length === 0,
@@ -175,6 +190,13 @@ export class OperationValidators {
     
     if (op.recurrence !== undefined && !OperationValidators.isValidRecurrence(op.recurrence)) {
       errors.push('recurrence must be a valid recurrence object');
+    }
+    // Optional context validation
+    if (op.context !== undefined && op.context !== null) {
+      const c = String(op.context);
+      if (!['school','personal','work'].includes(c)) {
+        errors.push('invalid_context');
+      }
     }
     
     return {
@@ -224,6 +246,13 @@ export class OperationValidators {
     if (op.recurrence && !OperationValidators.isValidRecurrence(op.recurrence)) {
       errors.push('recurrence must be a valid recurrence object');
     }
+    // Optional context validation
+    if (op.context !== undefined && op.context !== null) {
+      const c = String(op.context);
+      if (!['school','personal','work'].includes(c)) {
+        errors.push('invalid_context');
+      }
+    }
     
     return {
       valid: errors.length === 0,
@@ -260,6 +289,13 @@ export class OperationValidators {
     
     if (op.recurrence !== undefined && !OperationValidators.isValidRecurrence(op.recurrence)) {
       errors.push('recurrence must be a valid recurrence object');
+    }
+    // Optional context validation
+    if (op.context !== undefined && op.context !== null) {
+      const c = String(op.context);
+      if (!['school','personal','work'].includes(c)) {
+        errors.push('invalid_context');
+      }
     }
     
     return {

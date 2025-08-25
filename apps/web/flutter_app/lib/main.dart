@@ -670,7 +670,7 @@ class _HomePageState extends State<HomePage> {
     return true;
   }
 
-  Future<void> _submitQuickAddTodo() async {
+  Future<void> _submitQuickAddTodo({String? selectedContext}) async {
     if (_addingQuick) return;
     final title = _qaTodoTitle.text.trim();
     final date = _qaTodoDate.text.trim();
@@ -724,7 +724,7 @@ class _HomePageState extends State<HomePage> {
         'scheduledFor': scheduledFor,
         'timeOfDay': time.isEmpty ? null : time,
         'recurrence': recurrence,
-        'context': _qaSelectedContext ?? 'personal',
+        'context': selectedContext ?? _qaSelectedContext ?? 'personal',
       });
       if (!mounted) return;
       setState(() {
@@ -779,7 +779,7 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _submitQuickAddEvent() async {
+  Future<void> _submitQuickAddEvent({String? selectedContext}) async {
     if (_addingQuick) return;
     final title = _qaEventTitle.text.trim();
     final date = _qaEventDate.text.trim();
@@ -847,7 +847,7 @@ class _HomePageState extends State<HomePage> {
         'endTime': end.isEmpty ? null : end,
         'location': location.isEmpty ? null : location,
         'recurrence': recurrence,
-        'context': _qaSelectedContext ?? 'personal',
+        'context': selectedContext ?? _qaSelectedContext ?? 'personal',
       });
       if (!mounted) return;
       setState(() {
@@ -926,7 +926,7 @@ class _HomePageState extends State<HomePage> {
         'scheduledFor': anchor,
         'timeOfDay': time.isEmpty ? null : time,
         'recurrence': {'type': 'daily'},
-        'context': selectedContext ?? 'personal',
+        'context': _qaSelectedContext ?? 'personal',
       });
       if (!mounted) return;
       setState(() {
@@ -3219,7 +3219,7 @@ class _HomePageState extends State<HomePage> {
                   ? null
                   : () async {
                       Navigator.of(context).pop();
-                      await _submitQuickAddTodo();
+                      await _submitQuickAddTodo(selectedContext: _qaSelectedContext);
                     },
               child: _addingQuick
                   ? const SizedBox(
@@ -3384,7 +3384,7 @@ class _HomePageState extends State<HomePage> {
                   ? null
                   : () async {
                       Navigator.of(context).pop();
-                      await _submitQuickAddEvent();
+                      await _submitQuickAddEvent(selectedContext: _qaSelectedContext);
                     },
               child: _addingQuick
                   ? const SizedBox(

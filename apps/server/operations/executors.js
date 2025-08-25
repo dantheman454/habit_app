@@ -10,7 +10,9 @@ export class OperationExecutors {
         notes: String(op.notes || ''),
         scheduledFor: op.scheduledFor || null,
         timeOfDay: op.timeOfDay || null,
-        recurrence: op.recurrence || { type: 'none' }
+        recurrence: op.recurrence || { type: 'none' },
+        // Preserve client-provided context; Db layer defaults to 'personal' when absent
+        context: op.context
       });
       
       return {
@@ -92,6 +94,7 @@ export class OperationExecutors {
         location: op.location ?? null,
         recurrence: op.recurrence,
         completed: false,
+        context: op.context,
       });
       
       return {
@@ -158,6 +161,7 @@ export class OperationExecutors {
         // Align validators' frequency with DB's recurrence
         recurrence: (op.frequency !== undefined ? op.frequency : (op.recurrence ?? { type: 'daily' })),
         completed: false,
+        context: op.context,
       });
       
       return {

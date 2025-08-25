@@ -24,7 +24,8 @@ export class HabitusMCPServer {
           notes: { type: 'string' },
           scheduledFor: { type: 'string', format: 'date' },
           timeOfDay: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' },
-          recurrence: { type: 'object' }
+          recurrence: { type: 'object' },
+          context: { type: 'string', enum: ['school','personal','work'] }
         },
         required: ['title', 'recurrence']
       }
@@ -41,7 +42,8 @@ export class HabitusMCPServer {
           notes: { type: 'string' },
           scheduledFor: { type: 'string', format: 'date' },
           timeOfDay: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' },
-          recurrence: { type: 'object' }
+          recurrence: { type: 'object' },
+          context: { type: 'string', enum: ['school','personal','work'] },
         },
         required: ['id']
       }
@@ -101,6 +103,7 @@ export class HabitusMCPServer {
           endTime: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' },
           location: { type: 'string' },
           recurrence: { type: 'object' },
+          context: { type: 'string', enum: ['school','personal','work'] },
         },
         required: ['title']
       }
@@ -120,6 +123,7 @@ export class HabitusMCPServer {
           endTime: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' },
           location: { type: 'string' },
           recurrence: { type: 'object' },
+          context: { type: 'string', enum: ['school','personal','work'] },
         },
         required: ['id']
       }
@@ -146,7 +150,8 @@ export class HabitusMCPServer {
           notes: { type: 'string' },
           scheduledFor: { type: 'string', format: 'date' },
           timeOfDay: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' },
-          recurrence: { type: 'object' }
+          recurrence: { type: 'object' },
+          context: { type: 'string', enum: ['school','personal','work'] },
         },
         required: ['title']
       }
@@ -163,7 +168,8 @@ export class HabitusMCPServer {
           notes: { type: 'string' },
           scheduledFor: { type: 'string', format: 'date' },
           timeOfDay: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' },
-          recurrence: { type: 'object' }
+          recurrence: { type: 'object' },
+          context: { type: 'string', enum: ['school','personal','work'] },
         },
         required: ['id']
       }

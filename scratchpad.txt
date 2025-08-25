@@ -9,18 +9,17 @@ Keep in mind:
     *tasks: dishes, homework, 
     *events: class, appointment,
     *habits: gym, pills, meal prepping
-    *goals: understand greasy hair, 
+    *goals: understand greasy hair, track supplements and food intake
 
     
 
 Get done asap:
     -Get fundamental functions of tasks and events working
         *views working properly
-        *Adding tasks and events (currently all tasks default to personal)
+ 
     
     -Clean up UI (Look at cursor, google calendar, and apple calendar/reminders for inspiration)
         *update time to be red when overdue
-        *add in morning, afternoon, and evening (12-12;12-5;5-12)
         *update events to show notes and make notes for both tasks and events support multiple lines
         *update time to American time everywhere
         *make updating/creating tasks and events easier (time and date are a pain right now)
