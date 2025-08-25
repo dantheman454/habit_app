@@ -42,7 +42,7 @@ class DayView extends StatelessWidget {
                   scrollController: scrollController,
                   minHour: 0,
                   maxHour: 24,
-                  pixelsPerMinute: 2.0,
+                  pixelsPerMinute: 1.2,
                 ),
               ),
               const VerticalDivider(width: 1),

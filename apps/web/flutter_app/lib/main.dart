@@ -11,6 +11,7 @@ import 'widgets/todo_row.dart' as row;
 import 'widgets/habits_tracker.dart' as ht;
 
 import 'widgets/fab_actions.dart';
+import 'widgets/compact_subheader.dart';
 
 import 'api.dart' as api;
 import 'package:dio/dio.dart';
@@ -18,6 +19,7 @@ import 'package:flutter/services.dart';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'util/storage.dart' as storage;
+import 'util/animation.dart';
 import 'models.dart';
 
 // --- Test hooks and injectable API (local single-user context) ---
@@ -3630,42 +3632,81 @@ class _HomePageState extends State<HomePage> {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      // Filter Bar
+                                      // Compact Subheader + View Mode
                                       if (mainView == MainView.tasks)
-                                        FilterBar(
-                                          currentView: view,
-                                          onViewChanged: (newView) async {
-                                            setState(() {
-                                              view = newView;
-                                            });
-                                            await _refreshAll();
-                                          },
-                                          onDatePrev: _goPrev,
-                                          onDateNext: _goNext,
-                                          onDateToday: _goToToday,
-                                          currentDate: anchor,
-
-                                          selectedContext: selectedContext,
-                                          onContextChanged: (context) async {
-                                            setState(() {
-                                              selectedContext = context;
-                                            });
-                                            await _refreshAll();
-                                          },
-                                          showCompleted: showCompleted,
-                                          onShowCompletedChanged: (v) {
-                                            setState(() => showCompleted = v);
-                                            _refreshAll();
-                                          },
+                                        Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            // View mode selector (Day/Week/Month)
+                                            Padding(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                horizontal: 16,
+                                                vertical: 8,
+                                              ),
+                                              child: SegmentedButton<ViewMode>(
+                                                segments: const [
+                                                  ButtonSegment(
+                                                      value: ViewMode.day,
+                                                      label: Text('Day')),
+                                                  ButtonSegment(
+                                                      value: ViewMode.week,
+                                                      label: Text('Week')),
+                                                  ButtonSegment(
+                                                      value: ViewMode.month,
+                                                      label: Text('Month')),
+                                                ],
+                                                selected: {view},
+                                                onSelectionChanged: (s) async {
+                                                  setState(() {
+                                                    view = s.first;
+                                                  });
+                                                  await _refreshAll();
+                                                },
+                                              ),
+                                            ),
+                                            // Compact subheader (date, context chips, show completed)
+                                            CompactSubheader(
+                                              dateLabel: anchor,
+                                              onPrev: _goPrev,
+                                              onNext: _goNext,
+                                              onToday: _goToToday,
+                                              selectedContext: selectedContext,
+                                              onContextChanged: (context) async {
+                                                setState(() {
+                                                  selectedContext = context;
+                                                });
+                                                await _refreshAll();
+                                              },
+                                              showCompleted: showCompleted,
+                                              onShowCompletedChanged: (v) {
+                                                setState(
+                                                    () => showCompleted = v);
+                                                _refreshAll();
+                                              },
+                                            ),
+                                          ],
                                         ),
                                       Expanded(
                                         child: Stack(
                                           children: [
-                                            (mainView == MainView.tasks)
-                                                ? _buildMainList()
-                                                : (mainView == MainView.habits
-                                                      ? _buildHabitsList()
-                                                      : _buildGoalsView()),
+                                            AnimatedSwitcher(
+                                              duration: AppAnim.medium,
+                                              switchInCurve: AppAnim.easeOut,
+                                              switchOutCurve: AppAnim.easeIn,
+                                              child: KeyedSubtree(
+                                                key: ValueKey(
+                                                    '${mainView}_${view}_${anchor}_${selectedContext ?? 'all'}'),
+                                                child: (mainView ==
+                                                        MainView.tasks)
+                                                    ? _buildMainList()
+                                                    : (mainView ==
+                                                            MainView.habits
+                                                        ? _buildHabitsList()
+                                                        : _buildGoalsView()),
+                                              ),
+                                            ),
                                             // FAB positioned at bottom right
                                             Positioned(
                                               right: 16,

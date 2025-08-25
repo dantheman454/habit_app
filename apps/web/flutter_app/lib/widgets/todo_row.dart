@@ -60,9 +60,13 @@ class TodoRow extends StatelessWidget {
         : Colors.grey.shade600;
     final borderColor = contextColor.withOpacity(0.3);
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 400),
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 300),
       curve: Curves.easeOutCubic,
+      alignment: Alignment.topCenter,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOutCubic,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         border: Border.all(
@@ -84,7 +88,7 @@ class TodoRow extends StatelessWidget {
                             todo.context,
                           ))),
       ),
-      child: Row(
+        child: Row(
         children: [
           AnimatedScale(
             duration: const Duration(milliseconds: 200),
@@ -284,6 +288,7 @@ class TodoRow extends StatelessWidget {
             ],
           ),
         ],
+        ),
       ),
     );
   }

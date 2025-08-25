@@ -21,7 +21,7 @@ class WeekView extends StatefulWidget {
 
 class _WeekViewState extends State<WeekView> {
   late final List<ScrollController> _controllers;
-  static const double _pxPerMin = 2.0; // shared scale for all columns
+  static const double _pxPerMin = 1.0; // shared compact scale for all columns
 
   @override
   void initState() {
@@ -99,7 +99,7 @@ class _WeekViewState extends State<WeekView> {
                         const SizedBox(height: 6),
                         // Scroll-synced compact timeline (shared pixelsPerMinute)
                         SizedBox(
-                          height: 180,
+                          height: 140,
                           child: Container(
                             decoration: BoxDecoration(
                               border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),

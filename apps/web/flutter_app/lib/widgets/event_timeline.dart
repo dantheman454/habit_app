@@ -39,7 +39,7 @@ class EventTimeline extends StatelessWidget {
         final int spanMinutes = (maxHour - minHour) * 60;
         final bool scrollable = scrollController != null;
         final double pxPerMin = scrollable
-            ? (pixelsPerMinute ?? 2.0)
+            ? (pixelsPerMinute ?? 1.2)
             : math.max(0.8, height / spanMinutes);
 
         final normalized = _normalizeEvents(events, minHour, spanMinutes);
@@ -87,7 +87,7 @@ class EventTimeline extends StatelessWidget {
               child: Text(
                 '${h.toString().padLeft(2, '0')}:00',
                 style: TextStyle(
-                  fontSize: 10,
+                  fontSize: 9,
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
@@ -104,7 +104,7 @@ class EventTimeline extends StatelessWidget {
 
         for (final e in normalized) {
           final double top = e.startM * pxPerMin;
-          final double heightPx = math.max(16, (e.endM - e.startM) * pxPerMin);
+          final double heightPx = math.max(12, (e.endM - e.startM) * pxPerMin);
           final double leftPx = (width * (e.lane / laneCount));
           final double widthPx = width * (1 / laneCount) - 4; // small gap
           final titleText = e.title.isEmpty ? 'Event' : e.title;
