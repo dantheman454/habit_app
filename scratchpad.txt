@@ -6,16 +6,17 @@ Keep in mind:
     *Event tracking/planning
     *Habit/Goal Tracking
 -Core abstractions/entities (define these)
-    *tasks
-    *events
-    *habits
-    *goals
+    *tasks: dishes, homework, 
+    *events: class, appointment,
+    *habits: gym, pills, meal prepping
+    *goals: understand greasy hair, 
 
     
 
-Get done by 8/24 night:
+Get done asap:
     -Get fundamental functions of tasks and events working
         *views working properly
+        *Adding tasks and events (currently all tasks default to personal)
     
     -Clean up UI (Look at cursor, google calendar, and apple calendar/reminders for inspiration)
         *update time to be red when overdue
