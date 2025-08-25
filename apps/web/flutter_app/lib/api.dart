@@ -574,10 +574,15 @@ Future<Map<String, dynamic>> applyOperationsMCP(
       results.add(result);
       
       // Count operations
-      if (op['action'] == 'create') created++;
-      else if (op['action'] == 'update') updated++;
-      else if (op['action'] == 'delete') deleted++;
-      else if (op['action'] == 'complete' || op['action'] == 'complete_occurrence') completed++;
+      if (op['action'] == 'create') {
+        created++;
+      } else if (op['action'] == 'update') {
+        updated++;
+      } else if (op['action'] == 'delete') {
+        deleted++;
+      } else if (op['action'] == 'complete' || op['action'] == 'complete_occurrence') {
+        completed++;
+      }
     } catch (e) {
       results.add({'error': e.toString()});
     }

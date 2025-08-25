@@ -158,8 +158,7 @@ export class OperationExecutors {
         notes: op.notes || null,
         scheduledFor: op.scheduledFor ?? null,
         timeOfDay: op.timeOfDay ?? null,
-        // Align validators' frequency with DB's recurrence
-        recurrence: (op.frequency !== undefined ? op.frequency : (op.recurrence ?? { type: 'daily' })),
+        recurrence: op.recurrence ?? { type: 'daily' },
         completed: false,
         context: op.context,
       });
@@ -179,8 +178,6 @@ export class OperationExecutors {
       
       if (op.title !== undefined) updateData.title = op.title;
       if (op.notes !== undefined) updateData.notes = op.notes;
-      // Map frequency -> recurrence for DB
-      if (op.frequency !== undefined) updateData.recurrence = op.frequency;
       if (op.recurrence !== undefined) updateData.recurrence = op.recurrence;
       if (op.scheduledFor !== undefined) updateData.scheduledFor = op.scheduledFor;
       if (op.timeOfDay !== undefined) updateData.timeOfDay = op.timeOfDay;

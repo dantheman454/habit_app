@@ -17,16 +17,16 @@ class ContextColors {
   
   static Color getContextBackgroundColor(String? context) {
     final baseColor = getContextColor(context);
-    return baseColor.withOpacity(0.15); // Subtle background
+    return baseColor.withAlpha((0.15 * 255).round()); // Subtle background
   }
 
   static Color getContextButtonColor(String? context, bool isSelected) {
     if (context == null) {
       // "All" button - lighter grey when selected
-      return isSelected ? Colors.grey.shade300 : Colors.grey.shade600.withOpacity(0.15);
+      return isSelected ? Colors.grey.shade300 : Colors.grey.shade600.withAlpha((0.15 * 255).round());
     }
     final baseColor = getContextColor(context);
-    return baseColor.withOpacity(isSelected ? 1.0 : 0.15); // Always colored, different opacity
+    return baseColor.withAlpha((isSelected ? 1.0 : 0.15 * 1.0) * 255 ~/ 1); // Always colored, different opacity
   }
   
   static IconData getContextIcon(String? context) {

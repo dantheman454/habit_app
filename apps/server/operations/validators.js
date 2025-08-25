@@ -370,16 +370,5 @@ export class OperationValidators {
     return true;
   }
   
-  static isValidFrequency(frequency) {
-    if (!frequency || typeof frequency !== 'object') return false;
-    
-    const validTypes = ['daily', 'weekly', 'monthly'];
-    if (!validTypes.includes(frequency.type)) return false;
-    
-    if (frequency.daysOfWeek && (!Array.isArray(frequency.daysOfWeek) || frequency.daysOfWeek.length === 0)) {
-      return false;
-    }
-    
-    return true;
-  }
+  
 }

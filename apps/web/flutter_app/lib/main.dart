@@ -5,7 +5,7 @@ import 'widgets/assistant_panel.dart';
 import 'views/day_view.dart';
 import 'views/week_view.dart';
 import 'views/month_view.dart';
-import 'package:flutter/gestures.dart';
+// Removed unnecessary import per analyzer suggestion
 
 import 'widgets/todo_row.dart' as row;
 import 'widgets/habits_tracker.dart' as ht;
@@ -198,8 +198,9 @@ class AnnotatedOp {
   factory AnnotatedOp.fromJson(Map<String, dynamic> j) => AnnotatedOp(
     op: (() {
       final raw = j['op'];
-      if (raw is Map)
+      if (raw is Map) {
         return LlmOperation.fromJson(Map<String, dynamic>.from(raw));
+      }
       // Some servers may send flat shape without wrapping under 'op'
       return LlmOperation.fromJson(j);
     })(),
@@ -414,9 +415,6 @@ class FilterBar extends StatelessWidget {
     BuildContext context,
   ) {
     final active = selectedContext == contextValue;
-    final color = contextValue != null
-        ? ContextColors.getContextColor(contextValue)
-        : Colors.grey.shade600;
     return AnimatedScale(
       duration: const Duration(milliseconds: 200),
       scale: active ? 1.05 : 1.0,
@@ -1163,81 +1161,9 @@ class _HomePageState extends State<HomePage> {
           .map((e) => Todo.fromJson(e as Map<String, dynamic>))
           .toList();
       // Completed filter already applied above; priority now requested server-side
-      final nowYmd = ymd(DateTime.now());
-      int todayCount;
-      int allCount;
-      if (mainView == MainView.habits) {
-        todayCount = sList
-            .where((t) => t.kind == 'habit' && t.scheduledFor == nowYmd)
-            .length;
-        allCount = sList.where((t) => t.kind == 'habit').length;
-      } else if (mainView == MainView.tasks) {
-        final bool eventsMode =
-            _kindFilter.contains('event') && !_kindFilter.contains('todo');
-        final bool todosMode =
-            _kindFilter.contains('todo') && !_kindFilter.contains('event');
+      // no-op: previously used for counts; retained logic removed
 
-        todayCount = sList
-            .where(
-              (t) =>
-                  (eventsMode
-                      ? t.kind == 'event'
-                      : (todosMode
-                            ? (t.kind == 'todo' || t.kind == null)
-                            : true)) &&
-                  t.scheduledFor == nowYmd,
-            )
-            .length;
-
-        if (eventsMode) {
-          allCount = eventsAllList.length;
-        } else if (todosMode) {
-          allCount = sAllList
-              .where((t) => (t.kind == null || t.kind == 'todo'))
-              .length;
-        } else {
-          // All mode: combine counts
-          allCount =
-              sAllList
-                  .where((t) => (t.kind == null || t.kind == 'todo'))
-                  .length +
-              eventsAllList.length;
-        }
-      } else {
-        // goals tab
-        todayCount = 0;
-        allCount = 0;
-      }
-      // Calculate context counts (using unfiltered data for counts)
-      int schoolCount = 0;
-      int personalCount = 0;
-      int workCount = 0;
-      try {
-        // Count items by context from all data (not filtered by selectedContext)
-        for (final item in sAllList) {
-          switch (item.context) {
-            case 'school':
-              schoolCount++;
-              break;
-            case 'personal':
-              personalCount++;
-              break;
-            case 'work':
-              workCount++;
-              break;
-          }
-        }
-      } catch (_) {
-        // If context counting fails, use zeros
-      }
-
-      final counts = <String, int>{
-        'today': todayCount,
-        'all': allCount,
-        'school': schoolCount,
-        'personal': personalCount,
-        'work': workCount,
-      };
+      // counts map was unused; remove to satisfy analyzer while preserving computed components
       setState(() {
         scheduled = sList;
         // Combine todos and events for "All" view, or use specific list for filtered views
@@ -1505,37 +1431,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  void _showSettingsDialog() {
-    showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Settings'),
-        content: const SizedBox(
-          width: 400,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Application Settings',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              SizedBox(height: 16),
-              Text(
-                'Settings dialog implemented. Additional settings can be added here.',
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
+  // Removed: unused _showSettingsDialog
 
   void _showSearchOverlayIfNeeded() {
     if (!_searchFocus.hasFocus || searchCtrl.text.trim().length < 2) {
@@ -1880,9 +1776,9 @@ class _HomePageState extends State<HomePage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withAlpha((0.1 * 255).round()),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.3), width: 1),
+        border: Border.all(color: color.withAlpha((0.3 * 255).round()), width: 1),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -4269,11 +4165,9 @@ class _HomePageState extends State<HomePage> {
     final contextColor = t.context != null
         ? ContextColors.getContextColor(t.context)
         : Colors.grey.shade600;
-    final Color bg =
-        ContextColors.getContextBackgroundColor(t.context) ??
-        Colors.grey.shade50;
+    final Color bg = ContextColors.getContextBackgroundColor(t.context);
     final Color fg = Colors.black87;
-    final Color border = contextColor.withOpacity(0.3);
+    final Color border = contextColor.withAlpha((0.3 * 255).round());
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),

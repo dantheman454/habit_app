@@ -45,7 +45,6 @@ export class OperationRegistry {
       executor: this.executors.eventDelete.bind(this.executors)
     });
 
-    // Event occurrence status removed (no completion semantics for events)
     
     // Habit operations
     processor.registerOperationType('habit_create', {
@@ -416,7 +415,7 @@ export class OperationRegistry {
         description: 'Update an existing habit',
         examples: [
           {
-            description: 'Update frequency',
+            description: 'Update recurrence',
             operation: {
               kind: 'habit',
               action: 'update',

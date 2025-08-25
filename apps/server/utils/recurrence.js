@@ -1,4 +1,4 @@
-export const RECURRENCE_TYPES = ['none', 'daily', 'weekdays', 'weekly', 'every_n_days'];
+const RECURRENCE_TYPES = ['none', 'daily', 'weekdays', 'weekly', 'every_n_days'];
 
 export function isYmdString(value) {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);

@@ -4,20 +4,15 @@
 // Persistence uses SQLite (better-sqlite3) at ./data/app.db with schema at apps/server/database/schema.sql.
 
 import express from 'express';
-import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
-import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import db from './database/DbService.js';
-import Ajv from 'ajv';
 import app, { setOperationProcessor } from './app.js';
-import { getModels } from './llm/clients.js';
-import { ymd, parseYMD, addDays, ymdInTimeZone, weekRangeFromToday } from './utils/date.js';
+import { ymdInTimeZone, weekRangeFromToday } from './utils/date.js';
 import { isYmdString, isValidTimeOfDay, isValidRecurrence } from './utils/recurrence.js';
-import { endOfCurrentYearYmd, normalizeTodo, normalizeHabit, applyRecurrenceMutation } from './utils/normalize.js';
 import { filterTodosByWhere as filterTodosByWhereUtil, filterItemsByWhere as filterItemsByWhereUtil, getAggregatesFromDb as getAggregatesFromDbUtil } from './utils/filters.js';
-import { mkCorrelationId, logIO } from './llm/logging.js';
+import { logIO } from './llm/logging.js';
 
 // Add response filtering middleware
 function filterLLMResponse(data) {
@@ -37,9 +32,6 @@ function filterLLMResponse(data) {
   }
   return data;
 }
-import { extractFirstJson } from './llm/json_extract.js';
-import { buildRouterSnapshots as buildRouterSnapshotsLLM, buildFocusedContext as buildFocusedContextLLM } from './llm/context.js';
-import { runRouter as runRouterLLM } from './llm/router.js';
 import { HabitusMCPServer } from './mcp/mcp_server.js';
 import { OperationProcessor } from './operations/operation_processor.js';
 import { OperationRegistry } from './operations/operation_registry.js';
@@ -86,104 +78,9 @@ function listAllHabitsRaw() {
   try { return db.searchHabits({ q: ' ' }); } catch { return []; }
 }
 
-function filterTodosByWhere(where = {}) {
-  const items = listAllTodosRaw().slice();
-  let filtered = items;
-  // ids
-  if (Array.isArray(where.ids) && where.ids.length) {
-    const set = new Set(where.ids.map((id) => parseInt(id, 10)));
-    filtered = filtered.filter((t) => set.has(t.id));
-  }
-  // title_contains
-  if (typeof where.title_contains === 'string' && where.title_contains.trim()) {
-    const q = where.title_contains.toLowerCase();
-    filtered = filtered.filter((t) => String(t.title || '').toLowerCase().includes(q));
-  }
-  // overdue
-  if (typeof where.overdue === 'boolean') {
-    const todayY = ymd(new Date());
-    const isOverdue = (t) => { if (t.status === 'completed' || t.status === 'skipped') return false; if (!t.scheduledFor) return false; return String(t.scheduledFor) < String(todayY); };
-    filtered = filtered.filter((t) => isOverdue(t) === where.overdue);
-  }
-  // scheduled_range
-  if (where.scheduled_range && (where.scheduled_range.from || where.scheduled_range.to)) {
-    const from = where.scheduled_range.from ? parseYMD(where.scheduled_range.from) : null;
-    const to = where.scheduled_range.to ? parseYMD(where.scheduled_range.to) : null;
-    filtered = filtered.filter((t) => {
-      if (!t.scheduledFor) return false;
-      const d = parseYMD(t.scheduledFor);
-      if (!d) return false;
-      if (from && d < from) return false;
-      if (to) {
-        const inclusiveEnd = new Date(to.getFullYear(), to.getMonth(), toDate.getDate() + 1);
-        if (d >= inclusiveEnd) return false;
-      }
-      return true;
-    });
-  }
-  // status (todos only)
-  if (typeof where.status === 'string') {
-    filtered = filtered.filter((t) => String(t.status) === String(where.status));
-  }
-  // context (todos and events)
-  if (typeof where.context === 'string') {
-    filtered = filtered.filter((t) => String(t.context) === String(where.context));
-  }
-  // back-compat: completed boolean filter maps to status
-  if (typeof where.completed === 'boolean') {
-    if (where.completed) filtered = filtered.filter((t) => String(t.status) === 'completed');
-    else filtered = filtered.filter((t) => String(t.status) !== 'completed');
-  }
-  // repeating
-  if (typeof where.repeating === 'boolean') {
-    const isRepeating = (todo) => !!(todo?.recurrence && todo.recurrence.type && todo.recurrence.type !== 'none');
-    filtered = filtered.filter((t) => isRepeating(t) === where.repeating);
-  }
-  return filtered;
-}
+function filterTodosByWhere(where = {}) { return filterTodosByWhereUtil(where, { listAllTodosRaw }); }
 
-function filterItemsByWhere(items, where = {}) {
-  let filtered = (Array.isArray(items) ? items.slice() : []);
-  if (Array.isArray(where.ids) && where.ids.length) {
-    const set = new Set(where.ids.map((id) => parseInt(id, 10)));
-    filtered = filtered.filter((t) => set.has(t.id));
-  }
-  if (typeof where.title_contains === 'string' && where.title_contains.trim()) {
-    const q = where.title_contains.toLowerCase();
-    filtered = filtered.filter((t) => String(t.title || '').toLowerCase().includes(q));
-  }
-  if (typeof where.overdue === 'boolean') {
-    const todayY = ymd(new Date());
-    const isOverdue = (t) => { if (t.completed) return false; if (!t.scheduledFor) return false; return String(t.scheduledFor) < String(todayY); };
-    filtered = filtered.filter((t) => isOverdue(t) === where.overdue);
-  }
-  if (where.scheduled_range && (where.scheduled_range.from || where.scheduled_range.to)) {
-    const from = where.scheduled_range.from ? parseYMD(where.scheduled_range.from) : null;
-    const to = where.scheduled_range.to ? parseYMD(where.scheduled_range.to) : null;
-    filtered = filtered.filter((t) => {
-      if (!t.scheduledFor) return false;
-      const d = parseYMD(t.scheduledFor);
-      if (!d) return false;
-      if (from && d < from) return false;
-      if (to) {
-        const inclusiveEnd = new Date(to.getFullYear(), to.getMonth(), toDate.getDate() + 1);
-        if (d >= inclusiveEnd) return false;
-      }
-      return true;
-    });
-  }
-  if (typeof where.completed === 'boolean') {
-    filtered = filtered.filter((t) => !!t.completed === where.completed);
-  }
-  if (typeof where.context === 'string') {
-    filtered = filtered.filter((t) => String(t.context) === String(where.context));
-  }
-  if (typeof where.repeating === 'boolean') {
-    const isRepeating = (x) => !!(x?.recurrence && x.recurrence.type && x.recurrence.type !== 'none');
-    filtered = filtered.filter((t) => isRepeating(t) === where.repeating);
-  }
-  return filtered;
-}
+function filterItemsByWhere(items, where = {}) { return filterItemsByWhereUtil(items, where); }
 
 function getAggregatesFromDb() {
   return getAggregatesFromDbUtil({ listAllTodosRaw });
@@ -191,9 +88,9 @@ function getAggregatesFromDb() {
 
 function buildRouterSnapshots() {
   const { fromYmd, toYmd } = weekRangeFromToday(TIMEZONE);
-  const todosWeek = filterTodosByWhere({ scheduled_range: { from: fromYmd, to: toYmd }, status: 'pending' });
-  const eventsWeek = filterItemsByWhere(listAllEventsRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false });
-  const habitsWeek = filterItemsByWhere(listAllHabitsRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false });
+  const todosWeek = filterTodosByWhereUtil({ scheduled_range: { from: fromYmd, to: toYmd }, status: 'pending' }, { listAllTodosRaw });
+  const eventsWeek = filterItemsByWhereUtil(listAllEventsRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false });
+  const habitsWeek = filterItemsByWhereUtil(listAllHabitsRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false });
   const weekItems = [...todosWeek, ...eventsWeek, ...habitsWeek];
   const compact = (t) => ({ id: t.id, title: t.title, scheduledFor: t.scheduledFor });
   return { week: { from: fromYmd, to: toYmd, items: weekItems.map(compact) } };
@@ -209,7 +106,6 @@ try {
 } catch {}
 
 // --- Normalization helpers (forward-compatible defaults) ---
-// Normalization helpers moved to utils/normalize.js
 
 function createTodoDb({ title, notes = '', scheduledFor = null, timeOfDay = null, recurrence = undefined, context = 'personal' }) {
   return db.createTodo({ title, notes, scheduledFor, timeOfDay, recurrence: recurrence || { type: 'none' }, completed: false, context });
@@ -720,7 +616,7 @@ function buildDeterministicSummaryText(operations) {
 async function runProposalAndRepair({ instruction, transcript, focusedWhere, mode = 'post', onValidating, onOps, onRepairing, correlationId }) {
   // Snapshot selection
   const aggregates = getAggregatesFromDb();
-  const topK = focusedWhere ? filterTodosByWhere(focusedWhere).slice(0, 50) : listAllTodosRaw().slice(0, 40);
+  const topK = focusedWhere ? filterTodosByWhereUtil(focusedWhere, { listAllTodosRaw }).slice(0, 50) : listAllTodosRaw().slice(0, 40);
   const snapshot = focusedWhere ? { focused: topK, aggregates } : { topK, aggregates };
 
   // Propose
@@ -797,11 +693,7 @@ async function runProposalAndRepair({ instruction, transcript, focusedWhere, mod
   return { ops, annotatedAll, validation };
 }
 
-import { runConversationAgent } from './llm/conversation_agent.js';
-import { runOpsAgent, runOpsAgentWithProcessor, runOpsAgentToolCalling } from './llm/ops_agent.js';
-import { runSummary } from './llm/summary.js';
-import { runChat } from './llm/chat.js';
-import { qualityMonitor } from './llm/quality_monitor.js';
+ 
 
 // Assistant routes moved to routes/assistant.js
 

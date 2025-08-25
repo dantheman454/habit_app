@@ -246,13 +246,11 @@ class _EventBlock extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Context-based colors for events
-    final Color bg =
-        ContextColors.getContextBackgroundColor(this.context) ??
-        Colors.green.shade50;
+    final Color bg = ContextColors.getContextBackgroundColor(this.context);
     final Color contextColor = this.context != null
         ? ContextColors.getContextColor(this.context)
         : Colors.green.shade600;
-    final Color border = contextColor.withOpacity(0.3);
+    final Color border = contextColor.withAlpha((0.3 * 255).round());
     final Color accent = contextColor;
     final Color fg = Colors.black87;
 

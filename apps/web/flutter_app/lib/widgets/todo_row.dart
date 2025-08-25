@@ -58,7 +58,7 @@ class TodoRow extends StatelessWidget {
     final contextColor = todo.context != null
         ? ContextColors.getContextColor(todo.context)
         : Colors.grey.shade600;
-    final borderColor = contextColor.withOpacity(0.3);
+    final borderColor = contextColor.withAlpha((0.3 * 255).round());
 
     return AnimatedSize(
       duration: const Duration(milliseconds: 300),
@@ -96,12 +96,12 @@ class TodoRow extends StatelessWidget {
             child: Checkbox(
               tristate: true,
               value: isSkipped ? null : isCompleted,
-              fillColor: MaterialStateProperty.resolveWith<Color?>((states) {
+              fillColor: WidgetStateProperty.resolveWith<Color?>((states) {
                 if (isSkipped) return Colors.amber; // distinct look for skipped
                 if (isCompleted) return Theme.of(context).colorScheme.primary;
                 return Theme.of(
                   context,
-                ).colorScheme.surfaceTint.withOpacity(0.4);
+                ).colorScheme.surfaceTint.withAlpha((0.4 * 255).round());
               }),
               onChanged: (_) =>
                   isSkipped ? (onToggleSkipped?.call()) : onToggleCompleted(),
@@ -293,37 +293,7 @@ class TodoRow extends StatelessWidget {
     );
   }
 
-  Widget _buildContextBadge(String context) {
-    final color = ContextColors.getContextColor(context);
-    final icon = ContextColors.getContextIcon(context);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.08), // Very subtle background
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: color.withOpacity(0.3),
-          width: 0.5,
-        ), // Thin border
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 12, color: color), // Smaller icon
-          const SizedBox(width: 3),
-          Text(
-            context.substring(0, 1).toUpperCase() + context.substring(1),
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w500,
-              color: color,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  // Removed: unused private widget _buildContextBadge
 
   Widget _buildKindBadge(String kind) {
     IconData icon;
@@ -350,9 +320,9 @@ class TodoRow extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withAlpha((0.1 * 255).round()),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.3), width: 1),
+        border: Border.all(color: color.withAlpha((0.3 * 255).round()), width: 1),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

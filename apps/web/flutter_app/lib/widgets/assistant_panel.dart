@@ -435,7 +435,7 @@ class AssistantPanel extends StatelessWidget {
       // Extract user-friendly information
       final String? response = parsed['response'];
       final String? text = parsed['text'];
-      final List<dynamic>? operations = parsed['operations'];
+      // operations parsed but not displayed here; omit unused local to satisfy analyzer
       
       if (response != null) {
         return response;

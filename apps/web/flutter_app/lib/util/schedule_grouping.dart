@@ -2,7 +2,7 @@ Map<String, List<Map<String, dynamic>>> groupEventsByDate(List<dynamic> items) {
   final Map<String, List<Map<String, dynamic>>> byDate = {};
   for (final raw in items) {
     if (raw is! Map) continue;
-    final item = Map<String, dynamic>.from(raw as Map);
+    final item = Map<String, dynamic>.from(raw);
     final kind = (item['kind'] ?? '').toString();
     final date = item['scheduledFor'];
     if (kind != 'event') continue;
@@ -17,7 +17,7 @@ Map<String, List<Map<String, dynamic>>> groupTasksByDate(List<dynamic> items) {
   final Map<String, List<Map<String, dynamic>>> byDate = {};
   for (final raw in items) {
     if (raw is! Map) continue;
-    final item = Map<String, dynamic>.from(raw as Map);
+    final item = Map<String, dynamic>.from(raw);
     final kind = (item['kind'] ?? '').toString();
     final date = item['scheduledFor'];
     if (kind == 'event') continue;
