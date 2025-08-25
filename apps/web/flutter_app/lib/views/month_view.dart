@@ -27,25 +27,13 @@ class MonthView extends StatefulWidget {
 
 class _MonthViewState extends State<MonthView> {
   int? _hoveredIndex;
+  final Set<int> _expanded = <int>{};
 
   @override
   Widget build(BuildContext context) {
     final labels = const ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     return Column(
       children: [
-        // Header
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-          child: Row(
-            children: [
-              IconButton(onPressed: widget.onPrev, icon: const Icon(Icons.chevron_left)),
-              const Spacer(),
-              FilledButton.tonal(onPressed: widget.onToday, child: const Text('Today')),
-              const Spacer(),
-              IconButton(onPressed: widget.onNext, icon: const Icon(Icons.chevron_right)),
-            ],
-          ),
-        ),
         // Weekday header
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
@@ -68,52 +56,49 @@ class _MonthViewState extends State<MonthView> {
               final y = widget.gridYmd[i];
               final ev = widget.eventsByDate[y] ?? const <Map<String, dynamic>>[];
               final tk = widget.tasksByDate[y] ?? const <Map<String, dynamic>>[];
+              final items = _interleaved(ev, tk);
               final today = DateTime.now();
               final todayY = '${today.year.toString().padLeft(4,'0')}-${today.month.toString().padLeft(2,'0')}-${today.day.toString().padLeft(2,'0')}';
               final isToday = y == todayY;
               return MouseRegion(
                 onEnter: (_) => setState(() => _hoveredIndex = i),
-                onExit: (_) => setState(() => _hoveredIndex = null),
-                child: InkWell(
-                  onTap: () => widget.onOpenDay(y),
-                  child: Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      Container(
-                        margin: const EdgeInsets.all(4),
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: isToday
-                              ? Theme.of(context).colorScheme.primary
-                              : Theme.of(context).colorScheme.outlineVariant,
-                            width: isToday ? 2 : 1,
+                onExit: (_) => setState(() { _hoveredIndex = null; _expanded.remove(i); }),
+                child: Focus(
+                  onFocusChange: (has) { if (!has) setState(() { _expanded.remove(i); }); },
+                  child: InkWell(
+                    onTap: () => widget.onOpenDay(y),
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        Container(
+                          margin: const EdgeInsets.all(4),
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: isToday
+                                ? Theme.of(context).colorScheme.primary
+                                : Theme.of(context).colorScheme.outlineVariant,
+                              width: isToday ? 2 : 1,
+                            ),
+                          ),
+                          child: _MonthCell(
+                            ymd: y,
+                            items: items,
+                            expanded: _expanded.contains(i),
+                            onExpand: () => setState(() => _expanded.add(i)),
                           ),
                         ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Date number
-                            Text(y.split('-').last, style: const TextStyle(fontWeight: FontWeight.w600)),
-                            const SizedBox(height: 4),
-                            // Density ticks for events (4 buckets)
-                            _DensityBar(events: ev),
-                            const SizedBox(height: 4),
-                            // Up to 3 task badges then +N more
-                            _TaskBadges(tasks: tk),
-                          ],
-                        ),
-                      ),
-                      if (_hoveredIndex == i)
-                        Positioned(
-                          top: 28,
-                          right: 8,
-                          child: IgnorePointer(
-                            child: _HoverPreview(items: _interleavedTopFive(ev, tk)),
+                        if (_hoveredIndex == i)
+                          Positioned(
+                            top: 28,
+                            right: 8,
+                            child: IgnorePointer(
+                              child: _HoverPreview(items: _interleavedTopFive(ev, tk)),
+                            ),
                           ),
-                        ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               );
@@ -144,6 +129,30 @@ class _MonthViewState extends State<MonthView> {
     }
     items.sort((a, b) => (a.startMinutes).compareTo(b.startMinutes));
     return items.take(5).toList();
+  }
+
+  List<_PreviewItem> _interleaved(List<Map<String, dynamic>> events, List<Map<String, dynamic>> tasks) {
+    final List<_PreviewItem> items = [];
+    for (final e in events) {
+      items.add(_PreviewItem(
+        title: (e['title'] ?? '').toString(),
+        kind: 'event',
+        startMinutes: _parseMinutes(e['startTime'] ?? e['timeOfDay']),
+        timeLabel: _formatTimeRange(e['startTime'], e['endTime']),
+        contextValue: (e['context'] ?? '').toString(),
+      ));
+    }
+    for (final t in tasks) {
+      items.add(_PreviewItem(
+        title: (t['title'] ?? '').toString(),
+        kind: 'todo',
+        startMinutes: _parseMinutes(t['timeOfDay']),
+        timeLabel: _formatSingleTime(t['timeOfDay']),
+        contextValue: (t['context'] ?? '').toString(),
+      ));
+    }
+    items.sort((a, b) => (a.startMinutes).compareTo(b.startMinutes));
+    return items;
   }
 
   int _parseMinutes(dynamic hhmm) {
@@ -253,7 +262,8 @@ class _PreviewItem {
   final String kind; // 'event' | 'todo'
   final int startMinutes; // used for sorting; 24*60+ pushes to end
   final String timeLabel;
-  _PreviewItem({required this.title, required this.kind, required this.startMinutes, required this.timeLabel});
+  final String contextValue;
+  _PreviewItem({required this.title, required this.kind, required this.startMinutes, required this.timeLabel, this.contextValue = ''});
 }
 
 class _HoverPreview extends StatelessWidget {
@@ -301,6 +311,66 @@ class _HoverPreview extends StatelessWidget {
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+
+class _MonthCell extends StatelessWidget {
+  final String ymd;
+  final List<_PreviewItem> items;
+  final bool expanded;
+  final VoidCallback onExpand;
+  const _MonthCell({required this.ymd, required this.items, required this.expanded, required this.onExpand});
+
+  @override
+  Widget build(BuildContext context) {
+    final day = ymd.split('-').last;
+    final visible = expanded ? items : items.take(4).toList();
+    final more = items.length - visible.length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(day, style: const TextStyle(fontWeight: FontWeight.w600)),
+        const SizedBox(height: 6),
+        ...visible.map((it) => _MonthRow(item: it)),
+        if (more > 0)
+          TextButton(
+            onPressed: onExpand,
+            child: Text('Show $more more'),
+          ),
+      ],
+    );
+  }
+}
+
+class _MonthRow extends StatelessWidget {
+  final _PreviewItem item;
+  const _MonthRow({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = ContextColors.getContextColor(
+      (item.contextValue.isEmpty) ? null : item.contextValue,
+    );
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Container(width: 6, height: 6, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+          const SizedBox(width: 6),
+          if (item.timeLabel.isNotEmpty) ...[
+            Text(item.timeLabel, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+            const SizedBox(width: 6),
+          ],
+          Expanded(
+            child: Text(
+              item.title.isEmpty ? (item.kind == 'event' ? 'Event' : 'Task') : item.title,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
       ),
     );
   }

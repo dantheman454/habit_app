@@ -32,72 +32,120 @@ class CompactSubheader extends StatelessWidget {
       color: Theme.of(context).colorScheme.surfaceContainerLow,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Wrap(
-          spacing: 12,
-          runSpacing: 8,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            // Date controls
-            Row(
-              mainAxisSize: MainAxisSize.min,
+        child: LayoutBuilder(
+          builder: (ctx, cons) {
+            final isNarrow = cons.maxWidth < 1280; // desktop-only breakpoint
+            return Row(
               children: [
-                IconButton(
-                  icon: const Icon(Icons.chevron_left),
-                  tooltip: 'Previous',
-                  onPressed: onPrev,
+                // Date controls
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.chevron_left),
+                      tooltip: 'Previous',
+                      onPressed: onPrev,
+                    ),
+                    AnimatedSwitcher(
+                      duration: AppAnim.medium,
+                      switchInCurve: AppAnim.easeOut,
+                      switchOutCurve: AppAnim.easeIn,
+                      child: Text(
+                        dateLabel,
+                        key: ValueKey(dateLabel),
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.chevron_right),
+                      tooltip: 'Next',
+                      onPressed: onNext,
+                    ),
+                    const SizedBox(width: 4),
+                    if (onToday != null)
+                      TextButton.icon(
+                        icon: const Icon(Icons.today, size: 18),
+                        label: const Text('Today'),
+                        onPressed: onToday,
+                      ),
+                  ],
                 ),
-                AnimatedSwitcher(
-                  duration: AppAnim.medium,
-                  switchInCurve: AppAnim.easeOut,
-                  switchOutCurve: AppAnim.easeIn,
-                  child: Text(
-                    dateLabel,
-                    key: ValueKey(dateLabel),
-                    style: Theme.of(context).textTheme.titleMedium,
+
+                const SizedBox(width: 12),
+
+                // Context selector (single-choice)
+                Flexible(
+                  fit: FlexFit.tight,
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: AnimatedSwitcher(
+                      duration: AppAnim.medium,
+                      switchInCurve: AppAnim.easeOut,
+                      switchOutCurve: AppAnim.easeIn,
+                      child: ContextFilter(
+                        key: ValueKey(selectedContext ?? 'all'),
+                        selectedContext: selectedContext,
+                        onChanged: onContextChanged,
+                      ),
+                    ),
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.chevron_right),
-                  tooltip: 'Next',
-                  onPressed: onNext,
-                ),
-                const SizedBox(width: 4),
-                if (onToday != null)
-                  TextButton.icon(
-                    icon: const Icon(Icons.today, size: 18),
-                    label: const Text('Today'),
-                    onPressed: onToday,
+
+                const SizedBox(width: 8),
+
+                // Inline Show Completed (wide only)
+                if (!isNarrow)
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.check_circle_outline, size: 16),
+                      const SizedBox(width: 8),
+                      const Text('Show Completed'),
+                      const SizedBox(width: 8),
+                      Switch(
+                        value: showCompleted,
+                        onChanged: onShowCompletedChanged,
+                      ),
+                    ],
+                  ),
+
+                // Kebab overflow (narrow): exposes Show Completed toggle
+                if (isNarrow)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4),
+                    child: PopupMenuButton<int>(
+                      tooltip: 'More options',
+                      icon: const Icon(Icons.more_vert),
+                      onSelected: (v) {
+                        if (v == 1) {
+                          onShowCompletedChanged(!showCompleted);
+                        }
+                      },
+                      itemBuilder: (ctx) => [
+                        PopupMenuItem<int>(
+                          value: 1,
+                          child: Row(
+                            children: [
+                              Checkbox(
+                                value: showCompleted,
+                                onChanged: (_) {
+                                  Navigator.of(ctx).pop();
+                                  onShowCompletedChanged(!showCompleted);
+                                },
+                                materialTapTargetSize:
+                                    MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              const SizedBox(width: 8),
+                              const Text('Show Completed'),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
               ],
-            ),
-
-            // Context selector (chips everywhere)
-            AnimatedSwitcher(
-              duration: AppAnim.medium,
-              switchInCurve: AppAnim.easeOut,
-              switchOutCurve: AppAnim.easeIn,
-              child: ContextFilter(
-                key: ValueKey(selectedContext ?? 'all'),
-                selectedContext: selectedContext,
-                onChanged: onContextChanged,
-              ),
-            ),
-
-            // Show completed
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.check_circle_outline, size: 16),
-                const SizedBox(width: 8),
-                const Text('Show Completed'),
-                const SizedBox(width: 8),
-                Switch(
-                  value: showCompleted,
-                  onChanged: onShowCompletedChanged,
-                ),
-              ],
-            ),
-          ],
+            );
+          },
         ),
       ),
     );

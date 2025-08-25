@@ -3632,13 +3632,11 @@ class _HomePageState extends State<HomePage> {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      // Compact Subheader + View Mode
                                       if (mainView == MainView.tasks)
                                         Column(
                                           crossAxisAlignment:
                                               CrossAxisAlignment.start,
                                           children: [
-                                            // View mode selector (Day/Week/Month)
                                             Padding(
                                               padding:
                                                   const EdgeInsets.symmetric(
@@ -3666,7 +3664,6 @@ class _HomePageState extends State<HomePage> {
                                                 },
                                               ),
                                             ),
-                                            // Compact subheader (date, context chips, show completed)
                                             CompactSubheader(
                                               dateLabel: anchor,
                                               onPrev: _goPrev,
@@ -3707,7 +3704,6 @@ class _HomePageState extends State<HomePage> {
                                                         : _buildGoalsView()),
                                               ),
                                             ),
-                                            // FAB positioned at bottom right
                                             Positioned(
                                               right: 16,
                                               bottom: 16,
@@ -4340,6 +4336,7 @@ class _HomePageState extends State<HomePage> {
 
   void _goToToday() async {
     setState(() {
+      view = ViewMode.day;
       anchor = ymd(DateTime.now());
       _todayPulseActive = true;
     });

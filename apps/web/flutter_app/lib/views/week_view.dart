@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import '../widgets/event_timeline.dart';
+import '../util/animation.dart';
+import '../util/context_colors.dart';
 
 class WeekView extends StatefulWidget {
   final List<String> weekYmd; // Sunday..Saturday YYYY-MM-DD
@@ -20,204 +21,96 @@ class WeekView extends StatefulWidget {
 }
 
 class _WeekViewState extends State<WeekView> {
-  late final List<ScrollController> _controllers;
-  static const double _pxPerMin = 1.0; // shared compact scale for all columns
-
-  @override
-  void initState() {
-    super.initState();
-    _controllers = List.generate(7, (_) => ScrollController());
-    for (var i = 0; i < _controllers.length; i++) {
-      _controllers[i].addListener(() => _onScrollFrom(i));
-    }
-  }
-
-  bool _syncing = false;
-  void _onScrollFrom(int srcIndex) {
-    if (_syncing) return;
-    if (!_controllers[srcIndex].hasClients) return;
-    _syncing = true;
-    final offset = _controllers[srcIndex].offset;
-    for (var i = 0; i < _controllers.length; i++) {
-      final c = _controllers[i];
-      if (!c.hasClients || i == srcIndex) continue;
-      if ((c.offset - offset).abs() > 1) {
-        c.jumpTo(offset);
-      }
-    }
-    _syncing = false;
-  }
-
-  @override
-  void dispose() {
-    for (final c in _controllers) {
-      c.removeListener(() {}); // listeners are anonymous closures; safe to dispose controllers directly
-      c.dispose();
-    }
-    super.dispose();
-  }
+  int? _hoveredIndex;
+  final Set<int> _expanded = <int>{};
 
   @override
   Widget build(BuildContext context) {
     final labels = const ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     return Column(
       children: [
-        // Weekday header
+        // Weekday + date header; only header opens Day view
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
           child: Row(
             children: List.generate(7, (i) {
+              final y = widget.weekYmd[i];
               return Expanded(
-                child: Column(
-                  children: [
-                    Text(labels[i], style: const TextStyle(fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 2),
-                    Text(widget.weekYmd[i], style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12)),
-                  ],
+                child: InkWell(
+                  onTap: () => widget.onOpenDay(y),
+                  child: Column(
+                    children: [
+                      Text(labels[i], style: const TextStyle(fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 2),
+                      Text(y, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12)),
+                    ],
+                  ),
                 ),
               );
             }),
           ),
         ),
         const Divider(height: 1),
-        // Columns
         Expanded(
           child: Row(
             children: List.generate(7, (i) {
               final y = widget.weekYmd[i];
               final ev = widget.eventsByDate[y] ?? const <Map<String, dynamic>>[];
               final tk = widget.tasksByDate[y] ?? const <Map<String, dynamic>>[];
+              final items = _interleaveByTime(ev, tk);
+              final visibleCount = (_expanded.contains(i) ? items.length : items.length.clamp(0, 4));
+              final more = (items.length - visibleCount).clamp(0, items.length);
+              final isHovered = _hoveredIndex == i;
               return Expanded(
-                child: InkWell(
-                  onTap: () => widget.onOpenDay(y),
+                child: MouseRegion(
+                  onEnter: (_) => setState(() => _hoveredIndex = i),
+                  onExit: (_) => setState(() => _hoveredIndex = null),
                   child: Padding(
                     padding: const EdgeInsets.all(8.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    child: Stack(
+                      clipBehavior: Clip.none,
                       children: [
-                        Text('Events (${ev.length})', style: const TextStyle(fontWeight: FontWeight.w600)),
-                        const SizedBox(height: 6),
-                        // Scroll-synced compact timeline (shared pixelsPerMinute)
-                        SizedBox(
-                          height: 140,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(6),
-                              child: ev.isEmpty
-                                  ? Center(
-                                      child: Text(
-                                        '—',
-                                        style: TextStyle(
-                                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                                        ),
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.surface,
+                            border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          child: AnimatedSize(
+                            duration: AppAnim.medium,
+                            curve: AppAnim.easeOut,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (items.isEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 18),
+                                    child: Center(child: Text('—', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant))),
+                                  )
+                                else ...[
+                                  for (int r = 0; r < visibleCount; r++) _WeekRow(item: items[r]),
+                                  if (more > 0)
+                                    Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: TextButton(
+                                        onPressed: () => setState(() => _expanded.add(i)),
+                                        child: Text('Show $more more'),
                                       ),
-                                    )
-                                  : EventTimeline(
-                                      dateYmd: y,
-                                      events: ev,
-                                      minHour: 6,
-                                      maxHour: 22,
-                                      scrollController: _controllers[i],
-                                      pixelsPerMinute: _pxPerMin,
                                     ),
+                                ],
+                              ],
                             ),
                           ),
                         ),
-                        const SizedBox(height: 8),
-                        Text('Tasks (${tk.length})', style: const TextStyle(fontWeight: FontWeight.w600)),
-                        const SizedBox(height: 6),
-                        // Responsive tasks disclosure
-                        LayoutBuilder(
-                          builder: (ctx, cons) {
-                            final screenW = MediaQuery.of(ctx).size.width;
-                            final wide = screenW >= 1200;
-                            if (wide) {
-                              // Show a simple visible list of task titles (max 5)
-                              final show = tk.take(5).toList();
-                              return Container(
-                                height: 140,
-                                decoration: BoxDecoration(
-                                  border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                                child: show.isEmpty
-                                    ? Center(child: Text('—', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)))
-                                    : ListView.separated(
-                                        itemCount: show.length,
-                                        separatorBuilder: (_, __) => const Divider(height: 1),
-                                        itemBuilder: (_, i) {
-                                          final t = show[i];
-                                          final title = (t['title'] ?? '').toString();
-                                          final time = (t['timeOfDay'] ?? '').toString();
-                                          return Row(
-                                            children: [
-                                              Expanded(child: Text(title.isEmpty ? 'Task' : title, overflow: TextOverflow.ellipsis)),
-                                              if (time.isNotEmpty) ...[
-                                                const SizedBox(width: 6),
-                                                Container(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                  decoration: BoxDecoration(
-                                                    color: Colors.blue.shade50,
-                                                    border: Border.all(color: Colors.blue.shade200),
-                                                    borderRadius: BorderRadius.circular(999),
-                                                  ),
-                                                  child: Text(time, style: TextStyle(fontSize: 11, color: Colors.blue.shade900)),
-                                                ),
-                                              ],
-                                            ],
-                                          );
-                                        },
-                                      ),
-                              );
-                            }
-                            // Collapse into ExpansionTile on narrow screens
-                            return Container(
-                              decoration: BoxDecoration(
-                                border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Theme(
-                                data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-                                child: ExpansionTile(
-                                  tilePadding: const EdgeInsets.symmetric(horizontal: 8),
-                                  title: Text('Tasks (${tk.length})'),
-                                  childrenPadding: const EdgeInsets.only(left: 8, right: 8, bottom: 8),
-                                  children: tk.isEmpty
-                                      ? [Center(child: Text('—', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)))]
-                                      : tk.take(7).map((t) {
-                                          final title = (t['title'] ?? '').toString();
-                                          final time = (t['timeOfDay'] ?? '').toString();
-                                          return Padding(
-                                            padding: const EdgeInsets.symmetric(vertical: 2),
-                                            child: Row(
-                                              children: [
-                                                Expanded(child: Text(title.isEmpty ? 'Task' : title, overflow: TextOverflow.ellipsis)),
-                                                if (time.isNotEmpty) ...[
-                                                  const SizedBox(width: 6),
-                                                  Container(
-                                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                    decoration: BoxDecoration(
-                                                      color: Colors.blue.shade50,
-                                                      border: Border.all(color: Colors.blue.shade200),
-                                                      borderRadius: BorderRadius.circular(999),
-                                                    ),
-                                                    child: Text(time, style: TextStyle(fontSize: 11, color: Colors.blue.shade900)),
-                                                  ),
-                                                ],
-                                              ],
-                                            ),
-                                          );
-                                        }).toList(),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
+                        if (isHovered)
+                          Positioned(
+                            top: -4,
+                            right: 8,
+                            child: IgnorePointer(
+                              child: _HoverPreview(items: items.take(5).toList()),
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -229,6 +122,136 @@ class _WeekViewState extends State<WeekView> {
       ],
     );
   }
+
+  List<Map<String, dynamic>> _interleaveByTime(List<Map<String, dynamic>> events, List<Map<String, dynamic>> tasks) {
+    final List<Map<String, dynamic>> items = [];
+    for (final e in events) {
+      items.add({
+        ...e,
+        'kind': 'event',
+        'startMinutes': _parseMinutes(e['startTime'] ?? e['timeOfDay']),
+        'timeLabel': _formatTimeRange(e['startTime'], e['endTime']),
+      });
+    }
+    for (final t in tasks) {
+      items.add({
+        ...t,
+        'kind': 'todo',
+        'startMinutes': _parseMinutes(t['timeOfDay']),
+        'timeLabel': _formatSingleTime(t['timeOfDay']),
+      });
+    }
+    items.sort((a, b) => (a['startMinutes'] as int).compareTo(b['startMinutes'] as int));
+    return items;
+  }
+
+  int _parseMinutes(dynamic hhmm) {
+    if (hhmm is String && hhmm.contains(':')) {
+      final parts = hhmm.split(':');
+      final h = int.tryParse(parts[0]) ?? 0;
+      final m = int.tryParse(parts[1]) ?? 0;
+      return (h * 60) + m;
+    }
+    return 24 * 60 + 1; // push no-time to end
+  }
+
+  String _formatTimeRange(dynamic start, dynamic end) {
+    final s = _formatSingleTime(start);
+    final e = _formatSingleTime(end);
+    if (s.isEmpty && e.isEmpty) return '';
+    if (s.isNotEmpty && e.isNotEmpty) return '$s–$e';
+    return s;
+  }
+
+  String _formatSingleTime(dynamic hhmm) {
+    if (hhmm is String && hhmm.contains(':')) {
+      final parts = hhmm.split(':');
+      final h = int.tryParse(parts[0]) ?? 0;
+      final m = int.tryParse(parts[1]) ?? 0;
+      return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
+    }
+    return '';
+  }
 }
 
+class _WeekRow extends StatelessWidget {
+  final Map<String, dynamic> item;
+  const _WeekRow({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    final title = (item['title'] ?? '').toString();
+    final time = (item['timeLabel'] ?? '').toString();
+    final contextValue = (item['context'] ?? '').toString();
+    final color = ContextColors.getContextColor(contextValue.isEmpty ? null : contextValue);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Container(width: 6, height: 6, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+          const SizedBox(width: 8),
+          if (time.isNotEmpty) ...[
+            Text(time, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+            const SizedBox(width: 6),
+          ],
+          Expanded(
+            child: Text(title.isEmpty ? (item['kind'] == 'event' ? 'Event' : 'Task') : title, overflow: TextOverflow.ellipsis),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HoverPreview extends StatelessWidget {
+  final List<Map<String, dynamic>> items;
+  const _HoverPreview({required this.items});
+
+  @override
+  Widget build(BuildContext context) {
+    if (items.isEmpty) return const SizedBox.shrink();
+    return Material(
+      elevation: 2,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        width: 220,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final it in items)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Row(
+                  children: [
+                    Icon(
+                      (it['kind'] == 'event') ? Icons.event : Icons.check_circle_outline,
+                      size: 14,
+                      color: (it['kind'] == 'event') ? Colors.green.shade700 : Colors.blue.shade700,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        ((it['timeLabel'] ?? '') as String).isEmpty
+                            ? (it['title'] ?? '').toString()
+                            : '${it['timeLabel']}  ${(it['title'] ?? '').toString()}',
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
