@@ -4,11 +4,16 @@ import 'util/sse.dart' as sse;
 import 'dart:convert';
 
 String _computeApiBase() {
-  // Works when served by Express or running Flutter in Chrome
-  final origin = Uri.base.origin;
-  if (origin.contains('127.0.0.1:3000') || origin.contains('localhost:3000')) {
+  // Prefer same-origin when the app is being served by the backend (LAN IP or HTTPS proxy).
+  // Fallback to localhost:3000 when running Flutter dev server (non-3000 localhost origin).
+  final uri = Uri.base;
+  final origin = uri.origin;
+  // If host is not a loopback OR port is 3000, use origin (covers LAN IP e.g. 10.x, and HTTPS proxy like habit.local).
+  final isLoopback = uri.host == 'localhost' || uri.host == '127.0.0.1';
+  if (!isLoopback || uri.port == 3000) {
     return origin;
   }
+  // Otherwise (likely Flutter dev server on a random port), target the dev API.
   return 'http://127.0.0.1:3000';
 }
 
