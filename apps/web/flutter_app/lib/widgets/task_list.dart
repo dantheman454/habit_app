@@ -58,7 +58,7 @@ class TaskList extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 6),
-                    _timeChip(item),
+                    _timeChip(context, item),
                   ],
                 ),
                 subtitle: _buildSubtitle(item),
@@ -117,9 +117,13 @@ class TaskList extends StatelessWidget {
     return Text(parts.join(' • '));
   }
 
-  Widget _timeChip(Map<String, dynamic> item) {
+  Widget _timeChip(BuildContext context, Map<String, dynamic> item) {
     final time = (item['timeOfDay'] ?? '').toString();
     if (time.isEmpty) return const SizedBox.shrink();
+    
+    // Check if task is overdue
+    final isOverdue = (item['overdue'] == true);
+    
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
@@ -129,7 +133,12 @@ class TaskList extends StatelessWidget {
       ),
       child: Text(
         time,
-        style: TextStyle(fontSize: 11, color: Colors.blue.shade900),
+        style: TextStyle(
+          fontSize: 11, 
+          color: isOverdue 
+              ? Theme.of(context).colorScheme.error 
+              : Colors.blue.shade900,
+        ),
       ),
     );
   }

@@ -15,11 +15,11 @@ Keep in mind:
 
 Get done asap:    
     -Clean up UI (Look at cursor, google calendar, and apple calendar/reminders for inspiration)
-        *update time to be red when overdue
         *make updating/creating tasks and events easier (time and date are a pain right now)
         *update subheader to be cleaner
             >Make sure the scroll wheel (< Today >) switches with the view
         *fix it from being so snappy when deleting todos or going between tabs
+        *FOCUS ONLY ON DAILY VIEW!!!!!!!!! (can use Mr Assister to see bigger for now???)
     
     -spam flutter analyze until no issues found and functionality is preserved
     -Place work and school schedule in (leave personal on reminders app until I have a solid system for mobile and backups running)
