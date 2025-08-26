@@ -6,71 +6,6 @@ import { mkCorrelationId } from './logging.js';
 import db from '../database/DbService.js';
 import { OperationRegistry } from '../operations/operation_registry.js';
 
-// Lightweight validation helpers (kept minimal to avoid cycles with server.js)
-function isYmdString(value) {
-  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
-}
-function isValidTimeOfDay(value) {
-  if (value === null || value === undefined) return true;
-  if (typeof value !== 'string') return false;
-  return /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
-}
-function isValidRecurrence(rec) {
-  if (rec === null || rec === undefined) return true;
-  if (typeof rec !== 'object') return false;
-  const allowed = ['none','daily','weekdays','weekly','every_n_days'];
-  const type = rec.type;
-  if (!allowed.includes(String(type))) return false;
-  if (type === 'every_n_days') {
-    const n = rec.intervalDays;
-    if (!Number.isInteger(n) || n < 1) return false;
-  }
-  if (!(rec.until === null || rec.until === undefined || isYmdString(rec.until))) return false;
-  return true;
-}
-
-function inferOperationShape(o) {
-  if (!o || typeof o !== 'object') return null;
-  const op = { ...o };
-  if (op.scheduledFor === '') op.scheduledFor = null;
-  return op;
-}
-
-function validateOperation(op) {
-  const errors = [];
-  if (!op || typeof op !== 'object') return ['invalid_operation_object'];
-  const kindV3 = op.kind && String(op.kind).toLowerCase();
-  const actionV3 = op.action && String(op.action).toLowerCase();
-  const inferred = inferOperationShape(op);
-  const opType = inferred?.op || actionV3 || null;
-  if (op.scheduledFor !== undefined && !(op.scheduledFor === null || isYmdString(op.scheduledFor))) errors.push('invalid_scheduledFor');
-  if (op.timeOfDay !== undefined && !isValidTimeOfDay(op.timeOfDay === '' ? null : op.timeOfDay)) errors.push('invalid_timeOfDay');
-  if (op.recurrence !== undefined && !isValidRecurrence(op.recurrence)) errors.push('invalid_recurrence');
-  // Relaxed: do not require recurrence on create/update; registry schemas are authoritative
-  if ((actionV3 === 'update' || actionV3 === 'delete' || actionV3 === 'complete' || actionV3 === 'complete_occurrence' || actionV3 === 'set_status') && !Number.isFinite(op.id)) errors.push('missing_or_invalid_id');
-  if (actionV3 === 'complete_occurrence') {
-    if (!isYmdString(op.occurrenceDate)) errors.push('invalid_occurrenceDate');
-    if (op.completed !== undefined && typeof op.completed !== 'boolean') errors.push('invalid_completed');
-  }
-  // Relaxed: do not require date anchor when recurrence provided; processor/validators will enforce as needed
-  
-  // Additional validation for time-related updates
-  if (actionV3 === 'update' && kindV3 === 'todo') {
-    if (op.scheduledFor && op.timeOfDay === undefined) {
-      // let repair handle
-    }
-  }
-  
-  return errors;
-}
-
-function validateProposal(ops) {
-  const shaped = (Array.isArray(ops) ? ops.map(inferOperationShape).filter(Boolean) : []);
-  const results = shaped.map((o, i) => ({ index: i, op: o, errors: validateOperation(o) }));
-  const invalid = results.filter(r => r.errors.length > 0);
-  return { operations: shaped, results, errors: invalid.length ? ['invalid_operations'] : [] };
-}
-
 function detectAmbiguity(taskBrief, context) {
   const lowerBrief = taskBrief.toLowerCase();
   const actionWords = ['update', 'change', 'modify', 'complete', 'delete', 'remove', 'set', 'create', 'add'];
@@ -161,19 +96,23 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
 
   const prompt = createQwenToolPrompt({ system, user, tools: operationTools });
 
-  const executedOps = [];
+  const proposedOps = [];
   const executedKeys = new Set();
   const toolCallsLog = [];
   const notes = { errors: [] };
-  const steps = [ { name: 'Identify targets' }, { name: 'Execute operations' } ];
+  const annotations = [];
+  const steps = [ { name: 'Identify targets' }, { name: 'Propose operations' } ];
 
   let messages = [...prompt.messages];
   let rounds = 0;
   const MAX_ROUNDS = 5;
   const MAX_OPS = 20;
   let finalText = '';
+  let thinkingText = null;
+  let lastResponseText = '';
+  let lastHadThinking = false;
 
-  while (rounds < MAX_ROUNDS && executedOps.length < MAX_OPS) {
+  while (rounds < MAX_ROUNDS && proposedOps.length < MAX_OPS) {
     const resp = await qwenToolLLM({ messages, tools: operationTools, tool_choice: 'auto' });
 
     const text = typeof resp === 'string' ? resp : (resp.final || resp.message || resp.content || '');
@@ -183,43 +122,36 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
     const toolCallsArr = Array.isArray(jsonCandidate.tool_calls) ? jsonCandidate.tool_calls
       : (jsonCandidate.tool_call ? [jsonCandidate.tool_call] : []);
 
+    // Extract thinking and final text from all responses
+    const responseText = String(jsonCandidate.message || text || '').trim();
+    const thinkingMatch = responseText.match(/<think>([\s\S]*?)<\/think>/);
+    lastResponseText = responseText;
+    lastHadThinking = !!thinkingMatch;
+    if (thinkingMatch) {
+      thinkingText = thinkingMatch[1].trim();
+      if (thinkingText && thinkingText.length > 2000) thinkingText = thinkingText.slice(0, 2000) + '…';
+    }
+
     if (!toolCallsArr.length) {
-      // Fallback: attempt to synthesize an operation from router 'where' and instruction
-      const idFromWhere = (where && Number(where.id)) || null;
-      const timeRegex = /\b([01]?\d|2[0-3]):([0-5]\d)\b/;
-      const timeFromWhere = (where && (where.timeOfDay || where.time || where.startTime || where.scheduledTime || where.scheduledForTime)) || null;
-      const timeFromInstruction = (typeof instruction === 'string' && (instruction.match(timeRegex) || [])[0]) || null;
-      const timeCandidate = timeFromWhere || timeFromInstruction || jsonCandidate?.time || null;
-
-      if (idFromWhere && timeCandidate) {
-        const normalizedTime = (() => {
-          const m = String(timeCandidate).match(timeRegex);
-          if (!m) return null;
-          const hh = m[1].padStart(2, '0');
-          const mm = m[2];
-          return `${hh}:${mm}`;
-        })();
-        if (normalizedTime) {
-          const op = { kind: 'todo', action: 'update', id: idFromWhere, timeOfDay: normalizedTime };
-          try {
-            const result = await operationProcessor.processOperations([op], correlationId);
-            const ok = result?.results?.[0]?.ok;
-            if (ok) {
-              executedOps.push(op);
-              toolCallsLog.push({ name: 'todo.update', args: op });
-              finalText = `Updated time to ${normalizedTime}.`;
-              break;
-            }
-          } catch {}
-        }
+      // No tool calls - extract clean final response
+      let respText = responseText;
+      
+      // Remove thinking from final response
+      if (thinkingMatch) {
+        respText = respText.replace(/<think>[\s\S]*?<\/think>/, '').trim();
       }
-
-      finalText = String(jsonCandidate.message || text || '').trim();
+      
+      // If no clean response after removing thinking, use a default
+      if (!respText) {
+        respText = 'Here are the suggested changes for your review.';
+      }
+      
+      finalText = respText;
       break;
     }
 
     for (const call of toolCallsArr) {
-      if (executedOps.length >= MAX_OPS) break;
+      if (proposedOps.length >= MAX_OPS) break;
       const name = call?.function?.name || call?.name;
       const argsRaw = call?.function?.arguments || call?.arguments || {};
       let parsedArgs = argsRaw;
@@ -242,33 +174,89 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
 
       const op = toolCallToOperation(name, parsedArgs);
       toolCallsLog.push({ name, args: parsedArgs });
-      try {
-        const result = await operationProcessor.processOperations([op], correlationId);
-        const ok = result?.results?.[0]?.ok;
-        if (ok) {
-          const key = [op.kind, op.action, op.id, op.scheduledFor || '', op.timeOfDay || '', op.title || '', op.status || '', op.occurrenceDate || ''].join('|');
-          if (!executedKeys.has(key)) {
-            executedKeys.add(key);
-            executedOps.push(op);
-          }
+      
+      // Validate operation using processor validators
+      const type = operationProcessor.inferOperationType(op);
+      const validator = operationProcessor.validators.get(type);
+      const validation = validator ? await validator(op) : { valid: false, errors: ['unknown_operation_type'] };
+      
+      annotations.push({ op, errors: validation.errors || [] });
+      
+      if (validation.valid) {
+        const key = [op.kind, op.action, op.id, op.scheduledFor || '', op.timeOfDay || '', op.title || '', op.status || '', op.occurrenceDate || ''].join('|');
+        if (!executedKeys.has(key)) {
+          executedKeys.add(key);
+          proposedOps.push(op);
         }
-        messages.push({ role: 'tool', tool_call_id: call.id || name, content: JSON.stringify(result) });
-      } catch (e) {
-        notes.errors.push(String(e?.message || e));
-        messages.push({ role: 'tool', tool_call_id: call.id || name, content: JSON.stringify({ ok: false, error: String(e?.message || e) }) });
       }
+      
+      // Simulate tool response for LLM
+      const simulatedResult = validation.valid ? 
+        { ok: true, message: 'Operation validated successfully' } : 
+        { ok: false, error: validation.errors.join(', ') };
+      messages.push({ role: 'tool', tool_call_id: call.id || name, content: JSON.stringify(simulatedResult) });
     }
 
     rounds += 1;
     messages = [ ...prompt.messages, ...messages.filter(m => m.role === 'tool') ];
   }
 
+  // Ensure we always have a reasonable summary text
+  if (!finalText) {
+    let respText = lastResponseText || '';
+    if (lastHadThinking) respText = respText.replace(/<think>[\s\S]*?<\/think>/, '').trim();
+    const defaultText = `Here are the proposed changes for your review. (${proposedOps.length} valid, ${annotations.filter(a => a.errors?.length).length} invalid)`;
+    finalText = respText || defaultText;
+  }
+
+  // Fallback: if no operations were proposed but intent is likely actionable, infer a minimal op
+  if (proposedOps.length === 0) {
+    try {
+      const lower = instruction.toLowerCase();
+      const isActionable = ['update','change','modify','set','reschedule'].some(w => lower.includes(w));
+      if (isActionable) {
+        // Try to extract a time like HH:MM
+        const m = instruction.match(/\b([01]\d|2[0-3]):[0-5]\d\b/);
+        const timeOfDay = m ? m[1] : null;
+        // Choose a target id: prefer explicit where.id, else single focused item
+        let targetId = (where && Number.isFinite(where.id)) ? where.id : null;
+        if (!targetId) {
+          try {
+            const focusedItems = (focusedContext && Array.isArray(focusedContext.focused)) ? focusedContext.focused : [];
+            if (focusedItems.length === 1) targetId = focusedItems[0].id;
+            else {
+              // fuzzy match by title containment
+              const titleMatch = focusedItems.find(it => (it.title || '').toLowerCase() && lower.includes(String(it.title || '').toLowerCase()));
+              if (titleMatch) targetId = titleMatch.id;
+            }
+          } catch {}
+        }
+        if (targetId && (timeOfDay || lower.includes('time'))) {
+          const inferred = { kind: 'todo', action: 'update', id: targetId };
+          if (timeOfDay) inferred.timeOfDay = timeOfDay;
+          // Validate and include if valid
+          const type = operationProcessor.inferOperationType(inferred);
+          const validator = operationProcessor.validators.get(type);
+          const validation = validator ? await validator(inferred) : { valid: false, errors: ['unknown_operation_type'] };
+          annotations.push({ op: inferred, errors: validation.errors || [] });
+          if (validation.valid) {
+            proposedOps.push(inferred);
+            finalText = finalText || `Here are the proposed changes for your review. (1 valid, 0 invalid)`;
+          }
+        }
+      }
+    } catch {}
+  }
+
   return {
     version: '3',
     steps,
-    operations: executedOps,
+    operations: proposedOps,
     tools: toolCallsLog,
-    notes,
-    text: finalText || 'All set.'
+    notes: { 
+      errors: annotations.filter(a => a.errors?.length).map(a => ({ op: a.op, errors: a.errors }))
+    },
+    text: finalText,
+    thinking: thinkingText
   };
 }

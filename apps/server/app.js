@@ -8,7 +8,6 @@ import goalsRouter from './routes/goals.js';
 import searchRouter from './routes/search.js';
 import scheduleRouter from './routes/schedule.js';
 import assistantRouter, { setOperationProcessor } from './routes/assistant.js';
-import llmRouter from './routes/llm.js';
 
 const app = express();
 app.disable('x-powered-by');
@@ -24,7 +23,6 @@ app.use(goalsRouter);
 app.use(searchRouter);
 app.use(scheduleRouter);
 app.use(assistantRouter);
-app.use(llmRouter);
 
 export { setOperationProcessor };
 export default app;

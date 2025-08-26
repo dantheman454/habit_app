@@ -119,6 +119,25 @@ CREATE TABLE IF NOT EXISTS idempotency (
   UNIQUE(idempotency_key, request_hash)
 );
 
+-- Batch recording for propose-only pipeline with undo
+CREATE TABLE IF NOT EXISTS op_batches (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  correlation_id TEXT UNIQUE,
+  ts TEXT
+);
+
+CREATE TABLE IF NOT EXISTS op_batch_ops (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  batch_id INTEGER NOT NULL,
+  seq INTEGER NOT NULL,
+  kind TEXT,
+  action TEXT,
+  op_json TEXT,
+  before_json TEXT,
+  after_json TEXT,
+  FOREIGN KEY(batch_id) REFERENCES op_batches(id) ON DELETE CASCADE
+);
+
 -- FTS5 virtual tables
 CREATE VIRTUAL TABLE IF NOT EXISTS todos_fts USING fts5(
   title, notes, content='todos', content_rowid='id'

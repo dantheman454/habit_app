@@ -132,7 +132,7 @@ export async function qwenToolLLM(qwenToolPrompt, { model = DEFAULT_CODE_MODEL, 
     return `- ${name}: parameters=${JSON.stringify(params)}`;
   }).join('\n');
 
-  const system = `${systemMsg}\n\nTOOLS:\n${toolsDoc}\n\nSTRICT OUTPUT:\n- Output MUST be a single JSON object, no prose, no code fences\n- Prefer and USE tool_calls whenever an action is possible (do not return errors)\n- Map time synonyms to the schema (e.g., time/startTime → timeOfDay for todos)\n- If using tools, respond as: {\"tool_calls\":[{\"id\":\"id1\",\"function\":{\"name\":\"tool.name\",\"arguments\":{}}}],\"message\":\"status\"}\n- If not using tools, respond as: {\"message\":\"final text\"}`;
+  const system = `${systemMsg}\n\nTOOLS:\n${toolsDoc}\n\nSTRICT OUTPUT:\n- Output MUST be a single JSON object, no prose, no code fences\n- Prefer and USE tool_calls whenever an action is possible (do not return errors)\n- Map time synonyms to the schema (e.g., time/startTime → timeOfDay for todos)\n- If using tools, respond as: {\"tool_calls\":[{\"id\":\"id1\",\"function\":{\"name\":\"tool.name\",\"arguments\":{}}}],\"message\":\"status\"}\n- If not using tools, respond as: {\"message\":\"final text\"}\n- IMPORTANT: If you need to reason internally, wrap your thinking in <think> tags and provide a clean final response in the message field\n- The final message should be user-friendly and concise, not include internal reasoning`;
 
   const prompt = createQwenPrompt({ system, user: userMsg });
   const payload = { 

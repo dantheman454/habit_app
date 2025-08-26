@@ -155,7 +155,7 @@ Future<Map<String, dynamic>> assistantMessage(
         },
       },
     );
-  final map = Map<String, dynamic>.from(res.data);
+    final map = Map<String, dynamic>.from(res.data);
     // Surface correlationId on non-streaming path, if provided
     try {
       final cid = (map['correlationId'] as String?) ?? '';
@@ -166,6 +166,27 @@ Future<Map<String, dynamic>> assistantMessage(
         map['question'] is String) {
       onClarify(map['question'] as String, const <Map<String, dynamic>>[]);
     }
+    // Surface ops and summary similar to SSE path when handlers provided
+    try {
+      if (onOps != null) {
+        final opsRaw = map['operations'];
+        final ops = (opsRaw is List)
+            ? opsRaw.map((e) => Map<String, dynamic>.from(e)).toList()
+            : const <Map<String, dynamic>>[];
+        final validCount = ops.length;
+        final invalidCount = (map['notes'] is Map && (map['notes']['errors'] is List))
+            ? (map['notes']['errors'] as List).length
+            : 0;
+        final version = (map['version'] is int) ? map['version'] as int : 3;
+        onOps(ops, version, validCount, invalidCount);
+      }
+    } catch (_) {}
+    try {
+      if (onSummary != null) {
+        final text = (map['text'] as String?) ?? '';
+        if (text.isNotEmpty) onSummary(text);
+      }
+    } catch (_) {}
     return map;
   }
   // Flutter Web: use EventSource via platform abstraction; non-web falls back to POST

@@ -12,7 +12,8 @@ import app, { setOperationProcessor } from './app.js';
 import { ymdInTimeZone, weekRangeFromToday } from './utils/date.js';
 import { isYmdString, isValidTimeOfDay, isValidRecurrence } from './utils/recurrence.js';
 import { filterTodosByWhere as filterTodosByWhereUtil, filterItemsByWhere as filterItemsByWhereUtil, getAggregatesFromDb as getAggregatesFromDbUtil } from './utils/filters.js';
-import { logIO } from './llm/logging.js';
+import { logIO, mkCorrelationId } from './llm/logging.js';
+import { batchRecorder } from './utils/batch_recorder.js';
 
 // Add response filtering middleware
 function filterLLMResponse(data) {
@@ -187,12 +188,203 @@ app.post('/api/mcp/tools/call', async (req, res) => {
     if (!name) {
       return res.status(400).json({ error: 'Tool name is required' });
     }
+    
+    // Get correlation ID from header or generate one
+    const correlationId = req.headers['x-correlation-id'] || mkCorrelationId();
+    
+    // Ensure batch exists for this correlation
+    const batchId = await batchRecorder.ensureBatch(correlationId);
+    
+    // Convert tool call to operation format
+    const op = mcpServer.convertToolCallToOperation(name, args || {});
+    
+    // Fetch before state if needed
+    let before = null;
+    if (op.id && (op.action === 'update' || op.action === 'delete' || op.action === 'set_status' || op.action === 'complete_occurrence')) {
+      try {
+        if (op.kind === 'todo') {
+          before = await db.getTodoById(op.id);
+        } else if (op.kind === 'event') {
+          before = await db.getEventById(op.id);
+        } else if (op.kind === 'habit') {
+          before = await db.getHabitById(op.id);
+        }
+      } catch (e) {
+        console.warn('Failed to fetch before state:', e.message);
+      }
+    }
+    
+    // Execute the operation
     const result = await mcpServer.handleToolCall(name, args || {});
+    
+    // Fetch after state
+    let after = null;
+    if (result?.results?.[0]?.ok) {
+      try {
+        if (op.action === 'create') {
+          // For create, the result should contain the created entity
+          after = result.results[0].created || result.results[0].updated;
+        } else if (op.id) {
+          // For update/delete, fetch current state
+          if (op.kind === 'todo') {
+            after = op.action === 'delete' ? null : await db.getTodoById(op.id);
+          } else if (op.kind === 'event') {
+            after = op.action === 'delete' ? null : await db.getEventById(op.id);
+          } else if (op.kind === 'habit') {
+            after = op.action === 'delete' ? null : await db.getHabitById(op.id);
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to fetch after state:', e.message);
+      }
+    }
+    
+    // Record the operation
+    await batchRecorder.recordOp({
+      batchId,
+      seq: Date.now(),
+      op,
+      before,
+      after
+    });
+    
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
+
+// Undo endpoints for propose-only pipeline
+app.get('/api/assistant/last_batch', async (req, res) => {
+  try {
+    const lastBatch = await batchRecorder.getLastBatch();
+    if (!lastBatch) {
+      return res.status(404).json({ error: 'no_batch' });
+    }
+    res.json(lastBatch);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/assistant/undo_last', async (req, res) => {
+  try {
+    const lastBatch = await batchRecorder.getLastBatch();
+    if (!lastBatch) {
+      return res.status(404).json({ error: 'no_batch' });
+    }
+    
+    // Build inverse operations
+    const inverses = [];
+    for (const batchOp of lastBatch.ops) {
+      const op = batchOp.op;
+      const before = batchOp.before;
+      
+      if (op.action === 'create') {
+        // create → delete
+        inverses.push({ kind: op.kind, action: 'delete', id: batchOp.after?.id || op.id });
+      } else if (op.action === 'update') {
+        // update → update with before fields
+        if (before) {
+          const inverseOp = { kind: op.kind, action: 'update', id: op.id };
+          // Only include fields that were actually changed
+          if (op.title !== undefined) inverseOp.title = before.title;
+          if (op.notes !== undefined) inverseOp.notes = before.notes;
+          if (op.scheduledFor !== undefined) inverseOp.scheduledFor = before.scheduledFor;
+          if (op.timeOfDay !== undefined) inverseOp.timeOfDay = before.timeOfDay;
+          if (op.recurrence !== undefined) inverseOp.recurrence = before.recurrence;
+          if (op.context !== undefined) inverseOp.context = before.context;
+          if (op.status !== undefined) inverseOp.status = before.status;
+          inverses.push(inverseOp);
+        }
+      } else if (op.action === 'delete') {
+        // delete → create with before fields
+        if (before) {
+          const inverseOp = { kind: op.kind, action: 'create' };
+          inverseOp.title = before.title;
+          inverseOp.notes = before.notes;
+          inverseOp.scheduledFor = before.scheduledFor;
+          inverseOp.timeOfDay = before.timeOfDay;
+          inverseOp.recurrence = before.recurrence;
+          inverseOp.context = before.context;
+          if (op.kind === 'todo') inverseOp.status = before.status;
+          inverses.push(inverseOp);
+        }
+      } else if (op.action === 'set_status' || op.action === 'set_occurrence_status') {
+        // set_status → set back to previous status
+        if (before) {
+          const inverseOp = { kind: op.kind, action: op.action, id: op.id };
+          if (op.action === 'set_status') {
+            inverseOp.status = before.status;
+          } else {
+            inverseOp.occurrenceDate = op.occurrenceDate;
+            inverseOp.completed = !op.completed; // Toggle the completion
+          }
+          inverses.push(inverseOp);
+        }
+      }
+    }
+    
+    // Apply inverse operations in reverse order
+    let undoneCount = 0;
+    await db.runInTransaction(async () => {
+      for (const inverseOp of inverses.reverse()) {
+        const toolName = _operationToToolName(inverseOp);
+        const args = _operationToToolArgs(inverseOp);
+        const result = await mcpServer.handleToolCall(toolName, args);
+        if (result?.results?.[0]?.ok) {
+          undoneCount++;
+        }
+      }
+    });
+    
+    // Clear the batch after successful undo
+    await batchRecorder.clearBatch(lastBatch.correlationId);
+    
+    res.json({ 
+      ok: true, 
+      undone: undoneCount, 
+      correlationId: lastBatch.correlationId,
+      inverses: inverses.length
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Helper functions for undo
+function _operationToToolName(op) {
+  const kind = op.kind || 'todo';
+  const action = op.action || 'create';
+  
+  switch (action) {
+    case 'create':
+      return `create_${kind}`;
+    case 'update':
+      return `update_${kind}`;
+    case 'delete':
+      return `delete_${kind}`;
+    case 'set_status':
+      return `set_${kind}_status`;
+    case 'set_occurrence_status':
+      return `set_${kind}_occurrence_status`;
+    default:
+      return `create_${kind}`;
+  }
+}
+
+function _operationToToolArgs(op) {
+  const args = {};
+  
+  // Copy all fields except kind and action
+  for (const [key, value] of Object.entries(op)) {
+    if (key !== 'kind' && key !== 'action') {
+      args[key] = value;
+    }
+  }
+  
+  return args;
+}
 
 // Debug: list routes (optional)
 if (process.env.ENABLE_DEBUG_ROUTES === 'true') {
@@ -255,83 +447,23 @@ function validateWhere(where) {
   return errors;
 }
 
-function validateOperation(op) {
-  const errors = [];
-  if (!op || typeof op !== 'object') return ['invalid_operation_object'];
-  const kindV3 = op.kind && String(op.kind).toLowerCase();
-  const actionV3 = op.action && String(op.action).toLowerCase();
-  const inferred = inferOperationShape(op);
-  const kind = inferred?.op;
-  const allowedKinds = ['create', 'update', 'delete', 'set_status', 'complete', 'complete_occurrence', 'goal_create', 'goal_update', 'goal_delete', 'goal_add_items', 'goal_remove_item', 'goal_add_child', 'goal_remove_child'];
-  if (!allowedKinds.includes(kind)) errors.push('invalid_op');
-  if (op.scheduledFor !== undefined && !(op.scheduledFor === null || isYmdString(op.scheduledFor))) errors.push('invalid_scheduledFor');
-  if (op.timeOfDay !== undefined && !isValidTimeOfDay(op.timeOfDay === '' ? null : op.timeOfDay)) errors.push('invalid_timeOfDay');
-  if (op.recurrence !== undefined && !isValidRecurrence(op.recurrence)) errors.push('invalid_recurrence');
-  // Strict: require recurrence on create/update
-  if (kind === 'create' || kind === 'update') {
-    if (!(op.recurrence && typeof op.recurrence === 'object' && 'type' in op.recurrence)) {
-      errors.push('missing_recurrence');
-    }
-    // Habits must be repeating
-    if (kindV3 === 'habit' && op.recurrence && op.recurrence.type === 'none') {
-      errors.push('invalid_recurrence');
-    }
-  }
-  if ((kind === 'update' || kind === 'delete' || kind === 'complete' || kind === 'complete_occurrence' || kind === 'set_status')) {
-    if (!(Number.isFinite(op.id))) {
-      errors.push('missing_or_invalid_id');
-    } else {
-      const v3Kind = (op.kind && String(op.kind).toLowerCase()) || null;
-      // For validation we do not hard-require current existence; apply stage will 404 appropriately.
-      // This avoids false negatives for entities created earlier in the same batch.
-    }
-  }
-  // For todos: prefer set_status
-  if (op.kind && String(op.kind).toLowerCase() === 'todo') {
-    if (kind === 'complete' || kind === 'complete_occurrence') {
-      errors.push('use_set_status');
-    }
-    if (kind === 'set_status') {
-      const s = (op.status === undefined || op.status === null) ? null : String(op.status);
-      if (!s || !['pending','completed','skipped'].includes(s)) errors.push('invalid_status');
-      if (op.occurrenceDate !== undefined && !(op.occurrenceDate === null || isYmdString(op.occurrenceDate))) errors.push('invalid_occurrenceDate');
-    }
-  }
-  if (kind === 'complete_occurrence') {
-    if (!isYmdString(op.occurrenceDate)) errors.push('invalid_occurrenceDate');
-    if (op.completed !== undefined && typeof op.completed !== 'boolean') errors.push('invalid_completed');
-  }
-  // Strict: if op targets a repeating task, forbid master complete and require anchor when recurrence changes
-  if (kind === 'complete') {
-    const t = Number.isFinite(op.id) ? findTodoById(op.id) : null;
-    const e = Number.isFinite(op.id) ? db.getEventById(op.id) : null;
-    const h = Number.isFinite(op.id) ? db.getHabitById?.(op.id) : null;
-    if ((t && t.recurrence && t.recurrence.type && t.recurrence.type !== 'none') ||
-        (e && e.recurrence && e.recurrence.type && e.recurrence.type !== 'none') ||
-        (h && h.recurrence && h.recurrence.type && h.recurrence.type !== 'none')) {
-      errors.push('use_complete_occurrence_for_repeating');
-    }
-  }
-  if (kind === 'create' || kind === 'update') {
-    const type = op.recurrence && op.recurrence.type;
-    if (type && type !== 'none') {
-      // Anchor required for repeating tasks
-      const anchor = op.scheduledFor;
-      if (!(anchor && isYmdString(anchor))) errors.push('missing_anchor_for_recurrence');
-    }
-  }
-  // Reject bulk operations in V3
-  if (op.op === 'bulk_update' || op.op === 'bulk_complete' || op.op === 'bulk_delete' || actionV3?.startsWith('bulk')) {
-    errors.push('bulk_operations_removed');
-  }
-  return errors;
-}
-
-function validateProposal(body) {
+// Centralized proposal validation using OperationProcessor validators
+async function validateProposal(body) {
   if (!body || typeof body !== 'object') return { errors: ['invalid_body'] };
   const operations = Array.isArray(body.operations) ? body.operations.map(o => inferOperationShape(o)).filter(Boolean) : [];
   if (!operations.length) return { errors: ['missing_operations'], operations: [] };
-  const results = operations.map(o => ({ op: o, errors: validateOperation(o) }));
+  const opProcessor = operationProcessor; // initialized earlier
+  const results = [];
+  for (const o of operations) {
+    try {
+      const type = opProcessor.inferOperationType(o);
+      const validator = opProcessor.validators.get(type);
+      const v = validator ? await validator(o) : { valid: false, errors: ['unknown_operation_type'] };
+      results.push({ op: o, errors: v.errors || [] });
+    } catch (e) {
+      results.push({ op: o, errors: [String(e && e.message ? e.message : e)] });
+    }
+  }
   const invalid = results.filter(r => r.errors.length > 0);
   return { operations, results, errors: invalid.length ? ['invalid_operations'] : [] };
 }
@@ -637,7 +769,7 @@ async function runProposalAndRepair({ instruction, transcript, focusedWhere, mod
   }).filter(Boolean);
 
   // Validate initial
-  let validation = validateProposal({ operations: ops });
+  let validation = await validateProposal({ operations: ops });
   let annotatedAll = validation.results.map(r => ({ op: r.op, errors: r.errors }));
   try {
     const summary = {
@@ -668,7 +800,7 @@ async function runProposalAndRepair({ instruction, transcript, focusedWhere, mod
       let parsedR = parseJsonLenient(rawRepair);
       const repairedOps = (parsedR && Array.isArray(parsedR.operations)) ? parsedR.operations : [];
       const shaped = repairedOps.filter(o => o && typeof o === 'object').map(o => inferOperationShape(o)).filter(Boolean);
-      const reValidation = validateProposal({ operations: shaped });
+      const reValidation = await validateProposal({ operations: shaped });
       if (!reValidation.errors.length) {
         ops = shaped;
         validation = reValidation;

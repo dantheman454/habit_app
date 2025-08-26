@@ -543,6 +543,9 @@ class _HomePageState extends State<HomePage> {
   List<bool> assistantOpsChecked = [];
   bool assistantSending = false;
   bool assistantShowDiff = false;
+  // Thinking state for assistant responses
+  String? assistantThinking;
+  bool assistantShowThinking = false;
   // Assistant mode removed; server always uses auto flow
   int? assistantStreamingIndex;
   // Clarify state: question and structured options/selection
@@ -2797,6 +2800,7 @@ class _HomePageState extends State<HomePage> {
       );
       final reply = (res['text'] as String?) ?? '';
       final corr = (res['correlationId'] as String?) ?? _lastCorrelationId;
+      final thinking = res['thinking'] as String?;
       final opsRaw = res['operations'] as List<dynamic>?;
       final ops = opsRaw == null
           ? <AnnotatedOp>[]
@@ -2848,6 +2852,8 @@ class _HomePageState extends State<HomePage> {
           return preserved && assistantOps[i].errors.isEmpty;
         });
         assistantShowDiff = false;
+        assistantThinking = thinking;
+        assistantShowThinking = false;
         _pendingClarifyQuestion = null;
         _pendingClarifyOptions = const [];
         _clarifySelectedIds.clear();
@@ -3671,6 +3677,9 @@ class _HomePageState extends State<HomePage> {
                                       todayYmd: ymd(DateTime.now()),
                                       selectedClarifyIds: _clarifySelectedIds,
                                       selectedClarifyDate: _clarifySelectedDate,
+                                      thinking: assistantThinking,
+                                      showThinking: assistantShowThinking,
+                                      onToggleThinking: () => setState(() => assistantShowThinking = !assistantShowThinking),
                                     ),
                                   ),
                               ],

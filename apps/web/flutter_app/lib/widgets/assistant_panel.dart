@@ -63,6 +63,10 @@ class AssistantPanel extends StatelessWidget {
   // Selected clarify state for UI reflection
   final Set<int>? selectedClarifyIds;
   final String? selectedClarifyDate;
+  // Thinking data for optional display
+  final String? thinking;
+  final bool showThinking;
+  final VoidCallback? onToggleThinking;
   
 
   const AssistantPanel({
@@ -93,6 +97,9 @@ class AssistantPanel extends StatelessWidget {
     this.todayYmd,
     this.selectedClarifyIds,
     this.selectedClarifyDate,
+    this.thinking,
+    this.showThinking = false,
+    this.onToggleThinking,
     
   });
 
@@ -243,7 +250,31 @@ class AssistantPanel extends StatelessWidget {
                     runSpacing: 8,
                     children: [
                       FilledButton(
-                        onPressed: onApplySelected,
+                        onPressed: () async {
+                          final anyChecked = operationsChecked.any((e) => e);
+                          if (!anyChecked) {
+                            onApplySelected();
+                            return;
+                          }
+                          final confirmed = await showDialog<bool>(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: const Text('Apply selected changes?'),
+                              content: const Text('These changes will be applied to your data. You can undo the last batch from the menu.'),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.of(ctx).pop(false),
+                                  child: const Text('Cancel'),
+                                ),
+                                FilledButton(
+                                  onPressed: () => Navigator.of(ctx).pop(true),
+                                  child: const Text('Apply'),
+                                ),
+                              ],
+                            ),
+                          );
+                          if (confirmed == true) onApplySelected();
+                        },
                         child: const Text('Apply Selected'),
                       ),
                       // Quick selection helpers (operate via onToggleOperation)
@@ -437,10 +468,11 @@ class AssistantPanel extends StatelessWidget {
       final String? text = parsed['text'];
       // operations parsed but not displayed here; omit unused local to satisfy analyzer
       
-      if (response != null) {
-        return response;
-      } else if (text != null) {
+      // Prefer clean text over raw response
+      if (text != null && text.isNotEmpty) {
         return text;
+      } else if (response != null) {
+        return response;
       }
     } catch (e) {
       // If not JSON, treat as plain text

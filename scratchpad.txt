@@ -21,6 +21,7 @@ Get done asap:
         *fix it from being so snappy when deleting todos or going between tabs
         *FOCUS ONLY ON DAILY VIEW!!!!!!!!! (can use Mr Assister to see bigger for now???)
     
+    -Delete and remake the unit tests
     -spam flutter analyze until no issues found and functionality is preserved
     -Place work and school schedule in (leave personal on reminders app until I have a solid system for mobile and backups running)
 
