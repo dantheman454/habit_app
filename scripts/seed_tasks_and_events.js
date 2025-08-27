@@ -164,34 +164,7 @@ function seedEvents(db, count) {
   return db.prepare('SELECT COUNT(*) as c FROM events').get().c;
 }
 
-function seedHabits(db, count) {
-  const nowIso = new Date().toISOString();
-  const insert = db.prepare(`
-  INSERT INTO habits(title, notes, scheduled_for, time_of_day, completed, recurrence, completed_dates, context, created_at, updated_at)
-  VALUES (@title, @notes, @scheduled_for, @time_of_day, @completed, @recurrence, @completed_dates, @context, @created_at, @updated_at)
-  `);
-  const tx = db.transaction(() => {
-    for (let i = 0; i < count; i++) {
-      const scheduledFor = pickDateWithinNextTwoWeeks();
-      const rec = randomRecurrence();
-      const payload = {
-        title: `${randomTitle()} (Habit)`,
-        notes: '',
-        scheduled_for: scheduledFor,
-        time_of_day: randomTodoTimeOrNull(),
-        completed: 0,
-        recurrence: JSON.stringify(rec),
-        completed_dates: null,
-        context: randomContext(),
-        created_at: nowIso,
-        updated_at: nowIso,
-      };
-      insert.run(payload);
-    }
-  });
-  tx();
-  return db.prepare('SELECT COUNT(*) as c FROM habits').get().c;
-}
+// Habits removed: no habit seeding
 
 function main() {
   // 1) full reset
@@ -201,12 +174,11 @@ function main() {
   try { db.pragma('journal_mode = WAL'); } catch {}
   // 2) rebuild schema
   bootstrapSchema(db);
-  // 3) seed todos, events, and habits
+  // 3) seed todos and events only
   const todoCount = seedTodos(db, 30);
   const eventCount = seedEvents(db, 15);
-  const habitCount = seedHabits(db, 10);
   db.close();
-  console.log(`Seed complete: ${todoCount} todos, ${eventCount} events, ${habitCount} habits -> ${dbPath}`);
+  console.log(`Seed complete: ${todoCount} todos, ${eventCount} events -> ${dbPath}`);
 }
 
 try { main(); }

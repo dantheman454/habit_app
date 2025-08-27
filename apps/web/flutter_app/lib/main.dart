@@ -2,16 +2,18 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import 'util/context_colors.dart';
 import 'widgets/assistant_panel.dart';
+import 'widgets/assistant_handle.dart';
 import 'views/day_view.dart';
 import 'views/week_view.dart';
 import 'views/month_view.dart';
 // Removed unnecessary import per analyzer suggestion
 
 import 'widgets/todo_row.dart' as row;
-import 'widgets/habits_tracker.dart' as ht;
+// habits tracker removed
 
 import 'widgets/fab_actions.dart';
 import 'widgets/compact_subheader.dart';
+import 'widgets/global_search.dart';
 
 import 'api.dart' as api;
 import 'package:dio/dio.dart';
@@ -542,6 +544,7 @@ class _HomePageState extends State<HomePage> {
   List<AnnotatedOp> assistantOps = [];
   List<bool> assistantOpsChecked = [];
   bool assistantSending = false;
+  Map<String, Map<String, dynamic>> assistantOpPreviews = {};
   bool assistantShowDiff = false;
   // Thinking state for assistant responses
   String? assistantThinking;
@@ -576,6 +579,7 @@ class _HomePageState extends State<HomePage> {
   final TextEditingController _qaEventNotes = TextEditingController();
   final TextEditingController _qaEventInterval = TextEditingController();
 
+  // Habit quick-add controllers (kept for no-op UI stubs)
   final TextEditingController _qaHabitTitle = TextEditingController();
   final TextEditingController _qaHabitTime = TextEditingController();
 
@@ -598,10 +602,7 @@ class _HomePageState extends State<HomePage> {
     // Restore persisted main tab if available
     try {
       final saved = storage.getItem('mainTab') ?? '';
-      if (saved == 'habits') {
-        mainView = MainView.habits;
-        _kindFilter = <String>{'habit'};
-      } else if (saved == 'goals') {
+      if (saved == 'goals') {
         mainView = MainView.goals;
       } else {
         // Default to tasks view with both todos and events
@@ -921,14 +922,12 @@ class _HomePageState extends State<HomePage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {});
     await Future<void>.delayed(Duration.zero);
     try {
-      await Future<void>.delayed(const Duration(milliseconds: 1));
-      await createHabitFn({
-        'title': title,
-        'scheduledFor': anchor,
-        'timeOfDay': time.isEmpty ? null : time,
-        'recurrence': {'type': 'daily'},
-        'context': _qaSelectedContext ?? 'personal',
-      });
+      // Habits removed: show info and no-op
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Habits feature has been removed.')),
+        );
+      }
       if (!mounted) return;
       setState(() {
         _qaHabitTitle.clear();
@@ -1071,8 +1070,7 @@ class _HomePageState extends State<HomePage> {
     _qaEventDate.dispose();
     _qaEventNotes.dispose();
     _qaEventInterval.dispose();
-    _qaHabitTitle.dispose();
-    _qaHabitTime.dispose();
+    // Habit controllers removed
     super.dispose();
   }
 
@@ -2758,13 +2756,21 @@ class _HomePageState extends State<HomePage> {
             _progressStart ??= DateTime.now();
           });
         },
-        onOps: (ops, version, validCount, invalidCount) {
+        onOps: (ops, version, validCount, invalidCount, previews) {
           if (!mounted) return;
           setState(() {
             // Replace operations immediately; preserve checked state for matching ops by (op,id)
             final prior = assistantOps;
             final priorChecked = assistantOpsChecked;
             assistantOps = ops.map((e) => AnnotatedOp.fromJson(e)).toList();
+            // Capture previews keyed by stable key from server
+            assistantOpPreviews.clear();
+            try {
+              for (final p in previews) {
+                final k = (p['key'] ?? '').toString();
+                if (k.isNotEmpty) assistantOpPreviews[k] = Map<String, dynamic>.from(p);
+              }
+            } catch (_) {}
             // Build a quick map by key
             String kOp(dynamic x) {
               try {
@@ -2826,6 +2832,7 @@ class _HomePageState extends State<HomePage> {
         final prior = assistantOps;
         final priorChecked = assistantOpsChecked;
         assistantOps = ops;
+        // Clear previews after final apply or leave for display until next turn; we keep until next send
         String kOp(dynamic x) {
           try {
             final m = (x is AnnotatedOp)
@@ -3308,199 +3315,7 @@ class _HomePageState extends State<HomePage> {
         ? const Center(child: CircularProgressIndicator())
         : Column(
             children: [
-              // Header with 3-section layout: Left (Logo), Center (Search), Right (Actions)
-              Container(
-                color: Theme.of(context).colorScheme.surface,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
-                ),
-                child: Row(
-                  children: [
-                    // Left: Logo
-                    Expanded(
-                      flex: 2,
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(16),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.spa,
-                                  size: 32,
-                                  color: Theme.of(context).colorScheme.primary,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  'Habitus',
-                                  style: TextStyle(
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.w600,
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.onSurface,
-                                    letterSpacing: 0.2,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    // Center: Search field (anchor for overlay)
-                    Expanded(
-                      flex: 3,
-                      child: Center(
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 320),
-                          child: CompositedTransformTarget(
-                            link: _searchLink,
-                            child: Focus(
-                              focusNode: _searchFocus,
-                              onFocusChange: (f) {
-                                if (!f) {
-                                  _removeSearchOverlay();
-                                } else {
-                                  _showSearchOverlayIfNeeded();
-                                }
-                              },
-                              onKeyEvent: (node, event) {
-                                if (!_searchFocus.hasFocus) {
-                                  return KeyEventResult.ignored;
-                                }
-                                if (event is! KeyDownEvent) {
-                                  return KeyEventResult.ignored;
-                                }
-                                final len = math.min(searchResults.length, 7);
-                                if (event.logicalKey ==
-                                    LogicalKeyboardKey.arrowDown) {
-                                  setState(() {
-                                    _searchHoverIndex = len == 0
-                                        ? -1
-                                        : (_searchHoverIndex + 1) % len;
-                                  });
-                                  _showSearchOverlayIfNeeded();
-                                  return KeyEventResult.handled;
-                                } else if (event.logicalKey ==
-                                    LogicalKeyboardKey.arrowUp) {
-                                  setState(() {
-                                    _searchHoverIndex = len == 0
-                                        ? -1
-                                        : (_searchHoverIndex - 1 + len) % len;
-                                  });
-                                  _showSearchOverlayIfNeeded();
-                                  return KeyEventResult.handled;
-                                } else if (event.logicalKey ==
-                                    LogicalKeyboardKey.enter) {
-                                  final list = searchResults.take(7).toList();
-                                  if (list.isEmpty) {
-                                    return KeyEventResult.handled;
-                                  }
-                                  final idx =
-                                      _searchHoverIndex >= 0 &&
-                                          _searchHoverIndex < list.length
-                                      ? _searchHoverIndex
-                                      : 0;
-                                  _selectSearchResult(list[idx]);
-                                  return KeyEventResult.handled;
-                                }
-                                return KeyEventResult.ignored;
-                              },
-                              child: TextField(
-                                controller: searchCtrl,
-                                decoration: InputDecoration(
-                                  prefixIcon: const Icon(Icons.search),
-                                  hintText: 'Search',
-                                  filled: true,
-                                  fillColor: Theme.of(
-                                    context,
-                                  ).colorScheme.surfaceContainerHigh,
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(24),
-                                    borderSide: BorderSide(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .outline
-                                          .withAlpha((0.4 * 255).round()),
-                                    ),
-                                  ),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(24),
-                                    borderSide: BorderSide(
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.primary,
-                                      width: 2,
-                                    ),
-                                  ),
-                                  suffixIcon: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      if (_searching)
-                                        SizedBox(
-                                          width: 16,
-                                          height: 16,
-                                          child: Padding(
-                                            padding: EdgeInsets.all(8),
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                            ),
-                                          ),
-                                        ),
-                                      if (searchCtrl.text.isNotEmpty)
-                                        IconButton(
-                                          icon: const Icon(Icons.clear),
-                                          onPressed: () {
-                                            searchCtrl.clear();
-                                            setState(() {
-                                              searchResults = [];
-                                              _searchHoverIndex = -1;
-                                            });
-                                            _removeSearchOverlay();
-                                          },
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                                onChanged: (v) {
-                                  _onSearchChanged(v);
-                                  _showSearchOverlayIfNeeded();
-                                },
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    // Right: Quick actions
-                    Expanded(
-                      flex: 2,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          // Assistant toggle
-                          IconButton(
-                            icon: Icon(
-                              assistantCollapsed
-                                  ? Icons.smart_toy_outlined
-                                  : Icons.smart_toy,
-                            ),
-                            onPressed: () => setState(
-                              () => assistantCollapsed = !assistantCollapsed,
-                            ),
-                            tooltip: assistantCollapsed
-                                ? 'Show Mr. Assister'
-                                : 'Hide Mr. Assister',
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(height: 1),
+              // Top header removed; subheader now hosts controls
               // Body below the unified header
               Expanded(
                 child: Row(
@@ -3584,6 +3399,62 @@ class _HomePageState extends State<HomePage> {
                                                     () => showCompleted = v);
                                                 _refreshAll();
                                               },
+                                              // New assistant/search wiring
+                                              onToggleAssistant: () => setState(() => assistantCollapsed = !assistantCollapsed),
+                                              searchController: searchCtrl,
+                                              searchFocus: _searchFocus,
+                                              searchLink: _searchLink,
+                                              searching: _searching,
+                                              onSearchChanged: (v) {
+                                                _onSearchChanged(v);
+                                                _showSearchOverlayIfNeeded();
+                                              },
+                                              onSearchFocusChange: (f) {
+                                                if (!f) {
+                                                  _removeSearchOverlay();
+                                                } else {
+                                                  _showSearchOverlayIfNeeded();
+                                                }
+                                              },
+                                              onSearchKeyEvent: (node, event) {
+                                                if (!_searchFocus.hasFocus) {
+                                                  return KeyEventResult.ignored;
+                                                }
+                                                if (event is! KeyDownEvent) {
+                                                  return KeyEventResult.ignored;
+                                                }
+                                                final len = math.min(searchResults.length, 7);
+                                                if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+                                                  setState(() {
+                                                    _searchHoverIndex = len == 0 ? -1 : (_searchHoverIndex + 1) % len;
+                                                  });
+                                                  _showSearchOverlayIfNeeded();
+                                                  return KeyEventResult.handled;
+                                                } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+                                                  setState(() {
+                                                    _searchHoverIndex = len == 0 ? -1 : (_searchHoverIndex - 1 + len) % len;
+                                                  });
+                                                  _showSearchOverlayIfNeeded();
+                                                  return KeyEventResult.handled;
+                                                } else if (event.logicalKey == LogicalKeyboardKey.enter) {
+                                                  final list = searchResults.take(7).toList();
+                                                  if (list.isEmpty) {
+                                                    return KeyEventResult.handled;
+                                                  }
+                                                  final idx = _searchHoverIndex >= 0 && _searchHoverIndex < list.length ? _searchHoverIndex : 0;
+                                                  _selectSearchResult(list[idx]);
+                                                  return KeyEventResult.handled;
+                                                }
+                                                return KeyEventResult.ignored;
+                                              },
+                                              onSearchClear: () {
+                                                searchCtrl.clear();
+                                                setState(() {
+                                                  searchResults = [];
+                                                  _searchHoverIndex = -1;
+                                                });
+                                                _removeSearchOverlay();
+                                              },
                                             ),
                                           ],
                                         ),
@@ -3625,63 +3496,81 @@ class _HomePageState extends State<HomePage> {
                                   ),
                                 ),
                                 const VerticalDivider(width: 1),
-                                // Assistant panel (collapsible)
-                                if (!assistantCollapsed)
-                                  SizedBox(
-                                    width: 360,
-                                    child: AssistantPanel(
-                                      transcript: assistantTranscript,
-                                      operations: assistantOps,
-                                      operationsChecked: assistantOpsChecked,
-                                      sending: assistantSending,
-                                      showDiff: assistantShowDiff,
-                                      onToggleDiff: () => setState(
-                                        () => assistantShowDiff =
-                                            !assistantShowDiff,
+                                // Assistant area: handle + panel stacked
+                                SizedBox(
+                                  width: assistantCollapsed ? 36 : 396,
+                                  child: Stack(
+                                    alignment: Alignment.centerLeft,
+                                    children: [
+                                      // Handle (always visible), hugs the panel edge
+                                      Positioned(
+                                        left: 0,
+                                        child: AssistantHandle(
+                                          onTap: () => setState(() => assistantCollapsed = !assistantCollapsed),
+                                          open: !assistantCollapsed,
+                                          insidePanel: !assistantCollapsed,
+                                        ),
                                       ),
-                                      onToggleOperation: (i, v) => setState(
-                                        () => assistantOpsChecked[i] = v,
-                                      ),
-                                      onApplySelected: _applyAssistantOps,
-                                      onDiscard: () => setState(() {
-                                        assistantOps = [];
-                                        assistantOpsChecked = [];
-                                        assistantShowDiff = false;
-                                      }),
-                                      inputController: assistantCtrl,
-                                      onSend: _sendAssistantMessage,
-                                      opLabel: (op) =>
-                                          _opLabel((op as AnnotatedOp).op),
-                                      onClearChat: () => setState(() {
-                                        assistantTranscript.clear();
-                                        assistantOps = [];
-                                        assistantOpsChecked = [];
-                                        assistantShowDiff = false;
-                                      }),
-                                      clarifyQuestion: _pendingClarifyQuestion,
-                                      clarifyOptions: _pendingClarifyOptions,
-                                      onToggleClarifyId: (id) => setState(() {
-                                        if (_clarifySelectedIds.contains(id)) {
-                                          _clarifySelectedIds.remove(id);
-                                        } else {
-                                          _clarifySelectedIds.add(id);
-                                        }
-                                      }),
-                                      onSelectClarifyDate: (d) => setState(() {
-                                        _clarifySelectedDate = d;
-                                      }),
-                                      progressStage: _progressStage,
-                                      progressValid: _progressValid,
-                                      progressInvalid: _progressInvalid,
-                                      progressStart: _progressStart,
-                                      todayYmd: ymd(DateTime.now()),
-                                      selectedClarifyIds: _clarifySelectedIds,
-                                      selectedClarifyDate: _clarifySelectedDate,
-                                      thinking: assistantThinking,
-                                      showThinking: assistantShowThinking,
-                                      onToggleThinking: () => setState(() => assistantShowThinking = !assistantShowThinking),
-                                    ),
+                                      if (!assistantCollapsed)
+                                        Positioned(
+                                          left: 36,
+                                          right: 0,
+                                          top: 0,
+                                          bottom: 0,
+                                          child: SizedBox(
+                                            width: 360,
+                                            child: AssistantPanel(
+                                              transcript: assistantTranscript,
+                                              operations: assistantOps,
+                                              operationsChecked: assistantOpsChecked,
+                                              sending: assistantSending,
+                                              previewsByKey: assistantOpPreviews,
+                                              onToggleOperation: (i, v) => setState(
+                                                () => assistantOpsChecked[i] = v,
+                                              ),
+                                              onApplySelected: _applyAssistantOps,
+                                              onDiscard: () => setState(() {
+                                                assistantOps = [];
+                                                assistantOpsChecked = [];
+                                                assistantOpPreviews.clear();
+                                              }),
+                                              inputController: assistantCtrl,
+                                              onSend: _sendAssistantMessage,
+                                              opLabel: (op) => _opLabel((op as AnnotatedOp).op),
+                                              onClearChat: () => setState(() {
+                                                assistantTranscript.clear();
+                                                assistantOps = [];
+                                                assistantOpsChecked = [];
+                                                assistantOpPreviews.clear();
+                                              }),
+                                              clarifyQuestion: _pendingClarifyQuestion,
+                                              clarifyOptions: _pendingClarifyOptions,
+                                              onToggleClarifyId: (id) => setState(() {
+                                                if (_clarifySelectedIds.contains(id)) {
+                                                  _clarifySelectedIds.remove(id);
+                                                } else {
+                                                  _clarifySelectedIds.add(id);
+                                                }
+                                              }),
+                                              onSelectClarifyDate: (d) => setState(() {
+                                                _clarifySelectedDate = d;
+                                              }),
+                                              progressStage: _progressStage,
+                                              progressValid: _progressValid,
+                                              progressInvalid: _progressInvalid,
+                                              progressStart: _progressStart,
+                                              todayYmd: ymd(DateTime.now()),
+                                              selectedClarifyIds: _clarifySelectedIds,
+                                              selectedClarifyDate: _clarifySelectedDate,
+                                              thinking: assistantThinking,
+                                              showThinking: assistantShowThinking,
+                                              onToggleThinking: () => setState(() => assistantShowThinking = !assistantShowThinking),
+                                            ),
+                                          ),
+                                        ),
+                                    ],
                                   ),
+                                ),
                               ],
                             ),
                           ),
@@ -5226,11 +5115,8 @@ class _HomePageState extends State<HomePage> {
     );
     final weekY = week.map((d) => ymd(d)).toList();
     // Prepare habits
-    final items = scheduled.where((t) => t.kind == 'habit').toList()
-      ..sort((a, b) => (a.title).compareTo(b.title));
-    final rows = items
-        .map((t) => ht.HabitRowData(id: t.masterId ?? t.id, title: t.title))
-        .toList();
+    // Habits removed: no rows to render
+    final rows = <dynamic>[];
 
     // Optimistic toggle helper
     Future<void> toggleHabit(int hid, String y, bool newCompleted) async {
@@ -5285,33 +5171,16 @@ class _HomePageState extends State<HomePage> {
       return Column(
         children: [
           quickAddHeader,
-          Expanded(
-            child: ht.HabitsTracker(
-              habits: rows,
-              weekYmd: weekY,
-              statsById: habitStatsById.map((k, v) => MapEntry(k, v)),
-              onToggle: (hid, y, newCompleted) =>
-                  toggleHabit(hid, y, newCompleted),
-            ),
-          ),
+          const Expanded(child: SizedBox.shrink()),
         ],
       );
     }
 
     // Narrow layout: left list + right focus grid
-    if (_selectedHabitId == null && rows.isNotEmpty) {
-      _selectedHabitId = rows.first.id;
-    }
-    final selectedId = _selectedHabitId;
-    final selectedStats = (selectedId != null)
-        ? habitStatsById[selectedId]
-        : null;
-    final Set<String> completedSet = {
-      if (selectedStats != null && selectedStats['weekHeatmap'] is List)
-        ...((selectedStats['weekHeatmap'] as List)
-            .where((e) => e is Map && e['completed'] == true)
-            .map<String>((e) => (e as Map)['date'] as String)),
-    };
+    // Habits removed: no selection needed
+    final selectedId = null;
+    final selectedStats = null;
+    final Set<String> completedSet = {};
     final todayY = ymd(DateTime.now());
 
     return Column(

@@ -162,30 +162,7 @@ describe('OperationValidators', () => {
     });
   });
   
-  describe('habitSetOccurrenceStatus', () => {
-    test('should validate valid habit occurrence status', () => {
-      const op = {
-        id: 1,
-        occurrenceDate: '2025-08-18',
-        status: 'completed'
-      };
-      
-      const result = OperationValidators.habitSetOccurrenceStatus(op);
-      assert.strictEqual(result.valid, true);
-      assert.strictEqual(result.errors.length, 0);
-    });
-    
-    test('should reject missing occurrenceDate', () => {
-      const op = {
-        id: 1,
-        status: 'completed'
-      };
-      
-      const result = OperationValidators.habitSetOccurrenceStatus(op);
-      assert.strictEqual(result.valid, false);
-      assert(result.errors.some(e => e.includes('occurrenceDate')));
-    });
-  });
+  // habitSetOccurrenceStatus tests removed: validator/API no longer present on this branch.
   
   describe('Helper methods', () => {
     test('isValidDate should validate correct dates', () => {

@@ -44,38 +44,6 @@ CREATE TABLE IF NOT EXISTS goals (
   updated_at TEXT NOT NULL
 );
 
--- Habits (similar to todos but must be repeating at API layer)
-CREATE TABLE IF NOT EXISTS habits (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  title TEXT NOT NULL,
-  notes TEXT NOT NULL DEFAULT '',
-  scheduled_for TEXT NULL,
-  time_of_day TEXT NULL,
-  completed INTEGER NOT NULL DEFAULT 0,
-  recurrence TEXT NOT NULL DEFAULT '{"type":"none"}',
-  completed_dates TEXT NULL,
-  context TEXT CHECK(context IN ('school', 'personal', 'work')) DEFAULT 'personal',
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
--- Habit link tables (organizational composition)
-CREATE TABLE IF NOT EXISTS habit_todo_items (
-  habit_id INTEGER NOT NULL,
-  todo_id INTEGER NOT NULL,
-  PRIMARY KEY (habit_id, todo_id),
-  FOREIGN KEY (habit_id) REFERENCES habits(id) ON DELETE CASCADE,
-  FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS habit_event_items (
-  habit_id INTEGER NOT NULL,
-  event_id INTEGER NOT NULL,
-  PRIMARY KEY (habit_id, event_id),
-  FOREIGN KEY (habit_id) REFERENCES habits(id) ON DELETE CASCADE,
-  FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
-);
-
 CREATE TABLE IF NOT EXISTS goal_todo_items (
   goal_id INTEGER NOT NULL,
   todo_id INTEGER NOT NULL,
@@ -145,9 +113,6 @@ CREATE VIRTUAL TABLE IF NOT EXISTS todos_fts USING fts5(
 CREATE VIRTUAL TABLE IF NOT EXISTS events_fts USING fts5(
   title, notes, location, content='events', content_rowid='id'
 );
-CREATE VIRTUAL TABLE IF NOT EXISTS habits_fts USING fts5(
-  title, notes, content='habits', content_rowid='id'
-);
 
 -- FTS5 triggers for todos
 CREATE TRIGGER IF NOT EXISTS todos_ai AFTER INSERT ON todos BEGIN
@@ -166,17 +131,6 @@ CREATE TRIGGER IF NOT EXISTS events_ai AFTER INSERT ON events BEGIN
   INSERT INTO events_fts(rowid, title, notes, location) VALUES (new.id, new.title, new.notes, new.location);
 END;
 
--- FTS5 triggers for habits
-CREATE TRIGGER IF NOT EXISTS habits_ai AFTER INSERT ON habits BEGIN
-  INSERT INTO habits_fts(rowid, title, notes) VALUES (new.id, new.title, new.notes);
-END;
-CREATE TRIGGER IF NOT EXISTS habits_ad AFTER DELETE ON habits BEGIN
-  INSERT INTO habits_fts(habits_fts, rowid, title, notes) VALUES('delete', old.id, old.title, old.notes);
-END;
-CREATE TRIGGER IF NOT EXISTS habits_au AFTER UPDATE ON habits BEGIN
-  INSERT INTO habits_fts(habits_fts, rowid, title, notes) VALUES('delete', old.id, old.title, old.notes);
-  INSERT INTO habits_fts(rowid, title, notes) VALUES (new.id, new.title, new.notes);
-END;
 CREATE TRIGGER IF NOT EXISTS events_ad AFTER DELETE ON events BEGIN
   INSERT INTO events_fts(events_fts, rowid, title, notes, location) VALUES('delete', old.id, old.title, old.notes, old.location);
 END;

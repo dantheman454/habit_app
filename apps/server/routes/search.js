@@ -5,9 +5,9 @@ import { ymdInTimeZone } from '../utils/date.js';
 const router = Router();
 const TIMEZONE = process.env.TZ_NAME || 'America/New_York';
 
-// Unified search across todos + events + habits
-// Params: q (required), scope=todo|event|habit|all (default all),
-// completed (optional for events/habits), status_todo (optional), context (optional), limit (default 30)
+// Unified search across todos + events (habits removed)
+// Params: q (required), scope=todo|event|all (default all),
+// completed (optional for events), status_todo (optional), context (optional), limit (default 30)
 router.get('/api/search', (req, res) => {
   const qRaw = String(req.query.q || req.query.query || '');
   const q = qRaw.trim();
@@ -31,8 +31,7 @@ router.get('/api/search', (req, res) => {
 
   const wantTodos = (scope === 'all' || scope === 'todo');
   const wantEvents = (scope === 'all' || scope === 'event');
-  const wantHabits = (scope === 'all' || scope === 'habit');
-  if (!wantTodos && !wantEvents && !wantHabits) return res.status(400).json({ error: 'invalid_scope' });
+  if (!wantTodos && !wantEvents) return res.status(400).json({ error: 'invalid_scope' });
 
   try {
     let out = [];
@@ -84,24 +83,7 @@ router.get('/api/search', (req, res) => {
         updatedAt: e.updatedAt,
       })));
     }
-    if (wantHabits) {
-      let items = db.searchHabits({ q, completed: completedBool, context });
-      if (q.length < 2) {
-        const ql = q.toLowerCase();
-        items = items.filter(h => String(h.title || '').toLowerCase().includes(ql) || String(h.notes || '').toLowerCase().includes(ql));
-      }
-      out.push(...items.map(h => ({
-        kind: 'habit',
-        id: h.id,
-        title: h.title,
-        notes: h.notes,
-        scheduledFor: h.scheduledFor,
-        completed: h.completed,
-        timeOfDay: h.timeOfDay ?? null,
-        createdAt: h.createdAt,
-        updatedAt: h.updatedAt,
-      })));
-    }
+    // habits removed
 
     const scored = out.map(r => ({ r, s: boosterScore(r) }))
       .sort((a, b) => (

@@ -140,6 +140,7 @@ Future<Map<String, dynamic>> assistantMessage(
     int version,
     int validCount,
     int invalidCount,
+    List<Map<String, dynamic>> previews,
   )?
   onOps,
   void Function(String correlationId)? onTraceId,
@@ -178,7 +179,11 @@ Future<Map<String, dynamic>> assistantMessage(
             ? (map['notes']['errors'] as List).length
             : 0;
         final version = (map['version'] is int) ? map['version'] as int : 3;
-        onOps(ops, version, validCount, invalidCount);
+        final previewsRaw = map['previews'];
+        final previews = (previewsRaw is List)
+            ? previewsRaw.map((e) => Map<String, dynamic>.from(e)).toList()
+            : const <Map<String, dynamic>>[];
+        onOps(ops, version, validCount, invalidCount, previews);
       }
     } catch (_) {}
     try {
@@ -244,7 +249,11 @@ Future<Map<String, dynamic>> assistantMessage(
                         .map((e) => Map<String, dynamic>.from(e))
                         .toList()
                   : const <Map<String, dynamic>>[];
-              onOps(ops, version, validCount, invalidCount);
+              final previewsRaw = obj['previews'];
+              final previews = (previewsRaw is List)
+                  ? previewsRaw.map((e) => Map<String, dynamic>.from(e)).toList()
+                  : const <Map<String, dynamic>>[];
+              onOps(ops, version, validCount, invalidCount, previews);
             }
           } else if (event == 'summary') {
             if (onSummary != null) {
@@ -276,6 +285,25 @@ Future<Map<String, dynamic>> assistantMessage(
           try {
             final cid = (map['correlationId'] as String?) ?? '';
             if (cid.isNotEmpty && onTraceId != null) onTraceId(cid);
+          } catch (_) {}
+          // Ensure onOps is surfaced on POST fallback as well
+          try {
+            if (onOps != null) {
+              final opsRaw = map['operations'];
+              final ops = (opsRaw is List)
+                  ? opsRaw.map((e) => Map<String, dynamic>.from(e)).toList()
+                  : const <Map<String, dynamic>>[];
+              final validCount = ops.length;
+              final invalidCount = (map['notes'] is Map && (map['notes']['errors'] is List))
+                  ? (map['notes']['errors'] as List).length
+                  : 0;
+              final version = (map['version'] is int) ? map['version'] as int : 3;
+              final previewsRaw = map['previews'];
+              final previews = (previewsRaw is List)
+                  ? previewsRaw.map((e) => Map<String, dynamic>.from(e)).toList()
+                  : const <Map<String, dynamic>>[];
+              onOps(ops, version, validCount, invalidCount, previews);
+            }
           } catch (_) {}
           completer.complete(map);
         } catch (e) {

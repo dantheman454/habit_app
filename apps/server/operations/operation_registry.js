@@ -45,27 +45,7 @@ export class OperationRegistry {
       executor: this.executors.eventDelete.bind(this.executors)
     });
 
-    
-    // Habit operations
-    processor.registerOperationType('habit_create', {
-      validator: OperationValidators.habitCreate,
-      executor: this.executors.habitCreate.bind(this.executors)
-    });
-    
-    processor.registerOperationType('habit_update', {
-      validator: OperationValidators.habitUpdate,
-      executor: this.executors.habitUpdate.bind(this.executors)
-    });
-    
-    processor.registerOperationType('habit_delete', {
-      validator: OperationValidators.habitDelete,
-      executor: this.executors.habitDelete.bind(this.executors)
-    });
-    
-    processor.registerOperationType('habit_set_occurrence_status', {
-      validator: OperationValidators.habitSetOccurrenceStatus,
-      executor: this.executors.habitSetOccurrenceStatus.bind(this.executors)
-    });
+    // Habit operations removed
   }
   
   getRegisteredOperationTypes() {
@@ -76,12 +56,7 @@ export class OperationRegistry {
       'todo_set_status',
       'event_create',
       'event_update',
-      'event_delete',
-      
-      'habit_create',
-      'habit_update',
-      'habit_delete',
-      'habit_set_occurrence_status'
+      'event_delete'
     ];
   }
   
@@ -203,66 +178,6 @@ export class OperationRegistry {
           id: { type: 'number', minimum: 1 }
         },
         required: ['id']
-      },
-      
-      'habit_create': {
-        type: 'object',
-        properties: {
-          title: { type: 'string', minLength: 1, maxLength: 255 },
-          notes: { type: 'string' },
-          scheduledFor: { type: 'string', format: 'date' },
-          timeOfDay: { type: 'string', pattern: '^([01]?[0-9]|2[0-3]):[0-5][0-9]$' },
-          recurrence: {
-            type: 'object',
-            properties: {
-              type: { type: 'string', enum: ['daily', 'weekly', 'monthly'] },
-              daysOfWeek: { 
-                type: 'array', 
-                items: { type: 'number', minimum: 0, maximum: 6 }
-              }
-            },
-            required: ['type']
-          }
-        },
-        required: ['title']
-      },
-      'habit_update': {
-        type: 'object',
-        properties: {
-          id: { type: 'number', minimum: 1 },
-          title: { type: 'string', minLength: 1, maxLength: 255 },
-          notes: { type: 'string' },
-          scheduledFor: { type: 'string', format: 'date' },
-          timeOfDay: { type: 'string', pattern: '^([01]?[0-9]|2[0-3]):[0-5][0-9]$' },
-          recurrence: {
-            type: 'object',
-            properties: {
-              type: { type: 'string', enum: ['daily', 'weekly', 'monthly'] },
-              daysOfWeek: { 
-                type: 'array', 
-                items: { type: 'number', minimum: 0, maximum: 6 }
-              }
-            },
-            required: ['type']
-          }
-        },
-        required: ['id']
-      },
-      'habit_delete': {
-        type: 'object',
-        properties: {
-          id: { type: 'number', minimum: 1 }
-        },
-        required: ['id']
-      },
-      'habit_set_occurrence_status': {
-        type: 'object',
-        properties: {
-          id: { type: 'number', minimum: 1 },
-          occurrenceDate: { type: 'string', format: 'date' },
-          status: { type: 'string', enum: ['pending', 'completed', 'skipped'] }
-        },
-        required: ['id', 'occurrenceDate', 'status']
       }
     };
     

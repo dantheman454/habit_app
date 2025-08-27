@@ -220,124 +220,6 @@ export class OperationValidators {
 
   // Event occurrence status removed: not supported
   
-  static habitCreate(op) {
-    const errors = [];
-    
-    if (!op.title || typeof op.title !== 'string' || op.title.trim().length === 0) {
-      errors.push('Title is required and must be a non-empty string');
-    }
-    
-    if (op.title && op.title.length > 255) {
-      errors.push('Title must be 255 characters or less');
-    }
-    
-    if (op.notes && typeof op.notes !== 'string') {
-      errors.push('Notes must be a string');
-    }
-    
-    if (op.scheduledFor && !OperationValidators.isValidDate(op.scheduledFor)) {
-      errors.push('scheduledFor must be a valid date in YYYY-MM-DD format');
-    }
-    
-    if (op.timeOfDay && !OperationValidators.isValidTime(op.timeOfDay)) {
-      errors.push('timeOfDay must be a valid time in HH:MM format');
-    }
-    
-    if (op.recurrence && !OperationValidators.isValidRecurrence(op.recurrence)) {
-      errors.push('recurrence must be a valid recurrence object');
-    }
-    // Optional context validation
-    if (op.context !== undefined && op.context !== null) {
-      const c = String(op.context);
-      if (!['school','personal','work'].includes(c)) {
-        errors.push('invalid_context');
-      }
-    }
-    
-    return {
-      valid: errors.length === 0,
-      errors
-    };
-  }
-  
-  static habitUpdate(op) {
-    const errors = [];
-    
-    if (!op.id || typeof op.id !== 'number' || op.id <= 0) {
-      errors.push('Valid ID is required');
-    }
-    
-    if (op.title !== undefined && (typeof op.title !== 'string' || op.title.trim().length === 0)) {
-      errors.push('Title must be a non-empty string');
-    }
-    
-    if (op.title && op.title.length > 255) {
-      errors.push('Title must be 255 characters or less');
-    }
-    
-    if (op.notes !== undefined && typeof op.notes !== 'string') {
-      errors.push('Notes must be a string');
-    }
-    
-    if (op.scheduledFor !== undefined && !OperationValidators.isValidDate(op.scheduledFor)) {
-      errors.push('scheduledFor must be a valid date in YYYY-MM-DD format');
-    }
-    
-    if (op.timeOfDay !== undefined && !OperationValidators.isValidTime(op.timeOfDay)) {
-      errors.push('timeOfDay must be a valid time in HH:MM format');
-    }
-    
-    if (op.recurrence !== undefined && !OperationValidators.isValidRecurrence(op.recurrence)) {
-      errors.push('recurrence must be a valid recurrence object');
-    }
-    // Optional context validation
-    if (op.context !== undefined && op.context !== null) {
-      const c = String(op.context);
-      if (!['school','personal','work'].includes(c)) {
-        errors.push('invalid_context');
-      }
-    }
-    
-    return {
-      valid: errors.length === 0,
-      errors
-    };
-  }
-  
-  static habitDelete(op) {
-    const errors = [];
-    
-    if (!op.id || typeof op.id !== 'number' || op.id <= 0) {
-      errors.push('Valid ID is required');
-    }
-    
-    return {
-      valid: errors.length === 0,
-      errors
-    };
-  }
-
-  static habitSetOccurrenceStatus(op) {
-    const errors = [];
-    
-    if (!op.id || typeof op.id !== 'number' || op.id <= 0) {
-      errors.push('Valid ID is required');
-    }
-    
-    if (!op.occurrenceDate || !OperationValidators.isValidDate(op.occurrenceDate)) {
-      errors.push('Valid occurrenceDate is required in YYYY-MM-DD format');
-    }
-    
-    const s = (op.status === undefined || op.status === null) ? null : String(op.status);
-    if (!s || !['pending','completed','skipped'].includes(s)) {
-      errors.push('invalid_status');
-    }
-    
-    return {
-      valid: errors.length === 0,
-      errors
-    };
-  }
   
   // Helper methods
   static isValidDate(dateStr) {
@@ -358,7 +240,7 @@ export class OperationValidators {
   static isValidRecurrence(recurrence) {
     if (!recurrence || typeof recurrence !== 'object') return false;
     
-    const validTypes = ['none', 'daily', 'weekdays', 'weekly', 'every_n_days'];
+    const validTypes = ['none', 'daily', 'weekdays', 'weekly', 'monthly', 'yearly', 'every_n_days'];
     if (!validTypes.includes(recurrence.type)) return false;
     
     if (recurrence.until && !OperationValidators.isValidDate(recurrence.until)) return false;

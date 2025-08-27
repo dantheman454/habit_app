@@ -36,8 +36,7 @@ class AssistantPanel extends StatelessWidget {
   final List<bool> operationsChecked;
   final bool sending;
   // badges removed (model, trace)
-  final bool showDiff;
-  final VoidCallback onToggleDiff;
+  final Map<String, Map<String, dynamic>>? previewsByKey;
   final void Function(int index, bool value) onToggleOperation;
   final VoidCallback onApplySelected;
   final VoidCallback onDiscard;
@@ -76,8 +75,7 @@ class AssistantPanel extends StatelessWidget {
     required this.operationsChecked,
     required this.sending,
     
-    required this.showDiff,
-    required this.onToggleDiff,
+    this.previewsByKey,
     required this.onToggleOperation,
     required this.onApplySelected,
     required this.onDiscard,
@@ -300,26 +298,14 @@ class AssistantPanel extends StatelessWidget {
                         },
                         child: const Text('Clear'),
                       ),
-                      OutlinedButton(
-                        onPressed: onToggleDiff,
-                        child: Text(
-                          showDiff ? 'Hide changes' : 'Review changes',
-                        ),
-                      ),
+                      // Removed: modal diff review
                       TextButton(
                         onPressed: onDiscard,
                         child: const Text('Discard'),
                       ),
                     ],
                   ),
-                  if (showDiff) ...[
-                    const SizedBox(height: 8),
-                    _DiffPopupButton(
-                      operations: operations,
-                      checked: operationsChecked,
-                      labeler: labeler,
-                    ),
-                  ],
+                  // Removed: modal diff review
                 ],
               ],
             ),
@@ -393,6 +379,26 @@ class AssistantPanel extends StatelessWidget {
   }
 
   // _buildOpsDiffView removed (unused) to reduce analyzer noise.
+
+  static String _opKey(dynamic candidate) {
+    try {
+      final m = (candidate is Map<String, dynamic> && candidate.containsKey('op'))
+          ? (candidate['op'] as Map)
+          : candidate as Map;
+      return [
+        (m['kind'] ?? 'todo').toString(),
+        (m['action'] ?? m['op'] ?? 'create').toString(),
+        (m['id'] ?? '').toString(),
+        (m['scheduledFor'] ?? '').toString(),
+        (m['timeOfDay'] ?? m['startTime'] ?? '').toString(),
+        (m['title'] ?? '').toString(),
+        (m['status'] ?? '').toString(),
+        (m['occurrenceDate'] ?? '').toString(),
+      ].join('|');
+    } catch (_) {
+      return '';
+    }
+  }
 
   static String? _getString(dynamic obj, String key) {
     try {
@@ -567,45 +573,68 @@ class AssistantPanel extends StatelessWidget {
         final op = ops[i];
         final errs = _getErrors(op);
         final isInvalid = errs.isNotEmpty;
-        widgets.add(
-          Row(
-            children: [
-              Tooltip(
-                message: isInvalid
-                    ? 'This operation is invalid and cannot be applied.'
-                    : '',
-                preferBelow: false,
-                child: Checkbox(
-                  value: checked[i],
-                  onChanged: isInvalid
-                      ? null
-                      : (v) => onToggleOperation(i, v ?? true),
-                ),
+        widgets.add(Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Tooltip(
+              message: isInvalid ? 'This operation is invalid and cannot be applied.' : '',
+              preferBelow: false,
+              child: Checkbox(
+                value: checked[i],
+                onChanged: isInvalid ? null : (v) => onToggleOperation(i, v ?? true),
               ),
-              _kindIcon(k),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(labeler(op)),
-                    if (isInvalid)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 2),
-                        child: Text(
-                          errs.join(', '),
-                          style: TextStyle(
-                            color: theme.colorScheme.error,
-                            fontSize: 12,
-                          ),
-                        ),
+            ),
+            _kindIcon(k),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(labeler(op)),
+                  if (isInvalid)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        errs.join(', '),
+                        style: TextStyle(color: theme.colorScheme.error, fontSize: 12),
                       ),
-                  ],
-                ),
+                    ),
+                  // Inline preview snippet when available
+                  Builder(builder: (_) {
+                    try {
+                      final key = _opKey(op is Map<String, dynamic> ? op : (op as dynamic).op.toJson());
+                      final preview = (previewsByKey ?? const <String, Map<String, dynamic>>{})[key];
+                      if (preview == null) return const SizedBox.shrink();
+                      final before = (preview['before'] as Map?)?.cast<String, dynamic>();
+                      final opMap = (preview['op'] as Map?)?.cast<String, dynamic>();
+                      final rows = _computeDiffRows(before, opMap);
+                      if (rows.isEmpty) return const SizedBox.shrink();
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 4, left: 0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _InlineDiffSnippet(rows: rows),
+                            const SizedBox(height: 4),
+                            Wrap(
+                              spacing: 6,
+                              children: [
+                                ActionChip(avatar: const Icon(Icons.check, size: 16), label: const Text('Accept'), onPressed: () => onToggleOperation(i, true)),
+                                ActionChip(avatar: const Icon(Icons.close, size: 16), label: const Text('Reject'), onPressed: () => onToggleOperation(i, false)),
+                              ],
+                            ),
+                          ],
+                        ),
+                      );
+                    } catch (_) {
+                      return const SizedBox.shrink();
+                    }
+                  }),
+                ],
               ),
-            ],
-          ),
-        );
+            ),
+          ],
+        ));
       }
     }
     return widgets;
@@ -754,216 +783,46 @@ class AssistantPanel extends StatelessWidget {
   }
 }
 
-class _DiffPopupButton extends StatelessWidget {
-  final List<dynamic> operations;
-  final List<bool>? checked;
-  final String Function(dynamic) labeler;
-  const _DiffPopupButton({required this.operations, this.checked, required this.labeler});
+class _InlineDiffSnippet extends StatefulWidget {
+  final List<Widget> rows;
+  const _InlineDiffSnippet({required this.rows});
+
+  @override
+  State<_InlineDiffSnippet> createState() => _InlineDiffSnippetState();
+}
+
+class _InlineDiffSnippetState extends State<_InlineDiffSnippet> {
+  bool expanded = false;
 
   @override
   Widget build(BuildContext context) {
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: OutlinedButton.icon(
-        icon: const Icon(Icons.preview, size: 16),
-        label: const Text('View change preview'),
-        onPressed: () => showDialog<void>(
-          context: context,
-          builder: (ctx) {
-            // Build request ops based on selection state (if provided)
-  bool includeUnchecked = false;
-  List<Map<String, dynamic>> buildRequestOps() {
-              final list = <Map<String, dynamic>>[];
-              for (var i = 0; i < operations.length; i++) {
-        if (checked != null && !includeUnchecked) {
-                  // Skip unchecked or invalid ops
-                  if (i >= (checked!.length)) continue;
-                  final isChecked = checked![i];
-                  final errs = AssistantPanel._getErrors(operations[i]);
-                  if (!isChecked || errs.isNotEmpty) continue;
-                }
-                final dyn = operations[i];
-                  try {
-                    final inner = (dyn is Map<String, dynamic> && dyn['op'] != null)
-                        ? dyn['op']
-                        : dyn.op;
-                    Map<String, dynamic>? m;
-                    if (inner is Map) {
-                      m = Map<String, dynamic>.from(inner);
-                    } else {
-                      final tj = inner.toJson();
-                      if (tj is Map) m = Map<String, dynamic>.from(tj);
-                    }
-                  if (m != null) list.add(m);
-                } catch (_) {}
-              }
-              // Fallback: if nothing selected, optionally preview all valid ops
-              if (list.isEmpty) {
-                for (final dyn in operations) {
-                    try {
-                      final errs = AssistantPanel._getErrors(dyn);
-                      if (errs.isNotEmpty) continue;
-                      final inner = (dyn is Map<String, dynamic> && dyn['op'] != null)
-                          ? dyn['op']
-                          : dyn.op;
-                      Map<String, dynamic>? m;
-                      if (inner is Map) {
-                        m = Map<String, dynamic>.from(inner);
-                      } else {
-                        final tj = inner.toJson();
-                        if (tj is Map) m = Map<String, dynamic>.from(tj);
-                      }
-                      if (m != null) list.add(m);
-                    } catch (_) {}
-                }
-              }
-              return list;
-            }
-
-            return StatefulBuilder(
-              builder: (ctx, setDlgState) {
-                // Start loading on first build
-                // Use local state held in closures
-                final future = api.previewOperations(buildRequestOps());
-                return Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.start,
-                      children: [
-                        StatefulBuilder(
-                          builder: (c2, setLocal) => CheckboxListTile(
-                            contentPadding: EdgeInsets.zero,
-                            dense: true,
-                            controlAffinity: ListTileControlAffinity.leading,
-                            title: const Text('Include unchecked valid ops'),
-                            value: includeUnchecked,
-                            onChanged: (v) {
-                              includeUnchecked = v ?? false;
-                              setDlgState(() {});
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                    FutureBuilder<Map<String, dynamic>>(
-                      future: future,
-                  builder: (context, snap) {
-                    final title = const Text('Proposed changes');
-                    if (snap.connectionState != ConnectionState.done) {
-                          return AlertDialog(
-                            title: title,
-                            content: const SizedBox(
-                              width: 520,
-                              height: 200,
-                              child: Center(child: CircularProgressIndicator()),
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.of(ctx).pop(),
-                                child: const Text('Close'),
-                              ),
-                            ],
-                          );
-                    }
-                    if (snap.hasError || snap.data == null) {
-                      return AlertDialog(
-                        title: title,
-                        content: SizedBox(
-                          width: 520,
-                          child: Text('Preview failed: ${snap.error ?? 'unknown error'}'),
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.of(ctx).pop(),
-                            child: const Text('Close'),
-                          ),
-                        ],
-                      );
-                    }
-                    final affected = (snap.data!['affected'] as List<dynamic>? ?? const <dynamic>[])
-                        .map((e) => (e as Map).cast<String, dynamic>())
-                        .toList();
-                        return AlertDialog(
-                          title: title,
-                          content: SizedBox(
-                            width: 560,
-                            height: 420,
-                            child: Column(
-                              children: [
-                                Align(
-                                  alignment: Alignment.centerLeft,
-                                  child: CheckboxListTile(
-                                    contentPadding: EdgeInsets.zero,
-                                    dense: true,
-                                    controlAffinity: ListTileControlAffinity.leading,
-                                    title: const Text('Include unchecked valid ops'),
-                                    value: includeUnchecked,
-                                    onChanged: (v) {
-                                      includeUnchecked = v ?? false;
-                                      setDlgState(() {});
-                                    },
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                Expanded(
-                                  child: Scrollbar(
-                                    child: ListView.builder(
-                                      itemCount: affected.length,
-                                      itemBuilder: (_, i) {
-                                        final entry = affected[i];
-                                        final op = (entry['op'] as Map?)?.cast<String, dynamic>();
-                                        final before = (entry['before'] as Map?)?.cast<String, dynamic>();
-                                        final rows = _computeDiffRows(before, op);
-                                        return Container(
-                                          margin: const EdgeInsets.only(bottom: 8),
-                                          padding: const EdgeInsets.all(8),
-                                          decoration: BoxDecoration(
-                                            border: Border.all(color: Colors.grey.shade300),
-                                            borderRadius: BorderRadius.circular(6),
-                                          ),
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Text(labeler(op ?? const {})),
-                                              Padding(
-                                                padding: const EdgeInsets.only(top: 6),
-                                                child: Column(
-                                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                                  children: rows.isEmpty
-                                                      ? [const Text('No visible changes.')] 
-                                                      : rows,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.of(ctx).pop(),
-                              child: const Text('Close'),
-                            ),
-                          ],
-                        );
-                  },
-                    ),
-                  ],
-                );
-              },
-            );
-          },
+    final theme = Theme.of(context);
+    final visible = expanded ? widget.rows : widget.rows.take(3).toList();
+    final canExpand = widget.rows.length > 3;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surfaceContainerHighest.withAlpha((0.35 * 255).round()),
+            borderRadius: BorderRadius.circular(4),
+          ),
+          padding: const EdgeInsets.all(6),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: visible,
+          ),
         ),
-      ),
+        if (canExpand)
+          TextButton.icon(
+            onPressed: () => setState(() => expanded = !expanded),
+            icon: Icon(expanded ? Icons.expand_less : Icons.expand_more, size: 16),
+            label: Text(expanded ? 'Hide details' : 'Show more'),
+          ),
+      ],
     );
   }
-
+}
   List<Widget> _computeDiffRows(
     Map<String, dynamic>? before,
     Map<String, dynamic>? op,
@@ -1041,7 +900,6 @@ class _DiffPopupButton extends StatelessWidget {
     addRow('Completed', beforeDone, getAfter('completed'));
   return rows.whereType<Row>().toList();
   }
-}
 
 class _TypingDots extends StatefulWidget {
   const _TypingDots();

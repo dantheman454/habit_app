@@ -15,7 +15,9 @@ Keep in mind:
 
 Get done asap:    
     -Clean up UI (Look at cursor, google calendar, and apple calendar/reminders for inspiration)
+        *standardize to tasks and events (no more todos or goals or any other entities)
         *make updating/creating tasks and events easier (time and date are a pain right now)
+        *get searchbar working
         *update subheader to be cleaner
             >Make sure the scroll wheel (< Today >) switches with the view
         *fix it from being so snappy when deleting todos or going between tabs

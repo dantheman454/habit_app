@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'context_filter.dart';
+import 'global_search.dart';
 import '../util/animation.dart';
 
 class CompactSubheader extends StatelessWidget {
@@ -14,6 +15,17 @@ class CompactSubheader extends StatelessWidget {
   final bool showCompleted;
   final void Function(bool) onShowCompletedChanged;
 
+  // Optional assistant/search plumbing
+  final VoidCallback? onToggleAssistant;
+  final TextEditingController? searchController;
+  final FocusNode? searchFocus;
+  final LayerLink? searchLink;
+  final bool searching;
+  final void Function(String)? onSearchChanged;
+  final void Function(bool)? onSearchFocusChange;
+  final KeyEventResult Function(FocusNode, KeyEvent)? onSearchKeyEvent;
+  final VoidCallback? onSearchClear;
+
   const CompactSubheader({
     super.key,
     required this.dateLabel,
@@ -24,12 +36,21 @@ class CompactSubheader extends StatelessWidget {
     required this.onContextChanged,
     required this.showCompleted,
     required this.onShowCompletedChanged,
+    this.onToggleAssistant,
+    this.searchController,
+    this.searchFocus,
+    this.searchLink,
+    this.searching = false,
+    this.onSearchChanged,
+    this.onSearchFocusChange,
+    this.onSearchKeyEvent,
+    this.onSearchClear,
   });
 
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Theme.of(context).colorScheme.surfaceContainerLow,
+      color: Theme.of(context).colorScheme.surface,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         child: LayoutBuilder(
@@ -93,6 +114,32 @@ class CompactSubheader extends StatelessWidget {
 
                 const SizedBox(width: 8),
 
+                // Assistant toggle removed from subheader (replaced by attached handle)
+
+                const SizedBox(width: 8),
+
+                // Spacer before right-side controls
+                const Spacer(),
+
+                // Inline Search (wide only)
+                if (!isNarrow &&
+                    searchController != null &&
+                    searchFocus != null &&
+                    searchLink != null)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 12),
+                    child: GlobalSearchField(
+                      controller: searchController!,
+                      focusNode: searchFocus!,
+                      link: searchLink!,
+                      searching: searching,
+                      onChanged: onSearchChanged ?? (_) {},
+                      onFocusChange: onSearchFocusChange,
+                      onKeyEvent: onSearchKeyEvent,
+                      onClear: onSearchClear,
+                    ),
+                  ),
+
                 // Inline Show Completed (wide only)
                 if (!isNarrow)
                   Row(
@@ -109,7 +156,7 @@ class CompactSubheader extends StatelessWidget {
                     ],
                   ),
 
-                // Kebab overflow (narrow): exposes Show Completed toggle
+                // Kebab overflow (narrow): exposes Show Completed toggle and Search
                 if (isNarrow)
                   Padding(
                     padding: const EdgeInsets.only(left: 4),
@@ -119,6 +166,34 @@ class CompactSubheader extends StatelessWidget {
                       onSelected: (v) {
                         if (v == 1) {
                           onShowCompletedChanged(!showCompleted);
+                        } else if (v == 2) {
+                          if (searchController != null) {
+                            showDialog(
+                              context: context,
+                              builder: (dCtx) {
+                                return AlertDialog(
+                                  title: const Text('Search'),
+                                  content: GlobalSearchField(
+                                    controller: searchController!,
+                                    focusNode: searchFocus ?? FocusNode(),
+                                    link: searchLink ?? LayerLink(),
+                                    searching: searching,
+                                    // In-dialog: do not trigger overlay show
+                                    onChanged: onSearchChanged ?? (_) {},
+                                    onFocusChange: null,
+                                    onKeyEvent: onSearchKeyEvent,
+                                    onClear: onSearchClear,
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.of(dCtx).pop(),
+                                      child: const Text('Close'),
+                                    ),
+                                  ],
+                                );
+                              },
+                            );
+                          }
                         }
                       },
                       itemBuilder: (ctx) => [
@@ -140,6 +215,14 @@ class CompactSubheader extends StatelessWidget {
                             ],
                           ),
                         ),
+                        if (searchController != null)
+                          const PopupMenuItem<int>(
+                            value: 2,
+                            child: ListTile(
+                              leading: Icon(Icons.search),
+                              title: Text('Search'),
+                            ),
+                          ),
                       ],
                     ),
                   ),

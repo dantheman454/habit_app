@@ -2,7 +2,7 @@ import { qwenToolLLM } from './clients.js';
 import { createQwenToolPrompt } from './qwen_utils.js';
 import { buildFocusedContext } from './context.js';
 import { extractFirstJson } from './json_extract.js';
-import { mkCorrelationId } from './logging.js';
+import { mkCorrelationId, logIO } from './logging.js';
 import db from '../database/DbService.js';
 import { OperationRegistry } from '../operations/operation_registry.js';
 
@@ -65,6 +65,7 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
   if (!instruction) return { version: '3', steps: [], operations: [], tools: [], notes: { errors: ['empty_instruction'] }, text: 'Please share what you would like to do.' };
 
   const correlationId = mkCorrelationId();
+  const DEBUG = /^(1|true|yes|on)$/i.test(String(process.env.ASSISTANT_DEBUG || ''));
   const focusedContext = buildFocusedContext(where, { timezone });
   const contextJson = JSON.stringify(focusedContext, null, 2);
   const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
@@ -72,10 +73,10 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
 
   // Build tool surface with JSON Schemas from OperationRegistry
   const registry = new OperationRegistry(db);
+  // Limit tool surface to todos and events only (habits excluded per user preference)
   const toolNames = [
     'todo.create','todo.update','todo.delete','todo.set_status',
-    'event.create','event.update','event.delete',
-    'habit.create','habit.update','habit.delete','habit.set_occurrence_status'
+    'event.create','event.update','event.delete'
   ];
   const operationTools = toolNames.map((name) => {
     const [k, a] = name.split('.');
@@ -91,10 +92,20 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
     });
   });
 
-  const system = 'You are an operations executor for a todo application. Use tools to perform user actions precisely. Never invent IDs. Validate dates (YYYY-MM-DD) and times (HH:MM). Keep operations under 20 total. Output MUST be a single JSON object, no code fences, no extra text.';
+  const system = 'You are an operations executor for a tasks/events app. Use provided tools precisely.\n\nFields map (strict):\n- Todos: date -> scheduledFor; time -> timeOfDay; status -> status; DO NOT use startTime/endTime.\n- Events: date -> scheduledFor; start -> startTime; end -> endTime; DO NOT use timeOfDay.\n\nDisambiguation rules:\n- Prefer IDs from focused.candidates when present.\n- When matching by title, compare case-insensitively (ignore punctuation/extra whitespace) using indexes.todo_by_title_ci and indexes.event_by_title_ci.\n- Cross-check matches with indexes.id_to_kind and indexes.id_to_title to avoid mixing todo vs event.\n- For instructions like "update X to HH:MM", set timeOfDay for todos or startTime for events accordingly.\n- Never invent IDs; if still ambiguous after candidates/indexes, return a concise clarify question.\n\nValidation: Validate dates (YYYY-MM-DD) and times (HH:MM). Keep operations under 20 total. Output MUST be a single JSON object, no code fences, no extra text.';
   const user = `Task: ${instruction}\nWhere: ${JSON.stringify(where)}\nFocused Context:\n${contextJson}\nRecent Conversation:\n${convo}`;
 
   const prompt = createQwenToolPrompt({ system, user, tools: operationTools });
+  if (DEBUG) {
+    try {
+      logIO('ops_agent_init', {
+        model: 'qwen3:tool',
+        prompt: JSON.stringify({ system, user, tools: operationTools.map(t => t.function?.name) }),
+        output: JSON.stringify({ note: 'initialized tool-calling run', focusedContext }),
+        meta: { correlationId }
+      });
+    } catch {}
+  }
 
   const proposedOps = [];
   const executedKeys = new Set();
@@ -121,6 +132,20 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
 
     const toolCallsArr = Array.isArray(jsonCandidate.tool_calls) ? jsonCandidate.tool_calls
       : (jsonCandidate.tool_call ? [jsonCandidate.tool_call] : []);
+
+    if (DEBUG) {
+      try {
+        logIO('ops_agent_round', {
+          model: 'qwen3:tool',
+          prompt: JSON.stringify({ round: rounds + 1, messagesLength: messages.length }),
+          output: JSON.stringify({
+            responseText: text?.slice(0, 2000) || '',
+            toolCalls: toolCallsArr.map(c => ({ name: c?.function?.name || c?.name, arguments: c?.function?.arguments || c?.arguments }))
+          }),
+          meta: { correlationId, round: rounds + 1 }
+        });
+      } catch {}
+    }
 
     // Extract thinking and final text from all responses
     const responseText = String(jsonCandidate.message || text || '').trim();
@@ -183,7 +208,7 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
       annotations.push({ op, errors: validation.errors || [] });
       
       if (validation.valid) {
-        const key = [op.kind, op.action, op.id, op.scheduledFor || '', op.timeOfDay || '', op.title || '', op.status || '', op.occurrenceDate || ''].join('|');
+        const key = [op.kind, op.action, op.id, op.scheduledFor || '', op.timeOfDay || op.startTime || '', op.title || '', op.status || '', op.occurrenceDate || ''].join('|');
         if (!executedKeys.has(key)) {
           executedKeys.add(key);
           proposedOps.push(op);
@@ -217,23 +242,79 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
       if (isActionable) {
         // Try to extract a time like HH:MM
         const m = instruction.match(/\b([01]\d|2[0-3]):[0-5]\d\b/);
-        const timeOfDay = m ? m[1] : null;
-        // Choose a target id: prefer explicit where.id, else single focused item
-        let targetId = (where && Number.isFinite(where.id)) ? where.id : null;
+        const timeOfDay = m ? m[0] : null;
+        // Choose target: prefer focused candidates, then explicit where.id, then title matching
+        let targetId = null;
+        let targetKind = 'todo';
+        
+        // First, check focused candidates
+        if (focusedContext.focused && Array.isArray(focusedContext.focused.candidates)) {
+          const candidates = focusedContext.focused.candidates;
+          if (candidates.length === 1) {
+            targetId = candidates[0].id;
+            targetKind = candidates[0].kind;
+          } else if (candidates.length > 1) {
+            // Multiple candidates - try to find best match by title
+            const titleMatch = candidates.find(c => {
+              const t = String(c.title || '').toLowerCase();
+              return !!t && lower.includes(t);
+            });
+            if (titleMatch) {
+              targetId = titleMatch.id;
+              targetKind = titleMatch.kind;
+            }
+          }
+        }
+        
+        // Fallback to explicit where.id
+        if (!targetId && where && Number.isFinite(where.id)) {
+          targetId = where.id;
+          // Try to determine kind by checking both todos and events
+          const todosInContext = (focusedContext && Array.isArray(focusedContext.todos)) ? focusedContext.todos : [];
+          const eventsInContext = (focusedContext && Array.isArray(focusedContext.events)) ? focusedContext.events : [];
+          if (todosInContext.find(t => t.id === targetId)) {
+            targetKind = 'todo';
+          } else if (eventsInContext.find(e => e.id === targetId)) {
+            targetKind = 'event';
+          }
+        }
+        
+        // Last resort: title matching using indexes
         if (!targetId) {
           try {
-            const focusedItems = (focusedContext && Array.isArray(focusedContext.focused)) ? focusedContext.focused : [];
-            if (focusedItems.length === 1) targetId = focusedItems[0].id;
-            else {
-              // fuzzy match by title containment
-              const titleMatch = focusedItems.find(it => (it.title || '').toLowerCase() && lower.includes(String(it.title || '').toLowerCase()));
-              if (titleMatch) targetId = titleMatch.id;
+            // Try todo index first
+            if (focusedContext.indexes && focusedContext.indexes.todo_by_title_ci) {
+              for (const [title, id] of Object.entries(focusedContext.indexes.todo_by_title_ci)) {
+                if (lower.includes(title)) {
+                  targetId = id;
+                  targetKind = 'todo';
+                  break;
+                }
+              }
+            }
+            
+            // Try event index if no todo match
+            if (!targetId && focusedContext.indexes && focusedContext.indexes.event_by_title_ci) {
+              for (const [title, id] of Object.entries(focusedContext.indexes.event_by_title_ci)) {
+                if (lower.includes(title)) {
+                  targetId = id;
+                  targetKind = 'event';
+                  break;
+                }
+              }
             }
           } catch {}
         }
+        
         if (targetId && (timeOfDay || lower.includes('time'))) {
-          const inferred = { kind: 'todo', action: 'update', id: targetId };
-          if (timeOfDay) inferred.timeOfDay = timeOfDay;
+          const inferred = { kind: targetKind, action: 'update', id: targetId };
+          if (timeOfDay) {
+            if (targetKind === 'todo') {
+              inferred.timeOfDay = timeOfDay;
+            } else if (targetKind === 'event') {
+              inferred.startTime = timeOfDay;
+            }
+          }
           // Validate and include if valid
           const type = operationProcessor.inferOperationType(inferred);
           const validator = operationProcessor.validators.get(type);
@@ -242,6 +323,9 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
           if (validation.valid) {
             proposedOps.push(inferred);
             finalText = finalText || `Here are the proposed changes for your review. (1 valid, 0 invalid)`;
+            if (DEBUG) {
+              try { logIO('ops_agent_fallback', { model: 'qwen3:tool', prompt: JSON.stringify({ instruction }), output: JSON.stringify({ inferred }), meta: { correlationId } }); } catch {}
+            }
           }
         }
       }
@@ -260,3 +344,7 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
     thinking: thinkingText
   };
 }
+
+// Emit a final result log outside the function return to aid debugging when enabled
+// Note: We cannot log here post-return; callers receive structured results. The above
+// per-round and init logs, plus assistant route summary logs, should be sufficient.

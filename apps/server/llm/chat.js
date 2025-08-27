@@ -25,7 +25,9 @@ export async function runChat({ instruction, transcript = [], timezone } = {}) {
   });
 
   const raw = await qwenConvoLLM(qwenPrompt, { stream: false, model: MODELS.convo });
-  logIO('chat', { model: MODELS.convo, prompt: JSON.stringify(qwenPrompt), output: JSON.stringify(raw), meta: { correlationId, module: 'chat' } });
+  try {
+    logIO('chat', { model: MODELS.convo, prompt: JSON.stringify(qwenPrompt), output: JSON.stringify(raw), meta: { correlationId, module: 'chat', qa } });
+  } catch {}
 
   const finalResponse = getQwenFinalResponse(raw);
   const text = String(finalResponse || '').trim();

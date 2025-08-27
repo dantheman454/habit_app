@@ -102,8 +102,100 @@ function listAllTodosRaw() {
 function listAllEventsRaw() {
   try { return db.searchEvents({ q: ' ' }); } catch { return []; }
 }
-function listAllHabitsRaw() {
-  try { return db.searchHabits({ q: ' ' }); } catch { return []; }
+// Habits removed from assistant contexts
+
+// Helper function to build title indexes for case-insensitive matching
+function buildTitleIndexes(todos, events) {
+  const todoIndex = {};
+  const eventIndex = {};
+  
+  // Build todo index (first 50 items)
+  todos.slice(0, 50).forEach(todo => {
+    if (todo.title) {
+      const key = todo.title.toLowerCase().trim();
+      todoIndex[key] = todo.id;
+    }
+  });
+  
+  // Build event index (first 50 items)
+  events.slice(0, 50).forEach(event => {
+    if (event.title) {
+      const key = event.title.toLowerCase().trim();
+      eventIndex[key] = event.id;
+    }
+  });
+  
+  return { todoIndex, eventIndex };
+}
+
+// Helper: build compact id→kind and id→title maps to reduce ambiguity
+function buildIdIndexes(todos, events) {
+  const idToKind = {};
+  const idToTitle = {};
+  for (const t of todos) { idToKind[t.id] = 'todo'; idToTitle[t.id] = t.title || ''; }
+  for (const e of events) { idToKind[e.id] = 'event'; idToTitle[e.id] = e.title || ''; }
+  return { idToKind, idToTitle };
+}
+
+// Helper function to build focused candidates from UI selection
+function buildFocusedCandidates(where, todos, events) {
+  const candidates = [];
+  
+  // Handle UI selection from where.selected
+  if (where.selected) {
+    if (Array.isArray(where.selected.todos)) {
+      where.selected.todos.forEach(id => {
+        const todo = todos.find(t => t.id === id);
+        if (todo) {
+          candidates.push({
+            kind: 'todo',
+            id: todo.id,
+            title: todo.title,
+            reason: 'selected_in_ui'
+          });
+        }
+      });
+    }
+    
+    if (Array.isArray(where.selected.events)) {
+      where.selected.events.forEach(id => {
+        const event = events.find(e => e.id === id);
+        if (event) {
+          candidates.push({
+            kind: 'event',
+            id: event.id,
+            title: event.title,
+            reason: 'selected_in_ui'
+          });
+        }
+      });
+    }
+  }
+  
+  // Handle single where.id (backward compatibility)
+  if (where.id && Number.isFinite(where.id)) {
+    const todo = todos.find(t => t.id === where.id);
+    if (todo) {
+      candidates.push({
+        kind: 'todo',
+        id: todo.id,
+        title: todo.title,
+        reason: 'explicit_id'
+      });
+    } else {
+      const event = events.find(e => e.id === where.id);
+      if (event) {
+        candidates.push({
+          kind: 'event',
+          id: event.id,
+          title: event.title,
+          reason: 'explicit_id'
+        });
+      }
+    }
+  }
+  
+  return candidates;
 }
 
 export function buildRouterSnapshots({ timezone = DEFAULT_TZ } = {}) {
@@ -112,8 +204,7 @@ export function buildRouterSnapshots({ timezone = DEFAULT_TZ } = {}) {
   // Completed=false by convention for week + backlog
   const todosWeek = filterByWhere(listAllTodosRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false }, { todayY: ymdInTimeZone(new Date(), tz) });
   const eventsWeek = filterByWhere(listAllEventsRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false }, { todayY: ymdInTimeZone(new Date(), tz) });
-  const habitsWeek = filterByWhere(listAllHabitsRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false }, { todayY: ymdInTimeZone(new Date(), tz) });
-  const weekItems = [...todosWeek, ...eventsWeek, ...habitsWeek];
+  const weekItems = [...todosWeek, ...eventsWeek];
   const compact = (t) => ({ id: t.id, title: t.title, scheduledFor: t.scheduledFor });
   return { week: { from: fromYmd, to: toYmd, items: weekItems.map(compact) } };
 }
@@ -123,24 +214,60 @@ export function buildFocusedContext(where = {}, { timezone = DEFAULT_TZ } = {}) 
   const todayY = ymdInTimeZone(new Date(), tz);
   const w = where || {};
   const kindsHint = (() => {
-    // where.kind: 'todo'|'event'|'habit' or array
+    // where.kind: 'todo'|'event' or array (habits removed)
     if (typeof w.kind === 'string') return [w.kind.toLowerCase()];
     if (Array.isArray(w.kind)) return w.kind.map((k) => String(k).toLowerCase());
     return null;
   })();
   const includeTodo = !kindsHint || kindsHint.includes('todo');
-  const includeEvent = kindsHint && kindsHint.includes('event');
-  const includeHabit = kindsHint && kindsHint.includes('habit');
+  const includeEvent = !kindsHint || kindsHint.includes('event');
 
   const todos = includeTodo ? filterByWhere(listAllTodosRaw(), w, { todayY }).slice(0, 50) : [];
   const events = includeEvent ? filterByWhere(listAllEventsRaw(), w, { todayY }).slice(0, 50) : [];
-  const habits = includeHabit ? filterByWhere(listAllHabitsRaw(), w, { todayY }).slice(0, 50) : [];
+
+  // Build focused candidates and title indexes
+  const focusedCandidates = buildFocusedCandidates(w, todos, events);
+  const { todoIndex, eventIndex } = buildTitleIndexes(todos, events);
+  const { idToKind, idToTitle } = buildIdIndexes(todos, events);
 
   return {
     where: w,
-  todos: todos.map(t => ({ id: t.id, title: t.title, scheduledFor: t.scheduledFor ?? null, recurrence: t.recurrence || { type: 'none' }, completed: !!t.completed })),
-  events: events.map(e => ({ id: e.id, title: e.title, scheduledFor: e.scheduledFor ?? null, startTime: e.startTime ?? null, endTime: e.endTime ?? null, location: e.location ?? null, recurrence: e.recurrence || { type: 'none' }, completed: !!e.completed })),
-  habits: habits.map(h => ({ id: h.id, title: h.title, scheduledFor: h.scheduledFor ?? null, timeOfDay: h.timeOfDay ?? null, recurrence: h.recurrence || { type: 'daily' }, completed: !!h.completed })),
+    // Enrich records so the Ops agent can make better decisions
+    todos: todos.map(t => ({
+      id: t.id,
+      title: t.title,
+      notes: t.notes ?? '',
+      scheduledFor: t.scheduledFor ?? null,
+      timeOfDay: t.timeOfDay ?? null,
+      status: t.status ?? (t.completed ? 'completed' : 'pending'),
+      recurrence: t.recurrence || { type: 'none' },
+      context: t.context ?? 'personal',
+      createdAt: t.createdAt,
+      updatedAt: t.updatedAt
+    })),
+    events: events.map(e => ({
+      id: e.id,
+      title: e.title,
+      notes: e.notes ?? '',
+      scheduledFor: e.scheduledFor ?? null,
+      startTime: e.startTime ?? null,
+      endTime: e.endTime ?? null,
+      location: e.location ?? null,
+      recurrence: e.recurrence || { type: 'none' },
+      completed: !!e.completed,
+      context: e.context ?? 'personal',
+      createdAt: e.createdAt,
+      updatedAt: e.updatedAt
+    })),
+    focused: {
+      candidates: focusedCandidates
+    },
+    indexes: {
+      todo_by_title_ci: todoIndex,
+      event_by_title_ci: eventIndex,
+      id_to_kind: idToKind,
+      id_to_title: idToTitle
+    },
     aggregates: {}
   };
 }
@@ -165,21 +292,35 @@ export function buildQAContext({ timezone = DEFAULT_TZ } = {}) {
   // Today (detailed)
   const todosToday = filterByWhere(listAllTodosRaw(), { scheduled_range: { from: today, to: today } }, { todayY: today })
     .slice(0, perTypeToday)
-    .map(t => ({ id: t.id, title: t.title, scheduledFor: t.scheduledFor ?? null, timeOfDay: t.timeOfDay ?? null, status: t.status ?? (t.completed ? 'completed' : 'pending') }));
+    .map(t => ({
+      id: t.id,
+      title: t.title,
+      notes: t.notes ?? '',
+      scheduledFor: t.scheduledFor ?? null,
+      timeOfDay: t.timeOfDay ?? null,
+      status: t.status ?? (t.completed ? 'completed' : 'pending'),
+      recurrence: t.recurrence || { type: 'none' },
+      context: t.context ?? 'personal'
+    }));
   const eventsToday = filterByWhere(listAllEventsRaw(), { scheduled_range: { from: today, to: today } }, { todayY: today })
     .slice(0, perTypeToday)
-    .map(e => ({ id: e.id, title: e.title, scheduledFor: e.scheduledFor ?? null, startTime: e.startTime ?? null, endTime: e.endTime ?? null, location: e.location ?? null }));
-  // For habits, include those explicitly scheduled for today; simple heuristic: also include repeating habits with no explicit date
-  const habitsTodayAll = listAllHabitsRaw();
-  const habitsToday = habitsTodayAll
-    .filter(h => (h.scheduledFor === today) || (h.recurrence && h.recurrence.type && h.recurrence.type !== 'none'))
-    .slice(0, perTypeToday)
-    .map(h => ({ id: h.id, title: h.title, scheduledFor: h.scheduledFor ?? null, timeOfDay: h.timeOfDay ?? null, recurrence: h.recurrence || { type: 'daily' }, completed: !!h.completed }));
+    .map(e => ({
+      id: e.id,
+      title: e.title,
+      notes: e.notes ?? '',
+      scheduledFor: e.scheduledFor ?? null,
+      startTime: e.startTime ?? null,
+      endTime: e.endTime ?? null,
+      location: e.location ?? null,
+      recurrence: e.recurrence || { type: 'none' },
+      completed: !!e.completed,
+      context: e.context ?? 'personal'
+    }));
+  // Habits removed from QA context
 
   // Week summary (titles only)
   const todosWeek = filterByWhere(listAllTodosRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false }, { todayY: today });
   const eventsWeek = filterByWhere(listAllEventsRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false }, { todayY: today });
-  const habitsWeek = filterByWhere(listAllHabitsRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false }, { todayY: today });
   const pickTitles = (arr, n) => arr.slice(0, n).map(x => ({ id: x.id, title: x.title, scheduledFor: x.scheduledFor ?? null }));
   const perTypeWeek = Math.max(1, Math.floor(MAX_WEEK_TITLES / 3));
 
@@ -188,21 +329,28 @@ export function buildQAContext({ timezone = DEFAULT_TZ } = {}) {
     todayYmd: today,
     today: {
       todos: todosToday,
-      events: eventsToday,
-      habits: habitsToday,
+      events: eventsToday
     },
     week: {
       fromYmd,
       toYmd,
       counts: {
         todos: todosWeek.length,
-        events: eventsWeek.length,
-        habits: habitsWeek.length,
+        events: eventsWeek.length
       },
       titles: {
         todos: pickTitles(todosWeek, perTypeWeek),
-        events: pickTitles(eventsWeek, perTypeWeek),
-        habits: pickTitles(habitsWeek, perTypeWeek),
+        events: pickTitles(eventsWeek, perTypeWeek)
+      },
+      indexes: {
+        id_to_kind: Object.fromEntries([
+          ...todosWeek.map(t => [t.id, 'todo']),
+          ...eventsWeek.map(e => [e.id, 'event'])
+        ]),
+        id_to_title: Object.fromEntries([
+          ...todosWeek.map(t => [t.id, t.title || '']),
+          ...eventsWeek.map(e => [e.id, e.title || ''])
+        ])
       }
     }
   };

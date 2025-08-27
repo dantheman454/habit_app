@@ -87,7 +87,7 @@ router.get('/api/schedule', (req, res) => {
     const csv = String(kinds || 'todo,event').trim();
     const parts = csv.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
     const set = new Set(parts.length ? parts : ['todo','event']);
-    return ['todo','event','habit'].filter(k => set.has(k));
+    return ['todo','event'].filter(k => set.has(k));
   })();
 
   try {
@@ -165,18 +165,9 @@ router.get('/api/schedule', (req, res) => {
       }
     }
 
-    if (requestedKinds.includes('habit')) {
-      let habits = db.listHabits({ from: null, to: null, context: context || null }).filter(h => h.scheduledFor !== null);
-      for (const h of habits) {
-        for (const occ of expandTodoOccurrences(h, fromDate, toDate)) {
-          if (completedBool === undefined || occ.completed === completedBool) {
-            items.push({ kind: 'habit', ...occ });
-          }
-        }
-      }
-    }
+    // habits removed
 
-    const kindOrder = { event: 0, todo: 1, habit: 2 };
+    const kindOrder = { event: 0, todo: 1 };
     items.sort((a, b) => {
       const da = String(a.scheduledFor || '');
       const dbs = String(b.scheduledFor || '');

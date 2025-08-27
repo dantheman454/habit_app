@@ -1,9 +1,11 @@
 import { Router } from 'express';
-import { mkCorrelationId } from '../llm/logging.js';
+import { mkCorrelationId, logIO } from '../llm/logging.js';
+import db from '../database/DbService.js';
 import { runOpsAgentToolCalling } from '../llm/ops_agent.js';
 import { runChat } from '../llm/chat.js';
 
 const router = Router();
+const DEBUG = /^(1|true|yes|on)$/i.test(String(process.env.ASSISTANT_DEBUG || ''));
 const TIMEZONE = process.env.TZ_NAME || 'America/New_York';
 
 // Store the operation processor reference
@@ -43,6 +45,47 @@ function ensureSummaryText(text, operations = [], notes = {}) {
   return `Here are the proposed changes for your review (${parts.join(', ')}).`;
 }
 
+function buildOpKey(op) {
+  try {
+    return [
+      op.kind || 'todo',
+      op.action || op.op || 'create',
+      op.id || '',
+      op.scheduledFor || '',
+      op.timeOfDay || op.startTime || '',
+      op.title || '',
+      op.status || '',
+      op.occurrenceDate || ''
+    ].join('|');
+  } catch {
+    return '';
+  }
+}
+
+async function buildPreviews(ops) {
+  const out = [];
+  try {
+    const arr = Array.isArray(ops) ? ops : [];
+    for (const op of arr) {
+      const action = String(op.action || op.op || '').toLowerCase();
+      const kind = String(op.kind || 'todo').toLowerCase();
+      const needsBefore = ['update','delete','complete','set_status','complete_occurrence'].includes(action);
+      let before = null;
+      if (needsBefore && op.id != null) {
+        try {
+          const id = Number(op.id);
+          if (Number.isFinite(id)) {
+            if (kind === 'event') before = await db.getEventById(id);
+            else before = await db.getTodoById(id);
+          }
+        } catch {}
+      }
+      out.push({ key: buildOpKey(op), op, before });
+    }
+  } catch {}
+  return out;
+}
+
 router.post('/api/assistant/message', async (req, res) => {
   try {
     const { message, transcript = [] } = req.body || {};
@@ -53,6 +96,18 @@ router.post('/api/assistant/message', async (req, res) => {
     let oa;
     try {
       oa = await runOpsAgentToolCalling({ taskBrief: message.trim(), where: {}, transcript, timezone: TIMEZONE, operationProcessor });
+      if (DEBUG) {
+        try {
+          const dbg = {
+            text: oa.text,
+            validOps: Array.isArray(oa.operations) ? oa.operations.length : 0,
+            invalid: Array.isArray(oa.notes?.errors) ? oa.notes.errors.length : 0,
+            kinds: Array.isArray(oa.operations) ? Array.from(new Set(oa.operations.map(o => o.kind))) : []
+          };
+          console.log('[Assistant] propose summary', dbg);
+          try { logIO('assistant_ops_summary', { model: 'ops_agent', prompt: JSON.stringify({ message, transcript }), output: JSON.stringify(dbg), meta: { correlationId } }); } catch {}
+        } catch {}
+      }
     } catch (err) {
       const fallbackText = await (async () => { try { return await runChat({ instruction: message.trim(), transcript, timezone: TIMEZONE }); } catch { return 'Sorry, I could not process that right now.'; } })();
       return res.json({ text: fallbackText, operations: [], correlationId });
@@ -60,7 +115,21 @@ router.post('/api/assistant/message', async (req, res) => {
     const summaryText = ensureSummaryText(oa.text, oa.operations, oa.notes);
     const validCount = Array.isArray(oa.operations) ? oa.operations.length : 0;
     const invalidCount = Array.isArray(oa.notes?.errors) ? oa.notes.errors.length : 0;
-    return res.json({ text: summaryText, steps: oa.steps, operations: oa.operations, tools: oa.tools, notes: oa.notes, correlationId, validCount, invalidCount, thinking: oa.thinking });
+    let previews = [];
+    try { previews = await buildPreviews(oa.operations); } catch {}
+    if (DEBUG) {
+      try {
+        console.log('[Assistant] response', {
+          correlationId,
+          text: summaryText,
+          validCount,
+          invalidCount,
+          sampleOp: (Array.isArray(oa.operations) && oa.operations[0]) ? oa.operations[0] : null
+        });
+        try { logIO('assistant_response', { model: 'ops_agent', prompt: JSON.stringify({ message }), output: JSON.stringify({ text: summaryText, validCount, invalidCount }), meta: { correlationId } }); } catch {}
+      } catch {}
+    }
+    return res.json({ text: summaryText, steps: oa.steps, operations: oa.operations, tools: oa.tools, notes: oa.notes, correlationId, validCount, invalidCount, thinking: oa.thinking, previews });
   } catch (err) {
     console.error('Assistant route error:', err);
     res.status(502).json({ error: 'assistant_failure', detail: String(err && err.message ? err.message : err) });
@@ -102,12 +171,15 @@ router.get('/api/assistant/message/stream', async (req, res) => {
     const invalidCount = Array.isArray(oa.notes?.errors) ? oa.notes.errors.length : 0;
     
     // Send ops event before summary
+    let previews = [];
+    try { previews = await buildPreviews(oa.operations); } catch {}
     send('ops', JSON.stringify({
       operations: oa.operations,
       version: 3,
       validCount,
       invalidCount,
-      correlationId
+      correlationId,
+      previews
     }));
     
     send('summary', JSON.stringify({ text: summaryText, steps: oa.steps, operations: oa.operations, tools: oa.tools, notes: oa.notes, correlationId, thinking: oa.thinking }));
