@@ -5,7 +5,7 @@ import { ymdInTimeZone } from '../utils/date.js';
 const router = Router();
 const TIMEZONE = process.env.TZ_NAME || 'America/New_York';
 
-// Unified search across todos + events (habits removed)
+// Unified search across todos + events 
 // Params: q (required), scope=todo|event|all (default all),
 // completed (optional for events), status_todo (optional), context (optional), limit (default 30)
 router.get('/api/search', (req, res) => {
@@ -83,7 +83,6 @@ router.get('/api/search', (req, res) => {
         updatedAt: e.updatedAt,
       })));
     }
-    // habits removed
 
     const scored = out.map(r => ({ r, s: boosterScore(r) }))
       .sort((a, b) => (

@@ -1,6 +1,6 @@
 ## Data Model and Persistence
 
-This document specifies the Todo/Event/Habit/Goal schemas, recurrence semantics, occurrence expansion, and SQLite persistence.
+This document specifies the Todo/Event/Goal schemas, recurrence semantics, occurrence expansion, and SQLite persistence.
 
 ### Persistence (SQLite)
 
@@ -14,12 +14,9 @@ This document specifies the Todo/Event/Habit/Goal schemas, recurrence semantics,
 **Core Tables**:
 - `todos(id, title, notes, scheduled_for, time_of_day, status, recurrence TEXT(JSON), completed_dates TEXT(JSON), skipped_dates TEXT(JSON), context, created_at, updated_at)`
 - `events(id, title, notes, scheduled_for, start_time, end_time, location, completed INTEGER, recurrence TEXT(JSON), completed_dates TEXT(JSON), context, created_at, updated_at)`
-- `habits(id, title, notes, scheduled_for, time_of_day, completed INTEGER, recurrence TEXT(JSON), completed_dates TEXT(JSON), context, created_at, updated_at)`
 - `goals(id, title, notes, status, current_progress_value REAL, target_progress_value REAL, progress_unit, created_at, updated_at)`
 
 **Linking Tables**:
-- `habit_todo_items(habit_id, todo_id)` - Many-to-many: habits ↔ todos
-- `habit_event_items(habit_id, event_id)` - Many-to-many: habits ↔ events
 - `goal_todo_items(goal_id, todo_id)` - Many-to-many: goals ↔ todos
 - `goal_event_items(goal_id, event_id)` - Many-to-many: goals ↔ events
 - `goal_hierarchy(parent_goal_id, child_goal_id)` - Self-referencing: goals ↔ goals
@@ -27,11 +24,12 @@ This document specifies the Todo/Event/Habit/Goal schemas, recurrence semantics,
 **Supporting Tables**:
 - `audit_log(id, ts, action, entity, entity_id, payload)` - Operation tracking
 - `idempotency(id, idempotency_key, request_hash, response, ts)` - Response caching
+- `op_batches(id, correlation_id, ts)` - Batch header for propose/apply pipeline
+- `op_batch_ops(id, batch_id, seq, kind, action, op_json, before_json, after_json)` - Per-op before/after for undo
 
 **FTS5 Virtual Tables**:
 - `todos_fts(title, notes)` - Full-text search for todos
 - `events_fts(title, notes, location)` - Full-text search for events
-- `habits_fts(title, notes)` - Full-text search for habits
 - **Triggers**: Automatic updates on INSERT/UPDATE/DELETE
 
 ### Schema Details
@@ -97,37 +95,9 @@ interface Event {
 - Includes `location` field for venue information
 - No `skippedDates` (events are either completed or not)
 
-#### Habit Schema (Normalized)
+#### Habit Schema
 
-```typescript
-interface Habit {
-  id: number;                                    // Primary key, auto-increment
-  title: string;                                 // Required, non-empty
-  notes: string;                                 // Optional, defaults to ''
-  scheduledFor: string | null;                   // YYYY-MM-DD or null
-  timeOfDay: string | null;                      // HH:MM or null
-  completed: boolean;                            // Required, defaults to false
-  recurrence: Recurrence;                        // Required JSON object (must be repeating)
-  completedDates: string[] | null;               // YYYY-MM-DD array for repeating
-  context: 'school' | 'personal' | 'work';       // Required, defaults to 'personal'
-  createdAt: string;                             // ISO-8601 timestamp
-  updatedAt: string;                             // ISO-8601 timestamp
-}
-```
-
-**Key Differences from Todo**:
-- Uses `completed` boolean instead of `status` enum
-- API enforces that habits must be repeating (`recurrence.type != 'none'`)
-- No `skippedDates` (habits are either completed or not)
-
-**Derived Stats** (when listing with range):
-```typescript
-interface HabitStats {
-  currentStreak: number;                         // Current consecutive days
-  longestStreak: number;                         // Longest streak ever
-  weekHeatmap: Array<{date: string, completed: boolean}>; // Last 7 days
-}
-```
+Removed from current server. Habit entities and REST endpoints are not present in the schema.
 
 #### Goal Schema (Normalized)
 
@@ -195,7 +165,6 @@ interface Recurrence {
 1. **Anchor Requirement**: `scheduledFor` is REQUIRED when `type != 'none'`
 2. **Expansion Cap**: `until` field caps expansion (null = no cap)
 3. **Interval Validation**: `intervalDays` must be integer >= 1 for `every_n_days`
-4. **Habit Constraint**: Habits must be repeating (`type != 'none'`)
 
 ### Occurrence Expansion
 
@@ -238,8 +207,8 @@ function expandOccurrences(master, fromDate, toDate) {
 #### Unified Schedule Items
 
 When expanding for unified schedule view, items include:
-- `kind: 'todo' | 'event' | 'habit'` - Type identifier
-- `timeOfDay` (todos/habits) or `startTime` (events) - Time field
+- `kind: 'todo' | 'event'` - Type identifier
+- `timeOfDay` (todos) or `startTime` (events) - Time field
 - `masterId` - Reference to original item
 - All other fields from master item
 
@@ -248,13 +217,6 @@ When expanding for unified schedule view, items include:
 #### Foreign Key Relationships
 
 ```sql
--- Habit linking
-habit_todo_items.habit_id → habits.id (CASCADE DELETE)
-habit_todo_items.todo_id → todos.id (CASCADE DELETE)
-
-habit_event_items.habit_id → habits.id (CASCADE DELETE)
-habit_event_items.event_id → events.id (CASCADE DELETE)
-
 -- Goal linking
 goal_todo_items.goal_id → goals.id (CASCADE DELETE)
 goal_todo_items.todo_id → todos.id (CASCADE DELETE)
@@ -269,39 +231,11 @@ goal_hierarchy.child_goal_id → goals.id (CASCADE DELETE)
 
 #### Cascade Behavior
 
-- **Delete Todo/Event**: Removed from all linked habits and goals
-- **Delete Habit**: Removes all habit-item links
+- **Delete Todo/Event**: Removed from all linked goals
 - **Delete Goal**: Removes all goal-item links and child relationships
 - **Update Master**: Changes propagate to all linked items
 
-### Aggregates and Snapshots
-
-#### Router Snapshots
-
-**Week Snapshot** (Mon-Sun anchored to today):
-```typescript
-interface WeekSnapshot {
-  items: Array<{
-    id: number;
-    title: string;
-    scheduledFor: string | null;
-    kind?: 'todo' | 'event' | 'habit';
-  }>;
-}
-```
-
-**Backlog Snapshot**:
-```typescript
-interface BacklogSnapshot {
-  items: Array<{
-    id: number;
-    title: string;
-    scheduledFor: null;
-  }>;
-}
-```
-
-#### Aggregates
+### Aggregates
 
 **Count Queries**:
 - Overdue items (past due, not completed)
@@ -309,10 +243,7 @@ interface BacklogSnapshot {
 - Backlog count (unscheduled)
 - Total scheduled items
 
-**Habit Statistics**:
-- Current streak calculation
-- Longest streak tracking
-- Week heatmap (last 7 days completion)
+  (Habit statistics removed; habits not present in schema)
 
 ### Data Integrity Invariants
 

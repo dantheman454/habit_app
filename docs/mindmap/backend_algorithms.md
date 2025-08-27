@@ -2,7 +2,7 @@
 
 This document enumerates server-side algorithms and strict policies. References map to functions/behaviors to reduce churn.
 
-### Validation and Normalization
+### Validation
 
 #### Primitive Validators
 
@@ -54,76 +54,9 @@ function isValidRecurrence(rec) {
 - **Until validation**: Must be valid YYYY-MM-DD or null
 - **Location**: `apps/server/utils/recurrence.js`
 
-#### Normalization Helpers
+#### Normalization
 
-**Recurrence Normalization**:
-```javascript
-function normalizeRecurrence(recurrence) {
-  return {
-    type: recurrence.type || 'none',
-    intervalDays: recurrence.type === 'every_n_days' ? (recurrence.intervalDays || 1) : undefined,
-    until: recurrence.until || null
-  };
-}
-```
-
-**Todo Normalization**:
-```javascript
-function normalizeTodo(todo) {
-  const t = { ...todo };
-  if (t.timeOfDay === undefined) t.timeOfDay = null;
-  if (!t || typeof t.recurrence !== 'object') {
-    t.recurrence = { type: 'none', until: endOfCurrentYearYmd() };
-  } else {
-    if (!t.recurrence.type) t.recurrence.type = 'none';
-    if (t.recurrence.until === undefined) t.recurrence.until = endOfCurrentYearYmd();
-  }
-  if (t.recurrence.type !== 'none') {
-    if (!Array.isArray(t.completedDates)) t.completedDates = [];
-  }
-  if (typeof t.completed !== 'boolean') t.completed = false;
-  return t;
-}
-```
-- **Location**: `apps/server/utils/normalize.js`
-
-**Habit Normalization**:
-```javascript
-function normalizeHabit(habit) {
-  const h = { ...habit };
-  if (h.timeOfDay === undefined) h.timeOfDay = null;
-  if (!h || typeof h.recurrence !== 'object') {
-    h.recurrence = { type: 'daily', until: endOfCurrentYearYmd() };
-  } else {
-    if (!h.recurrence.type) h.recurrence.type = 'daily';
-    if (h.recurrence.until === undefined) h.recurrence.until = endOfCurrentYearYmd();
-  }
-  if (!Array.isArray(h.completedDates)) h.completedDates = [];
-  if (typeof h.completed !== 'boolean') h.completed = false;
-  return h;
-}
-```
-- **Location**: `apps/server/utils/normalize.js`
-
-**Recurrence Mutation**:
-```javascript
-function applyRecurrenceMutation(targetTodo, incomingRecurrence) {
-  const t = targetTodo;
-  const nextType = incomingRecurrence?.type || 'none';
-  const prevType = t?.recurrence?.type || 'none';
-  t.recurrence = { ...(t.recurrence || {}), ...(incomingRecurrence || {}) };
-  if (prevType === 'none' && nextType !== 'none') {
-    t.completedDates = Array.isArray(t.completedDates) ? t.completedDates : [];
-    t.skippedDates = Array.isArray(t.skippedDates) ? t.skippedDates : [];
-  }
-  if (nextType === 'none') {
-    delete t.completedDates;
-    delete t.skippedDates;
-  }
-  return t;
-}
-```
-- **Location**: `apps/server/utils/normalize.js`
+Normalization helpers are not present in the current codebase; endpoints and operation validators enforce shapes directly.
 
 #### Endpoint-Level Validation
 
@@ -140,9 +73,7 @@ function applyRecurrenceMutation(targetTodo, incomingRecurrence) {
 - `endTime` must be after `startTime` if both provided
 
 **Habit Validation Rules**:
-- Must be repeating (recurrence.type cannot be 'none')
-- `recurrence` object required on create and update
-- Anchor date required for repeating habits
+- Not applicable (habit endpoints and operations are not exposed)
 
 **Context Validation**:
 ```javascript
@@ -323,44 +254,7 @@ function expandOccurrences(master, fromDate, toDate, { ymd, parseYMD } = {}) {
 - Caching of expanded results for repeated queries
 - Lazy expansion only when both `from` and `to` provided
 
-### Snapshots and Aggregates
-
-#### Router Snapshot Generation
-
-```javascript
-function buildRouterSnapshots({ timezone }) {
-  const today = new Date();
-  const weekRange = weekRangeFromToday(timezone);
-  
-  // Week snapshot (Mon-Sun)
-  const weekItems = db.listTodos({ 
-    from: weekRange.fromYmd, 
-    to: weekRange.toYmd,
-    status: 'pending'
-  }).map(item => ({
-    id: item.id,
-    title: item.title,
-    scheduledFor: item.scheduledFor,
-    kind: 'todo'
-  }));
-  
-  // Backlog sample (unscheduled)
-  const backlogItems = db.listTodos({ 
-    scheduledFor: null,
-    status: 'pending'
-  }).slice(0, 10).map(item => ({
-    id: item.id,
-    title: item.title,
-    scheduledFor: null,
-    kind: 'todo'
-  }));
-  
-  return {
-    week: { items: weekItems },
-    backlog: backlogItems
-  };
-}
-```
+### Aggregates
 
 #### Aggregate Calculations
 
@@ -422,73 +316,11 @@ function topClarifyCandidates(instruction, snapshots, limit = 5) {
 }
 ```
 
-### Assistant Router and Tool Calling Pipeline
-
-#### Router Decision Algorithm
-
-**Confidence Thresholds**:
-- `CONFIDENCE_THRESHOLD = 0.5` - Below this forces chat mode
-
-**Router Prompt Structure**:
-```javascript
-const routerPrompt = {
-  system: "You are an intelligent intent router for a todo assistant. Your job is to determine if the user wants to perform an action or just ask a question.",
-  user: `
-    Today: ${todayYmd} (${TIMEZONE})
-    Available Items: ${JSON.stringify(snapshots, null, 2)}
-    Recent Conversation: ${convo}
-    User Input: ${msg}
-
-    OUTPUT FORMAT: Single JSON object only with these fields:
-    - decision: "chat" | "act"
-    - confidence: number (0.0 to 1.0)
-    - where: object (only for act decisions, optional)
-
-    DECISION RULES:
-    - "act": Use when user wants to perform a concrete action (create, update, delete, complete, etc.)
-    - "chat": Use for questions, status inquiries, general conversation, or unclear requests
-
-    CONFIDENCE SCORING:
-    - 0.8-1.0: Very clear actionable intent
-    - 0.6-0.7: Clear actionable intent with some context
-    - 0.4-0.5: Somewhat clear but could be ambiguous
-    - 0.0-0.3: Unclear or definitely a question
-
-    Is this an actionable request or a question? Respond with JSON only:
-  `
-};
-```
-- **Location**: `apps/server/llm/router.js`
-
-**Decision Processing**:
-```javascript
-function processRouterDecision(parsed, snapshots) {
-  let decision = parsed.decision || 'chat';
-  const confidence = Number(parsed.confidence || 0);
-  
-  // Force chat if confidence is low
-  if (confidence < CONFIDENCE_THRESHOLD) {
-    decision = 'chat';
-  }
-  
-  // Process where field for act decisions
-  let where = parsed.where || null;
-  if (typeof where === 'string' && where.trim()) {
-    where = { title_contains: where };
-  }
-  
-  return {
-    decision,
-    confidence,
-    where
-  };
-}
-```
-- **Location**: `apps/server/llm/router.js`
+### Assistant Tool-Calling Pipeline
 
 #### Tool Calling Generation Algorithm
 
-**Tool Surface Definition**:
+**Tool Surface Definition** (limited to todos and events):
 ```javascript
 const operationTools = [
   'todo.create','todo.update','todo.delete','todo.set_status',
@@ -504,7 +336,7 @@ const operationTools = [
 }));
 ```
 
-**Tool Call Processing**:
+**Tool Call Processing (proposal)**:
 ```javascript
 function toolCallToOperation(name, args) {
   const [kind, action] = String(name || '').split('.')
@@ -538,38 +370,9 @@ async function processToolCalls(toolCalls, operationProcessor, correlationId) {
 }
 ```
 
-#### Repair Algorithm
+#### Fallback Behavior
 
-**Single Repair Attempt**:
-```javascript
-async function attemptRepair(operations, errors, transcript) {
-  const repairPrompt = `
-You are a JSON repair assistant. The following operations failed validation:
-
-Operations: ${JSON.stringify(operations, null, 2)}
-Errors: ${JSON.stringify(errors, null, 2)}
-
-Conversation context: ${JSON.stringify(transcript, null, 2)}
-
-Please fix the operations to resolve all validation errors. Return ONLY valid JSON with the corrected operations array.
-  `;
-  
-  const repairResponse = await codeLLM(repairPrompt);
-  const repaired = extractFirstJson(repairResponse);
-  
-  if (!repaired || !Array.isArray(repaired.operations)) {
-    return { success: false, operations: [] };
-  }
-  
-  // Re-validate repaired operations
-  const validation = validateProposal(repaired);
-  if (validation.errors.length > 0) {
-    return { success: false, operations: [] };
-  }
-  
-  return { success: true, operations: repaired.operations };
-}
-```
+If no valid tool calls are produced but the instruction appears actionable, OpsAgent attempts a minimal inference (e.g., extract an `HH:MM` and apply to a best-matching todo/event). Only validators-approved operations are proposed.
 
 ### Operation Execution via Operation Processor
 
@@ -679,31 +482,7 @@ async function executeWithTransaction(operations) {
 }
 ```
 
-### Idempotency and Auditing
-
-#### Idempotency Implementation
-
-```javascript
-function generateIdempotencyKey(operations) {
-  const hash = crypto.createHash('sha256');
-  hash.update(JSON.stringify(operations));
-  return hash.digest('hex');
-}
-
-async function checkIdempotency(idempotencyKey, requestHash) {
-  const cached = await db.getIdempotencyResponse(idempotencyKey, requestHash);
-  if (cached) {
-    return JSON.parse(cached.response);
-  }
-  return null;
-}
-
-async function cacheResponse(idempotencyKey, requestHash, response) {
-  await db.cacheIdempotencyResponse(idempotencyKey, requestHash, JSON.stringify(response));
-}
-```
-
-#### Audit Logging
+### Auditing and Undo
 
 ```javascript
 function logAuditEntry(action, entity, entityId, payload, meta = {}) {
@@ -719,11 +498,10 @@ function logAuditEntry(action, entity, entityId, payload, meta = {}) {
   db.insertAuditLog(entry);
 }
 
-// Audit points
-logAuditEntry('conversation_agent.input', null, null, { instruction, transcript });
-logAuditEntry('conversation_agent.output', null, null, result);
-logAuditEntry('operation_execution', 'todo', todoId, { operation: 'create', data });
-logAuditEntry('validation_error', null, null, { errors, operations });
+// Propose/apply pipeline records per-op before/after in batch tables for undo
+batchRecorder.ensureBatch(correlationId);
+batchRecorder.recordOp({ batchId, op, before, after });
+// Undo last batch via /api/assistant/undo_last
 ```
 
 ### Error Messages Catalog

@@ -44,8 +44,6 @@ export class OperationRegistry {
       validator: OperationValidators.eventDelete,
       executor: this.executors.eventDelete.bind(this.executors)
     });
-
-    // Habit operations removed
   }
   
   getRegisteredOperationTypes() {

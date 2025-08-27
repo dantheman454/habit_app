@@ -10,19 +10,19 @@ This glossary defines key terms and concepts used throughout the Habit App syste
 - **Example**: A weekly todo with anchor `2024-01-15` (Monday) will occur every Monday
 - **Reference**: See [Data Model](./data_model.md#recurrence-system) for detailed recurrence rules
 
-**Occurrence**: A per-day instance expanded from a repeating master within a range. Has `masterId = id`, `scheduledFor = occurrence date`, `completed` derived from `completedDates`. Occurrences are view constructs that represent individual instances of repeating items.
+**Occurrence**: A per-day instance expanded from a repeating master within a range. Has `masterId = id`, `scheduledFor = occurrence date`. For todos, `status` is derived from `completedDates` and `skippedDates`; for events, `completed` derives from `completedDates`. Occurrences are view constructs.
 
 - **Usage**: Generated on-demand when listing items with date ranges
 - **Example**: A daily habit creates 7 occurrences when viewing a week range
 - **Reference**: See [Data Model](./data_model.md#occurrence-expansion) for expansion algorithm
 
-**CompletedDates**: Array of `YYYY-MM-DD` on repeating masters marking which occurrences were completed. Toggled by `/api/*/:id/occurrence` and by `set_status`/`complete_occurrence` in apply operations.
+**CompletedDates**: Array of `YYYY-MM-DD` on repeating masters marking which occurrences were completed. For todos, toggled by `/api/todos/:id/occurrence` and by `set_status` in apply operations.
 
 - **Usage**: Tracks completion state for individual occurrences of repeating items
 - **Example**: `["2024-01-15", "2024-01-17"]` indicates occurrences on those dates were completed
 - **Reference**: See [API Surface](./api_surface.md#update-todo-occurrence) for endpoint usage
 
-**Backlog**: Todos with `scheduledFor = null`. Served by filtering `/api/todos` with no date range; also used in router snapshots for assistant context.
+**Backlog**: Todos with `scheduledFor = null`. Served by filtering `/api/todos` with no date range.
 
 - **Usage**: Represents unscheduled tasks that need to be assigned dates
 - **Example**: "Write documentation" with no scheduled date appears in backlog
@@ -30,7 +30,7 @@ This glossary defines key terms and concepts used throughout the Habit App syste
 
 ### System Architecture Terms
 
-**Unified schedule**: Range-based view that merges todos, events, and habits. Items carry `kind` and kind-specific time fields; repeating items are expanded within `[from,to]` range.
+**Unified schedule**: Range-based view that merges todos and events. Items carry `kind` and kind-specific time fields; repeating items are expanded within `[from,to]` range.
 
 - **Usage**: Provides a single view of all scheduled items across types
 - **Example**: Shows todos, events, and habits together in chronological order
@@ -42,13 +42,9 @@ This glossary defines key terms and concepts used throughout the Habit App syste
 - **Example**: `bulk_delete` or `bulk_update` operations are rejected
 - **Reference**: See [Backend Algorithms](./backend_algorithms.md#operation-level-validation) for validation rules
 
-**Router**: Auto-mode decision step returning `{ decision, confidence, where? }`; routes between 'chat' and 'act' modes based on confidence threshold.
+**Router**: Removed. Assistant uses a single tool-calling OpsAgent path.
 
-- **Usage**: Determines how to handle user input in assistant chat
-- **Example**: Routes "update my task" to act mode if confidence >= 0.5
-- **Reference**: See [Assistant Chat Mindmap](./assistant_chat_mindmap.md#router-decision-algorithm) for detailed flow
-
-**Tool calling**: Native LLM tool calling with Qwen model for operation execution. Uses predefined tool surface with operation types.
+**Tool calling**: Native LLM tool calling with Qwen model for operation proposal. Uses a predefined tool surface limited to todos and events.
 
 - **Usage**: Executes operations directly through LLM tool calls
 - **Example**: `todo.update` tool call with arguments for updating a todo
@@ -70,11 +66,7 @@ This glossary defines key terms and concepts used throughout the Habit App syste
 
 ### Entity Types
 
-**Habits**: Repeating-only items (recurrence must not be `none`) with optional `timeOfDay` and derived stats `currentStreak`, `longestStreak`, `weekHeatmap` when listed with a range.
-
-- **Usage**: Track behaviors that should be performed regularly
-- **Example**: "Daily exercise" with streak tracking and completion heatmap
-- **Reference**: See [Data Model](./data_model.md#habit-schema) for schema details
+**Habits**: Removed. Habit entities and endpoints are not present in the current server.
 
 **Goals**: High-level objectives with optional progress fields and links to todos/events and child goals.
 
@@ -82,7 +74,7 @@ This glossary defines key terms and concepts used throughout the Habit App syste
 - **Example**: "Learn Flutter" goal with linked todos and sub-goals
 - **Reference**: See [Data Model](./data_model.md#goal-schema) for schema details
 
-**Context**: Categorization field for todos, events, and habits. Values: 'school', 'personal', 'work' with 'personal' as default. Goals do not have context.
+**Context**: Categorization field for todos and events. Values: 'school', 'personal', 'work' with 'personal' as default. Goals do not have context.
 
 - **Usage**: Filter and organize items by life area
 - **Example**: Work todos vs personal todos for different focus modes
@@ -90,16 +82,15 @@ This glossary defines key terms and concepts used throughout the Habit App syste
 
 ### Communication Protocols
 
-**SSE events**: Streaming assistant emits `stage`, `clarify`, `ops`, `summary`, `result`, periodic `heartbeat`, and `done`.
+**SSE events**: Streaming assistant emits `stage`, `ops`, `summary`, periodic `heartbeat`, and `done` (no `clarify`/`result` in current flow).
 
 - **Usage**: Real-time communication between server and client during assistant interactions
 - **Example**: `stage: "executing"` followed by `ops: [...]` with operations
 - **Reference**: See [Assistant Chat Mindmap](./assistant_chat_mindmap.md#sse-stream-handling) for implementation
 
 **Operation types**: 
-- **Todos**: `create|update|delete|set_status` (use `set_status` instead of `complete`/`complete_occurrence`)
-- **Events**: `create|update|delete|complete|complete_occurrence`
-- **Habits**: `create|update|delete|complete|complete_occurrence`
+- **Todos**: `create|update|delete|set_status`
+- **Events**: `create|update|delete`
 - **Goals**: `create|update|delete|add_items|remove_item|add_child|remove_child`
 
 - **Usage**: Define what actions can be performed on each entity type
@@ -124,7 +115,7 @@ This glossary defines key terms and concepts used throughout the Habit App syste
 
 ### Performance and Optimization
 
-**FTS5**: Full-Text Search version 5, SQLite's built-in search engine used for searching todos, events, and habits.
+**FTS5**: Full-Text Search version 5, SQLite's built-in search engine used for searching todos and events.
 
 - **Usage**: Provides fast text search across titles, notes, and locations
 - **Example**: Search "meeting" finds todos and events containing that word

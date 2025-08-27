@@ -340,8 +340,6 @@ export class DbService {
     };
   }
 
-  // _mapHabit removed (habits entity deleted)
-
   _mapGoal(r) {
     return {
       id: r.id,

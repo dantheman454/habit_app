@@ -85,7 +85,7 @@ function filterByWhere(items, where = {}, { todayY } = {}) {
       return true;
     });
   }
-  // priority removed
+
   if (typeof where.completed === 'boolean') {
     filtered = filtered.filter((t) => !!t.completed === where.completed);
   }
@@ -102,7 +102,6 @@ function listAllTodosRaw() {
 function listAllEventsRaw() {
   try { return db.searchEvents({ q: ' ' }); } catch { return []; }
 }
-// Habits removed from assistant contexts
 
 // Helper function to build title indexes for case-insensitive matching
 function buildTitleIndexes(todos, events) {
@@ -214,7 +213,7 @@ export function buildFocusedContext(where = {}, { timezone = DEFAULT_TZ } = {}) 
   const todayY = ymdInTimeZone(new Date(), tz);
   const w = where || {};
   const kindsHint = (() => {
-    // where.kind: 'todo'|'event' or array (habits removed)
+    // where.kind: 'todo'|'event' or array 
     if (typeof w.kind === 'string') return [w.kind.toLowerCase()];
     if (Array.isArray(w.kind)) return w.kind.map((k) => String(k).toLowerCase());
     return null;
@@ -316,7 +315,6 @@ export function buildQAContext({ timezone = DEFAULT_TZ } = {}) {
       completed: !!e.completed,
       context: e.context ?? 'personal'
     }));
-  // Habits removed from QA context
 
   // Week summary (titles only)
   const todosWeek = filterByWhere(listAllTodosRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false }, { todayY: today });

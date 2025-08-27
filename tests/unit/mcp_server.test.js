@@ -35,7 +35,6 @@ describe('HabitusMCPServer', () => {
     assert(toolNames.includes('create_event'));
     assert(toolNames.includes('update_event'));
     assert(toolNames.includes('delete_event'));
-    // Removed: set_event_occurrence_status
     
     // Check for expected habit tools
     assert(toolNames.includes('create_habit'));

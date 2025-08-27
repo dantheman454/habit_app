@@ -99,7 +99,7 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
   if (DEBUG) {
     try {
       logIO('ops_agent_init', {
-        model: 'qwen3:tool',
+        model: 'qwen3-coder:30b',
         prompt: JSON.stringify({ system, user, tools: operationTools.map(t => t.function?.name) }),
         output: JSON.stringify({ note: 'initialized tool-calling run', focusedContext }),
         meta: { correlationId }
@@ -136,7 +136,7 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
     if (DEBUG) {
       try {
         logIO('ops_agent_round', {
-          model: 'qwen3:tool',
+          model: 'qwen3-coder:30b',
           prompt: JSON.stringify({ round: rounds + 1, messagesLength: messages.length }),
           output: JSON.stringify({
             responseText: text?.slice(0, 2000) || '',
@@ -324,7 +324,7 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
             proposedOps.push(inferred);
             finalText = finalText || `Here are the proposed changes for your review. (1 valid, 0 invalid)`;
             if (DEBUG) {
-              try { logIO('ops_agent_fallback', { model: 'qwen3:tool', prompt: JSON.stringify({ instruction }), output: JSON.stringify({ inferred }), meta: { correlationId } }); } catch {}
+              try { logIO('ops_agent_fallback', { model: 'qwen3-coder:30b', prompt: JSON.stringify({ instruction }), output: JSON.stringify({ inferred }), meta: { correlationId } }); } catch {}
             }
           }
         }

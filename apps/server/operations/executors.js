@@ -148,6 +148,4 @@ export class OperationExecutors {
       throw new Error(`Failed to delete event: ${error.message}`);
     }
   }
-
-  // Event occurrence status removed: not supported; habits removed entirely
 }

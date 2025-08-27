@@ -13,11 +13,9 @@ graph TD
     end
     
     subgraph "Server (Express)"
-        E[ConversationAgent] --> F[Router Decision]
-        F --> G[OpsAgent with Processor]
-        G --> H[Validation & Repair]
+        E[OpsAgent (tool-calling)] --> H[Validation]
         H --> I[Summarization]
-        I --> J[Apply Operations]
+        I --> J[Apply Operations (MCP → OperationProcessor)]
     end
     
     subgraph "LLM (Ollama)"
@@ -31,8 +29,7 @@ graph TD
     end
     
     C -->|HTTP/SSE| E
-    F --> K
-    G --> K
+    E --> K
     H --> K
     I --> K
     J --> N
@@ -69,100 +66,19 @@ final res = await api.assistantMessage(
 );
 ```
 
-### 2. Server-Side ConversationAgent
+### 2. OpsAgent Proposal (Tool-Calling)
 
-**ConversationAgent Input Context**:
+**OpsAgent Input**:
 ```javascript
-// runConversationAgent() creates:
-const ctx = buildRouterContext({ timezone });
-const correlationId = mkCorrelationId();
-
-// Audit logging
-db.logAudit({ 
-  action: 'conversation_agent.input', 
-  payload: { 
-    instruction: String(instruction || '').slice(0, 1000), 
-    transcript: transcript.slice(-3),
-    contextSize: Object.keys(ctx).length
-  },
-  meta: { correlationId }
+// runOpsAgentToolCalling() called with:
+const oa = await runOpsAgentToolCalling({ 
+  taskBrief: message.trim(),
+  where: {},
+  transcript,
+  timezone: TIMEZONE,
+  operationProcessor
 });
 ```
-- **Location**: `apps/server/llm/conversation_agent.js`
-
-### 3. Router Decision
-
-**Router Input Context**:
-```javascript
-// buildRouterSnapshots() creates:
-const todayYmd = '2024-01-15'; // Example date
-const snapshots = buildRouterSnapshots(); // Week + backlog data
-const contextJson = JSON.stringify(snapshots);
-```
-
-**Router Prompt** (sent to Ollama):
-```
-You are an intelligent intent router for a todo assistant. Your job is to determine if the user wants to perform an action or just ask a question.
-
-Today: 2024-01-15 (America/New_York)
-Available Items: {
-  "week": {
-    "items": [
-      {"id": 1, "title": "Review project proposal", "scheduledFor": "2024-01-15"},
-      {"id": 2, "title": "Call client", "scheduledFor": "2024-01-15"},
-      {"id": 3, "title": "Prepare presentation", "scheduledFor": "2024-01-16"}
-    ]
-  },
-  "backlog": [
-    {"id": 4, "title": "Update documentation", "scheduledFor": null}
-  ]
-}
-
-Recent Conversation: - user: update my task for today
-User Input: update my task for today
-
-OUTPUT FORMAT: Single JSON object only with these fields:
-- decision: "chat" | "act"
-- confidence: number (0.0 to 1.0)
-- where: object (only for act decisions, optional)
-
-DECISION RULES:
-- "act": Use when user wants to perform a concrete action (create, update, delete, complete, etc.)
-- "chat": Use for questions, status inquiries, general conversation, or unclear requests
-
-CONFIDENCE SCORING:
-- 0.8-1.0: Very clear actionable intent
-- 0.6-0.7: Clear actionable intent with some context
-- 0.4-0.5: Somewhat clear but could be ambiguous
-- 0.0-0.3: Unclear or definitely a question
-
-Is this an actionable request or a question? Respond with JSON only:
-```
-
-**Expected LLM Response**:
-```json
-{
-  "decision": "act",
-  "confidence": 0.7,
-  "where": {"title_contains": "task"}
-}
-```
-
-**Router Processing**:
-```javascript
-// Confidence threshold check
-const c = 0.7; // From LLM
-if (c >= CONFIDENCE_THRESHOLD) { // 0.7 >= 0.5
-  result.decision = 'act'; // Proceeds to action
-}
-
-// Process where field
-const where = parsed.where || null;
-if (decision === 'act' && typeof where === 'string' && where.trim()) {
-  where = { title_contains: where }; // Convert string to object
-}
-```
-- **Location**: `apps/server/llm/router.js`
 
 ### 4. OpsAgent with Processor
 
@@ -184,11 +100,10 @@ const oa = await runOpsAgentToolCalling({
 const focusedWhere = { title_contains: "task" }; // Focus on tasks
 const focusedContext = buildFocusedContext(focusedWhere, { timezone });
 
-// Tool surface definition
+// Tool surface definition (habits excluded)
 const operationTools = [
   'todo.create','todo.update','todo.delete','todo.set_status',
-  'event.create','event.update','event.delete',
-  'habit.create','habit.update','habit.delete','habit.set_occurrence_status'
+  'event.create','event.update','event.delete'
 ].map((name) => ({
   type: 'function',
   function: {
@@ -198,7 +113,7 @@ const operationTools = [
   }
 }));
 
-// Prompt sent to LLM:
+// Prompt sent to LLM (qwen3:30b):
 You are an operations executor for a todo application. Use tools to perform user actions precisely. Never invent IDs. Validate dates (YYYY-MM-DD) and times (HH:MM). Keep operations under 20 total.
 
 Task: update my task for today
@@ -227,26 +142,12 @@ Use tools to perform the requested action.
 }
 ```
 
-### 5. Operation Execution
+### 3. Operation Execution (Apply phase via MCP)
 
 **Tool Call Processing**:
 ```javascript
-// Process tool calls
-for (const call of toolCalls) {
-  const name = call?.function?.name || call?.name;
-  const args = call?.function?.arguments || call?.arguments || {};
-  const op = toolCallToOperation(name, parsedArgs);
-  
-  try {
-    const result = await operationProcessor.processOperations([op], correlationId);
-    const ok = result?.results?.[0]?.ok;
-    if (ok) executedOps.push(op);
-    // Append tool result message for the model
-    messages.push({ role: 'tool', tool_call_id: call.id || name, content: JSON.stringify(result) });
-  } catch (e) {
-    notes.errors.push(String(e?.message || e));
-  }
-}
+// Proposals are previewed in the UI; user applies selected ops via MCP
+POST /api/mcp/tools/call { name, arguments }
 ```
 
 **Operation Processor Execution**:
@@ -268,7 +169,7 @@ const result = await executor(op);
 results.push({ ok: true, op, ...result });
 ```
 
-### 6. Database Update
+### 4. Database Update
 
 **Database Update**:
 ```sql
@@ -294,7 +195,7 @@ WHERE id = 1;
 }
 ```
 
-### 7. Final UI Update
+### 5. Final UI Update
 
 **Client Refresh**:
 ```dart
@@ -308,12 +209,10 @@ await _refreshAll(); // Refreshes scheduled list
 
 For the query "update my task for today":
 
-1. **ConversationAgent**: Orchestrates the entire flow with audit logging
-2. **Router Decision**: Should route to `act` due to clear actionable intent
-3. **OpsAgent**: Generate tool calls for updating tasks
-4. **Operation Processor**: Validate and execute the update operation
-5. **Database**: Update the task and audit log
-6. **Feedback**: Show success and refresh UI
+1. **OpsAgent (tool-calling)**: Proposes validated operations
+2. **Operation Processor (apply via MCP)**: Validate/execute selected operations
+3. **Database**: Apply changes and record batch for undo
+4. **Feedback**: Stream ops+summary; refresh UI after apply
 
 **Key Safety Features**:
 - Confidence thresholds prevent incorrect assumptions
@@ -338,7 +237,7 @@ For the query "update my task for today":
 ### 2. Conversation Management
 - **Transcript**: Limited to last 3 turns for context
 - **State**: Maintains conversation history in memory
-- **Clarification**: Interactive selection for ambiguous requests
+- **Clarification**: Not implemented in current SSE flow (no `clarify` events emitted)
 
 ## Server-Side Pipeline
 
@@ -360,21 +259,6 @@ For the query "update my task for today":
 - `decision`: routing choice
 - `confidence`: 0-1 confidence score
 - `where`: context for action decisions
-
-### 2. Router Decision (`runRouter`)
-**Schema Rules**:
-- All operations must include `kind` and `action`
-- Todo/Event create/update require `recurrence` object
-- Repeating items need anchor `scheduledFor`
-- Use `set_status` for todos (not `complete`/`complete_occurrence`)
-- No bulk operations (max 20 independent ops)
-
-**Operation Types**:
-- **Todos**: `create|update|delete|set_status`
-- **Events**: `create|update|delete|complete|complete_occurrence`
-- **Habits**: `create|update|delete|complete|complete_occurrence`
-- **Goals**: `create|update|delete|add_items|remove_item|add_child|remove_child`
-- **Location**: `apps/server/llm/router.js`
 
 ### 3. OpsAgent with Processor (`runOpsAgentToolCalling`)
 **Tool Calling**:
@@ -399,8 +283,7 @@ For the query "update my task for today":
 ### 4. Operation Processor
 **Operation Types**:
 - `todo_create`, `todo_update`, `todo_delete`, `todo_set_status`
-- `event_create`, `event_update`, `event_delete`, `event_set_occurrence_status`
-- `habit_create`, `habit_update`, `habit_delete`, `habit_set_occurrence_status`
+- `event_create`, `event_update`, `event_delete`
 - **Location**: `apps/server/operations/operation_processor.js`
 
 **Execution Flow**:
@@ -428,10 +311,8 @@ Future<Map<String, dynamic>> assistantMessage(
 ### 2. SSE Event Handling
 **Event Types**:
 - `stage`: Current processing stage
-- `clarify`: Clarification question and options
-- `ops`: Proposed operations with validation results
+- `ops`: Proposed operations with validation results and previews
 - `summary`: Final summary text
-- `result`: Complete response
 - `heartbeat`: Connection keep-alive
 - `done`: Stream completion
 
@@ -440,7 +321,7 @@ Future<Map<String, dynamic>> assistantMessage(
 - Real-time streaming updates
 - Operation grouping by type (todo/event/goal)
 - Validation error display
-- Interactive clarification selection
+- Interactive clarification selection (planned)
 - Operation diff view
 - Apply/Discard controls
 - **Location**: `apps/web/flutter_app/lib/widgets/assistant_panel.dart`
@@ -565,23 +446,3 @@ When clarification selection is provided:
 - Main app state management
 - Real-time updates
 - Navigation coordination
-
-## Future Considerations
-
-### 1. Scalability
-- Model performance optimization
-- Caching strategies
-- Connection pooling
-- Load balancing
-
-### 2. Feature Enhancements
-- Multi-turn planning
-- Context memory expansion
-- Advanced clarification
-- Custom operation types
-
-### 3. Monitoring & Analytics
-- Usage tracking
-- Performance metrics
-- Error rate monitoring
-- User feedback collection

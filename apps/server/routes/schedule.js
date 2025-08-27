@@ -165,8 +165,6 @@ router.get('/api/schedule', (req, res) => {
       }
     }
 
-    // habits removed
-
     const kindOrder = { event: 0, todo: 1 };
     items.sort((a, b) => {
       const da = String(a.scheduledFor || '');

@@ -546,6 +546,10 @@ CloseFn startSse({
 ```
 - **Location**: `apps/web/flutter_app/lib/util/sse_impl_web.dart`
 
+Notes:
+- Server currently emits `stage`, `ops`, `summary`, `heartbeat`, and `done`. `clarify` and `result` listeners exist in the client for forward-compat but are not emitted by the current server flow.
+- The assistant POST and SSE responses include a `correlationId` surfaced via `onTraceId` when provided. The `ops` event also includes `previews` used by the UI.
+
 #### Clarification UI
 
 ```dart

@@ -28,7 +28,6 @@ class DayView extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        // Date navigation removed - no longer showing scroll wheel
         const Divider(height: 1),
         Expanded(
           child: Row(

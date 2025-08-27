@@ -6,10 +6,8 @@ import 'widgets/assistant_handle.dart';
 import 'views/day_view.dart';
 import 'views/week_view.dart';
 import 'views/month_view.dart';
-// Removed unnecessary import per analyzer suggestion
-
 import 'widgets/todo_row.dart' as row;
-// habits tracker removed
+
 
 import 'widgets/fab_actions.dart';
 import 'widgets/compact_subheader.dart';
@@ -47,10 +45,6 @@ var createGoalFn = api.createGoal;
 void main() {
   runApp(const App());
 }
-
-// Temporary feature flag to gate the new DayView integration (default off).
-// Can be enabled at runtime via URL query: ?features=newday
-// Feature flags removed: new Day/Week/Month views are now default paths
 
 // ----- Models -----
 class Todo {
@@ -163,7 +157,6 @@ class LlmOperation {
     title: j['title'] as String?,
     notes: j['notes'] as String?,
     scheduledFor: j['scheduledFor'] as String?,
-    // priority removed
     completed: j['completed'] as bool?,
     timeOfDay: j['timeOfDay'] as String?,
     startTime: j['startTime'] as String?,
@@ -182,7 +175,6 @@ class LlmOperation {
     if (title != null) 'title': title,
     if (notes != null) 'notes': notes,
     if (scheduledFor != null) 'scheduledFor': scheduledFor,
-    // priority removed
     if (completed != null) 'completed': completed,
     if (timeOfDay != null) 'timeOfDay': timeOfDay,
     if (startTime != null) 'startTime': startTime,
@@ -549,7 +541,6 @@ class _HomePageState extends State<HomePage> {
   // Thinking state for assistant responses
   String? assistantThinking;
   bool assistantShowThinking = false;
-  // Assistant mode removed; server always uses auto flow
   int? assistantStreamingIndex;
   // Clarify state: question and structured options/selection
   String? _pendingClarifyQuestion;
@@ -612,7 +603,6 @@ class _HomePageState extends State<HomePage> {
     } catch (_) {}
     if (!TestHooks.skipRefresh) {
       _refreshAll();
-      // Model fetching removed
     } else {
       setState(() => loading = false);
     }
@@ -922,7 +912,6 @@ class _HomePageState extends State<HomePage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {});
     await Future<void>.delayed(Duration.zero);
     try {
-      // Habits removed: show info and no-op
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Habits feature has been removed.')),
@@ -1070,7 +1059,6 @@ class _HomePageState extends State<HomePage> {
     _qaEventDate.dispose();
     _qaEventNotes.dispose();
     _qaEventInterval.dispose();
-    // Habit controllers removed
     super.dispose();
   }
 
@@ -1161,8 +1149,6 @@ class _HomePageState extends State<HomePage> {
       final sAllList = scheduledAllRaw
           .map((e) => Todo.fromJson(e as Map<String, dynamic>))
           .toList();
-      // Completed filter already applied above; priority now requested server-side
-      // no-op: previously used for counts; retained logic removed
 
       // counts map was unused; remove to satisfy analyzer while preserving computed components
       setState(() {
@@ -1325,8 +1311,6 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  // Removed: _loadAssistantModel (endpoint deleted; badges removed)
-
   Future<void> _runSearch(String q) async {
     if (q.trim().length < 2) {
       setState(() => searchResults = []);
@@ -1431,8 +1415,6 @@ class _HomePageState extends State<HomePage> {
       ),
     );
   }
-
-  // Removed: unused _showSettingsDialog
 
   void _showSearchOverlayIfNeeded() {
     if (!_searchFocus.hasFocus || searchCtrl.text.trim().length < 2) {
@@ -2175,7 +2157,7 @@ class _HomePageState extends State<HomePage> {
     if (normalized != (t.scheduledFor ?? '')) {
       patch['scheduledFor'] = normalized;
     }
-    // priority removed
+
     final time = timeCtrl.text.trim();
     if ((time.isEmpty ? null : time) != (t.timeOfDay)) {
       patch['timeOfDay'] = time.isEmpty ? null : time;
@@ -2376,7 +2358,7 @@ class _HomePageState extends State<HomePage> {
     if (normalized != (t.scheduledFor ?? '')) {
       patch['scheduledFor'] = normalized;
     }
-    // priority removed
+
     final time = timeCtrl.text.trim();
     if ((time.isEmpty ? null : time) != (t.timeOfDay)) {
       patch['timeOfDay'] = time.isEmpty ? null : time;
@@ -2611,7 +2593,7 @@ class _HomePageState extends State<HomePage> {
     if (normalized != (t.scheduledFor ?? '')) {
       patch['scheduledFor'] = normalized;
     }
-    // priority removed
+
     final start = startCtrl.text.trim();
     final end = endCtrl.text.trim();
     patch['startTime'] = start.isEmpty ? null : start;
@@ -3315,7 +3297,6 @@ class _HomePageState extends State<HomePage> {
         ? const Center(child: CircularProgressIndicator())
         : Column(
             children: [
-              // Top header removed; subheader now hosts controls
               // Body below the unified header
               Expanded(
                 child: Row(
@@ -3594,7 +3575,7 @@ class _HomePageState extends State<HomePage> {
     if (op.title != null) {
       parts.add('– ${op.title}');
     }
-    // priority removed from label
+
     if (op.scheduledFor != null) {
       parts.add('@${op.scheduledFor}');
     }
@@ -3604,7 +3585,6 @@ class _HomePageState extends State<HomePage> {
     return parts.join(' ');
   }
 
-  // Import UI removed
 
   Widget _buildMainList() {
     final items = _currentList();
@@ -3743,7 +3723,7 @@ class _HomePageState extends State<HomePage> {
             Builder(
               builder: (context) {
                 final isTodayHeader = entry.key == ymd(DateTime.now());
-                // Today label removed - just show the date
+
                 final label = entry.key;
                 return AnimatedContainer(
                   duration: Duration(
@@ -5114,8 +5094,7 @@ class _HomePageState extends State<HomePage> {
       (i) => sunday.add(Duration(days: i)),
     );
     final weekY = week.map((d) => ymd(d)).toList();
-    // Prepare habits
-    // Habits removed: no rows to render
+
     final rows = <dynamic>[];
 
     // Optimistic toggle helper
@@ -5177,7 +5156,6 @@ class _HomePageState extends State<HomePage> {
     }
 
     // Narrow layout: left list + right focus grid
-    // Habits removed: no selection needed
     final selectedId = null;
     final selectedStats = null;
     final Set<String> completedSet = {};

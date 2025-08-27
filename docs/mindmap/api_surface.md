@@ -154,44 +154,12 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
   - **Location**: `apps/server/routes/events.js`
 
 **Update Event Occurrence**
-- **PATCH** `/api/events/:id/occurrence`
-  - **Body**:
-    ```json
-    {
-      "occurrenceDate": "YYYY-MM-DD (required)",
-      "completed": "boolean (optional)"
-    }
-    ```
-  - **Response**: `{ event: Event }`
-  - **Location**: `apps/server/routes/events.js`
+- Not supported (returns `400 not_supported`)
+- **Location**: `apps/server/routes/events.js`
 
 #### Habits
 
-**List Habits**
-- **GET** `/api/habits`
-  - **Query Parameters**: `from?`, `to?`, `completed?`, `context?`
-  - **Stats**: When both `from`/`to` provided, includes derived stats: `currentStreak`, `longestStreak`, `weekHeatmap`
-  - **Response**: `{ habits: Habit[] }`
-  - **Location**: `apps/server/routes/habits.js`
-
-**Create Habit**
-- **POST** `/api/habits`
-  - **Validation**: Must be repeating (recurrence.type cannot be 'none')
-  - **Body**: Same as events but with `timeOfDay` instead of `startTime`/`endTime`
-  - **Response**: `{ habit: Habit }`
-  - **Location**: `apps/server/routes/habits.js`
-
-**Link Items to Habit**
-- **POST** `/api/habits/:id/items`
-  - **Body**:
-    ```json
-    {
-      "todos": [1, 2, 3],
-      "events": [4, 5, 6]
-    }
-    ```
-  - **Response**: `204 No Content`
-  - **Location**: `apps/server/routes/habits.js`
+- Habits REST endpoints have been removed from the server. Habit operations are not exposed via REST.
 
 #### Goals
 
@@ -251,11 +219,11 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
   - **Query Parameters**:
     - `from: YYYY-MM-DD` - Start date (required)
     - `to: YYYY-MM-DD` - End date (required)
-    - `kinds: string` - Comma-separated list: `todo,event,habit`
-    - `completed?: true|false` - Filter by completion
+    - `kinds: string` - Comma-separated list: `todo,event` (habits removed)
+    - `completed?: true|false` - Filter events by completion
     - `status_todo?: pending|completed|skipped` - Filter todos by status
-  - **Response**: `{ items: Array }` with unified items containing `kind: 'todo'|'event'|'habit'`
-  - **Behavior**: Expands repeating items into per-day occurrences
+  - **Response**: `{ items: Array }` with unified items containing `kind: 'todo'|'event'`
+  - **Behavior**: Expands repeating items into per-day occurrences; habits removed from unified schedule
   - **Location**: `apps/server/routes/schedule.js`
 
 #### Unified Search
@@ -264,12 +232,12 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 - **GET** `/api/search`
   - **Query Parameters**:
     - `q: string` - Search query (required)
-    - `scope?: todo|event|habit|all` - Search scope (default: all)
-    - `completed?: true|false` - Filter by completion
+    - `scope?: todo|event|all` - Search scope (default: all)
+    - `completed?: true|false` - Filter events by completion
     - `status_todo?: pending|completed|skipped` - Filter todos by status
     - `limit?: number` - Result limit (default: 30)
   - **Response**: `{ items: Array }` with unified items
-  - **Features**: FTS5 search across todos, events, and habits
+  - **Features**: FTS5 search across todos and events (habits removed)
   - **Location**: `apps/server/routes/search.js`
 
 #### Assistant and LLM
@@ -299,52 +267,30 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
   - **Query Parameters**: Same as POST endpoint
   - **Response**: Server-Sent Events stream with events:
     - `stage`: Current processing stage
-    - `clarify`: Clarification question and options
-    - `ops`: Proposed operations with validation
+    - `ops`: Proposed operations with validation and previews
     - `summary`: Human-readable summary
-    - `result`: Final result
     - `heartbeat`: Keep-alive (every 10s)
     - `done`: Stream completion
   - **Location**: `apps/server/routes/assistant.js`
-
-**LLM Health Check**
-- **GET** `/api/llm/health`
-  - **Response**: `{ ok: true, models, configured, convoPresent, codePresent }`
-  - **Location**: `apps/server/routes/llm.js`
-
-**LLM Quality Report**
-- **GET** `/api/llm/quality`
-  - **Response**: `{ ok: true, report }`
-  - **Location**: `apps/server/routes/llm.js`
-
-**LLM Message (Direct)**
-- **POST** `/api/llm/message`
-  - **Body**:
-    ```json
-    {
-      "message": "string (required)",
-      "transcript": "Array (optional)"
-    }
-    ```
-  - **Response**: `{ ok: true, text, correlationId }`
-  - **Location**: `apps/server/routes/llm.js`
+  
+  Note: Dedicated LLM routes are not exposed in the current server.
 
 #### MCP Tools
 
 **List Available Tools**
 - **GET** `/api/mcp/tools`
   - **Response**: `{ tools: Tool[] }`
-  - **Location**: `apps/server/mcp/mcp_server.js`
+  - **Location**: `apps/server/server.js`
 
 **List Resources**
 - **GET** `/api/mcp/resources`
   - **Response**: `{ resources: Resource[] }`
-  - **Location**: `apps/server/mcp/mcp_server.js`
+  - **Location**: `apps/server/server.js`
 
 **Get Resource Content**
 - **GET** `/api/mcp/resources/:type/:name`
   - **Response**: `{ uri, content }`
-  - **Location**: `apps/server/mcp/mcp_server.js`
+  - **Location**: `apps/server/server.js`
 
 **Execute Tool**
 - **POST** `/api/mcp/tools/call`
@@ -355,9 +301,8 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
       "arguments": "object (required)"
     }
     ```
-  - **Response**: `{ content, isError }`
-  - **Features**: Idempotency support via `Idempotency-Key` header
-  - **Location**: `apps/server/mcp/mcp_server.js`
+  - **Response**: Operation processor result object (e.g., `{ results, summary, correlationId }`)
+  - **Location**: `apps/server/server.js`
 
 ### Validation Rules
 
@@ -373,10 +318,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 - `startTime` and `endTime` must be valid `HH:MM` format
 - `endTime` must be after `startTime` if both provided
 
-**Habit Validation**:
-- Must be repeating (recurrence.type cannot be 'none')
-- `recurrence` object required on create and update
-- Anchor date required for repeating habits
+ 
 
 **General Validation**:
 - All dates must be `YYYY-MM-DD` format
@@ -400,18 +342,10 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 - `searchEvents(query, { completed?, context?, cancelToken? })` → `List<Event>`
 - `createEvent(data)` → `Event`
 - `updateEvent(id, patch)` → `Event`
-- `toggleEventOccurrence(id, occurrenceDate, completed)` → `Event`
-- `deleteEvent(id)` → `void`
+- `deleteEvent(id)` → `void` (occurrence toggle not supported)
 
 **Habit Operations**:
-- `listHabits({ from?, to?, context? })` → `List<Habit>` (with stats)
-- `searchHabits(query, { completed?, context?, cancelToken? })` → `List<Habit>`
-- `createHabit(data)` → `Habit`
-- `updateHabit(id, patch)` → `Habit`
-- `toggleHabitOccurrence(id, occurrenceDate, completed)` → `Habit`
-- `linkHabitItems(habitId, { todos?, events? })` → `void`
-- `unlinkHabitTodo(habitId, todoId)` → `void`
-- `unlinkHabitEvent(habitId, eventId)` → `void`
+- Not exposed via REST in current server
 
 **Goal Operations**:
 - `listGoals({ status? })` → `List<Goal>`
@@ -511,15 +445,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 | `GET /api/events/search` | `searchEvents` | FTS5 search |
 | `POST /api/events` | `createEvent` | Requires recurrence |
 | `PATCH /api/events/:id` | `updateEvent` | Partial updates |
-| `PATCH /api/events/:id/occurrence` | `toggleEventOccurrence` | For repeating events |
 | `DELETE /api/events/:id` | `deleteEvent` | Cascade deletes |
-| `GET /api/habits` | `listHabits` | With stats when range provided |
-| `GET /api/habits/search` | `searchHabits` | FTS5 search |
-| `POST /api/habits` | `createHabit` | Must be repeating |
-| `PATCH /api/habits/:id` | `updateHabit` | Partial updates |
-| `PATCH /api/habits/:id/occurrence` | `toggleHabitOccurrence` | For repeating habits |
-| `POST /api/habits/:id/items` | `linkHabitItems` | Link todos/events |
-| `DELETE /api/habits/:id/items/*` | `unlinkHabitTodo`, `unlinkHabitEvent` | Unlink items |
 | `GET /api/goals` | `listGoals` | With status filtering |
 | `GET /api/goals/:id` | `getGoal` | With optional includes |
 | `POST /api/goals` | `createGoal` | No recurrence required |

@@ -162,8 +162,6 @@ describe('OperationValidators', () => {
     });
   });
   
-  // habitSetOccurrenceStatus tests removed: validator/API no longer present on this branch.
-  
   describe('Helper methods', () => {
     test('isValidDate should validate correct dates', () => {
       assert.strictEqual(OperationValidators.isValidDate('2025-08-18'), true);

@@ -114,8 +114,6 @@ class CompactSubheader extends StatelessWidget {
 
                 const SizedBox(width: 8),
 
-                // Assistant toggle removed from subheader (replaced by attached handle)
-
                 const SizedBox(width: 8),
 
                 // Spacer before right-side controls

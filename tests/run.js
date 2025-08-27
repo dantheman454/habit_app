@@ -204,7 +204,6 @@ async function main() {
   // Create a one-off todo and event for today
   await applyOperationsMCP([{ kind: 'todo', action: 'create', title: 'Sched T', scheduledFor: today, recurrence: { type: 'none' } }]);
   await applyOperationsMCP([{ kind: 'event', action: 'create', title: 'Sched E', scheduledFor: today, startTime: '08:00', endTime: '09:00', recurrence: { type: 'none' } }]);
-  // Habits endpoints removed on this branch; skip habit-specific API checks.
 
   // Assistant endpoints
   // 1) Non-stream assistant message: allow 200 (normal) or 502 (LLM unavailable in CI)

@@ -6,7 +6,7 @@ import { createQwenPrompt, getQwenFinalResponse } from './qwen_utils.js';
 import { mkCorrelationId, logIO } from './logging.js';
 
 const TIMEZONE = 'America/New_York';
-const MODELS = { convo: 'qwen3:30b' };
+const MODELS = { convo: 'qwen3-coder:30b' };
 
 export async function runSummary({ operations = [], issues = [], timezone } = {}) {
   if (!operations.length) return 'No operations to perform.';

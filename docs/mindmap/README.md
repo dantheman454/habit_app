@@ -14,14 +14,14 @@ graph TD
   subgraph "Server (Express.js)"
     B["Express API\napps/server/server.js\nREST endpoints, SSE streaming"]
     B2["MCP Server\napps/server/mcp/mcp_server.js\nTool execution, validation"]
-    B3["LLM Pipeline\nrouter.js, ops_agent.js, conversation_agent.js\nRouter, OpsAgent, ConversationAgent"]
-    B4["Operation Processor\noperation_processor.js, operation_registry.js\nValidation, execution, transactions"]
+    B3["LLM Pipeline\napps/server/llm/ops_agent.js, apps/server/llm/chat.js\nOpsAgent (tool-calling), Chat fallback"]
+    B4["Operation Processor\napps/server/operations/operation_processor.js, apps/server/operations/operation_registry.js\nValidation, execution, transactions"]
   end
   subgraph "Persistence (SQLite)"
-    P[("SQLite (data/app.db)\nTables: todos, events, habits, goals\nLinking tables, audit_log, idempotency\nFTS5 virtual tables")]
+    P[("SQLite (data/app.db)\nTables: todos, events, goals\nLinking tables, audit_log, idempotency, op_batches\nFTS5 virtual tables")]
   end
   subgraph "LLM (Ollama)"
-    F[["Ollama local model\nhardcoded (convo=qwen3:30b, code=qwen3:30b)\nQwen-optimized prompts and parsing"]]
+    F[["Ollama local model\nhardcoded (convo=qwen3:30b, tool=qwen3:30b)\nQwen-optimized prompts and parsing"]]
   end
 
   A --> A2
@@ -29,9 +29,8 @@ graph TD
   A2 -->|"MCP tool calls"| B2
   B -->|"CRUD/search/schedule"| P
   B -->|"assistant apply + audit + idempotency"| P
-  B -->|"router/propose/repair/summarize"| F
+  B3 -->|"tool prompts"| F
   B2 -->|"tool execution + transactions"| P
-  B3 -->|"structured prompts"| F
   B4 -->|"operation validation + execution"| P
 ```
 
@@ -41,8 +40,7 @@ graph TD
 sequenceDiagram
   participant UI as "Flutter Web UI"
   participant API as "Express API"
-  participant MCP as "MCP Server"
-  participant OPS as "Operation Processor"
+  participant OPS as "OpsAgent (tool-calling)"
   participant DB as "SQLite data/app.db"
   participant LLM as "Ollama model"
 
@@ -51,15 +49,15 @@ sequenceDiagram
   API->>DB: INSERT with validation
   API-->>UI: {todo} with generated id
 
-  Note over UI,LLM: Assistant Chat Flow
+  Note over UI,LLM: Assistant Proposal Flow
   UI->>API: GET /api/assistant/message/stream?message="update task"
-  API->>LLM: runRouter (router decision)
-  LLM-->>API: {decision: "act", confidence: 0.7}
-  API->>LLM: runOpsAgent (operation generation)
-  LLM-->>API: {operations: [{kind: "todo", action: "update"}]}
-  API->>OPS: processOperations (validation + execution)
-  OPS->>DB: Execute with transaction + audit
-  API-->>UI: SSE: ops event with validation results
+  API->>OPS: runOpsAgentToolCalling (focused context, tool surface)
+  OPS->>LLM: Tool-calling prompt (qwen3:30b)
+  LLM-->>OPS: tool_calls JSON (e.g., todo.update)
+  API-->>UI: SSE: ops (validated proposals) and summary
+  UI->>API: POST /api/mcp/tools/call (apply selected ops)
+  API->>DB: Execute via Operation Processor (transaction + audit)
+  API-->>UI: Apply results
 ```
 
 ### Architecture Principles
@@ -90,7 +88,7 @@ sequenceDiagram
 ### Contents
 - [API Surface](./api_surface.md): Endpoints, shapes, errors, and Flutter API coupling.
 - [Data Model](./data_model.md): SQLite tables and normalized shapes; recurrence and occurrence semantics; unified schedule.
-- [Backend Algorithms](./backend_algorithms.md): Validation, normalization, recurrence, router, proposal/repair, idempotency, auditing.
+- [Backend Algorithms](./backend_algorithms.md): Validation, recurrence, OpsAgent tool-calling, proposal/fallback, batch-based undo.
 - [Assistant Chat Mindmap](./assistant_chat_mindmap.md): Prompts, thresholds, parsing, SSE vs POST, chat/auto/plan.
 - [Client Architecture](./client_architecture.md): Flutter state flows, assistant UX, search overlay, CRUD.
 - [Glossary](./glossary.md): Domain terms aligned with code.
@@ -111,8 +109,8 @@ sequenceDiagram
 - **State transitions**: Changing repeating→none clears `completedDates`
 - **Time formats**: Times are `HH:MM` or null; dates are `YYYY-MM-DD`
 - **Audit trail**: Assistant operations executed through MCP tool calls; all actions logged
-- **Status fields**: Todos use `status` field ('pending'|'completed'|'skipped'); events/habits use `completed` boolean
-- **Search capabilities**: FTS5 virtual tables provide full-text search for todos, events, and habits
+- **Status fields**: Todos use `status` field ('pending'|'completed'|'skipped'); events use `completed` boolean
+- **Search capabilities**: FTS5 virtual tables provide full-text search for todos and events
 - **Idempotency**: MCP tool calls deduplicate by `Idempotency-Key` + request hash
 
 ### Key files and their responsibilities
@@ -125,10 +123,12 @@ sequenceDiagram
 - `apps/server/database/schema.sql`: SQLite schema definition, constraints, indexes
 
 **LLM Pipeline**:
-- `apps/server/llm/clients.js`: Ollama client wrappers, model configuration, Qwen-optimized functions
-- `apps/server/llm/router.js`: Intent routing, decision making, confidence scoring
-- `apps/server/llm/ops_agent.js`: Operation generation, validation, repair, tool calling
-- `apps/server/llm/conversation_agent.js`: Conversation orchestration, audit logging
+- `apps/server/llm/clients.js`: Ollama client wrappers, model configuration, Qwen-optimized helpers
+- `apps/server/llm/ops_agent.js`: Tool-calling OpsAgent (proposes validated operations; no router step)
+- `apps/server/llm/chat.js`: Chat responder for conversational replies (fallback when ops fail)
+- `apps/server/llm/qwen_utils.js`: Prompt builders and response parsing
+- `apps/server/llm/json_extract.js`: JSON extraction utilities
+- `apps/server/llm/logging.js`: Correlated I/O logging helpers
 
 **Operation Processing**:
 - `apps/server/operations/operation_processor.js`: Operation validation, execution, transaction management
@@ -154,11 +154,10 @@ sequenceDiagram
 4. Build client: `flutter build web` (served by Express)
 
 **Key Environment Variables**:
-- `CONVO_MODEL`: Conversation LLM (hardcoded: qwen3:30b)
-- `CODE_MODEL`: Code generation LLM (hardcoded: qwen3:30b)
 - `OLLAMA_HOST`: Ollama host (default: 127.0.0.1)
 - `OLLAMA_PORT`: Ollama port (default: 11434)
 - `TZ_NAME`: Timezone (default: America/New_York)
+  - Models are hardcoded: convo=`qwen3:30b`, tool=`qwen3:30b`
 
 **Testing**:
 - Unit tests: `npm test` (server), `flutter test` (client)

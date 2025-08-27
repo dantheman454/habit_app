@@ -42,20 +42,6 @@ erDiagram
         string updated_at
     }
 
-    HABITS {
-        int id PK
-        string title
-        string notes
-        string scheduled_for "YYYY-MM-DD or NULL"
-        string time_of_day "HH:MM or NULL"
-        int completed "0|1"
-        string recurrence "JSON"
-        string completed_dates "JSON or NULL"
-        string context "school|personal|work"
-        string created_at
-        string updated_at
-    }
-
     GOALS {
         int id PK
         string title
@@ -85,14 +71,21 @@ erDiagram
         string ts
     }
 
-    HABIT_TODO_ITEMS {
-        int habit_id FK
-        int todo_id FK
+    OP_BATCHES {
+        int id PK
+        string correlation_id "UNIQUE"
+        string ts
     }
 
-    HABIT_EVENT_ITEMS {
-        int habit_id FK
-        int event_id FK
+    OP_BATCH_OPS {
+        int id PK
+        int batch_id FK
+        int seq
+        string kind
+        string action
+        string op_json
+        string before_json
+        string after_json
     }
 
     GOAL_TODO_ITEMS {
@@ -110,12 +103,6 @@ erDiagram
         int child_goal_id FK
     }
 
-    TODOS ||--o{ HABIT_TODO_ITEMS : referenced_by
-    HABITS ||--o{ HABIT_TODO_ITEMS : has
-
-    EVENTS ||--o{ HABIT_EVENT_ITEMS : referenced_by
-    HABITS ||--o{ HABIT_EVENT_ITEMS : has
-
     TODOS ||--o{ GOAL_TODO_ITEMS : referenced_by
     GOALS ||--o{ GOAL_TODO_ITEMS : has
 
@@ -124,6 +111,8 @@ erDiagram
 
     GOALS ||--o{ GOAL_HIERARCHY : parent
     GOALS ||--o{ GOAL_HIERARCHY : child
+
+    OP_BATCHES ||--o{ OP_BATCH_OPS : contains
 ```
 
 ## Notes

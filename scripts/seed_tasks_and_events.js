@@ -164,8 +164,6 @@ function seedEvents(db, count) {
   return db.prepare('SELECT COUNT(*) as c FROM events').get().c;
 }
 
-// Habits removed: no habit seeding
-
 function main() {
   // 1) full reset
   wipeDbFiles();

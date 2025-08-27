@@ -217,9 +217,6 @@ export class OperationValidators {
       errors
     };
   }
-
-  // Event occurrence status removed: not supported
-  
   
   // Helper methods
   static isValidDate(dateStr) {

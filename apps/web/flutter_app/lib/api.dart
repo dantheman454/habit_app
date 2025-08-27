@@ -19,8 +19,6 @@ String _computeApiBase() {
 
 final Dio api = Dio(BaseOptions(baseUrl: _computeApiBase()));
 
-// Removed: fetchAssistantModel (endpoint deleted; badges removed)
-
 Future<List<dynamic>> fetchScheduled({
   required String from,
   required String to,
@@ -53,7 +51,6 @@ Future<List<dynamic>> fetchScheduledAllTime({
   return (res.data['todos'] as List<dynamic>);
 }
 
-// Removed: fetchBacklog (endpoint deleted)
 
 Future<List<dynamic>> searchTodos(
   String q, {
@@ -335,8 +332,6 @@ Future<Map<String, dynamic>> assistantMessage(
   }
 }
 
-// Legacy HTTP operation functions removed - now using MCP protocol
-
 // --- Goals API ---
 Future<List<dynamic>> listGoals({String? status}) async {
   final res = await api.get(
@@ -442,7 +437,6 @@ Future<void> deleteEvent(int id) async {
   await api.delete('/api/events/$id');
 }
 
-// Removed: toggleEventOccurrence (event completion not supported)
 
 Future<List<dynamic>> searchEvents(
   String q, {

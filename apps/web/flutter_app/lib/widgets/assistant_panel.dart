@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
-// Clipboard badge removed
 import '../api.dart' as api;
 
 class LlmOperationLike {
@@ -35,7 +34,6 @@ class AssistantPanel extends StatelessWidget {
   operations; // Accepts domain type with fields used above (supports annotated ops)
   final List<bool> operationsChecked;
   final bool sending;
-  // badges removed (model, trace)
   final Map<String, Map<String, dynamic>>? previewsByKey;
   final void Function(int index, bool value) onToggleOperation;
   final VoidCallback onApplySelected;
@@ -43,14 +41,12 @@ class AssistantPanel extends StatelessWidget {
   final TextEditingController inputController;
   final VoidCallback onSend;
   final String Function(dynamic op)? opLabel;
-  // mode removed
   final VoidCallback? onClearChat;
   // Clarify UI
   final String? clarifyQuestion;
   final List<Map<String, dynamic>> clarifyOptions;
   final void Function(int id)? onToggleClarifyId;
   final void Function(String? date)? onSelectClarifyDate;
-  // priority clarification removed
   // Progress stage label
   final String? progressStage;
   // Optional progress metadata
@@ -298,14 +294,12 @@ class AssistantPanel extends StatelessWidget {
                         },
                         child: const Text('Clear'),
                       ),
-                      // Removed: modal diff review
                       TextButton(
                         onPressed: onDiscard,
                         child: const Text('Discard'),
                       ),
                     ],
                   ),
-                  // Removed: modal diff review
                 ],
               ],
             ),
@@ -377,8 +371,6 @@ class AssistantPanel extends StatelessWidget {
       ),
     );
   }
-
-  // _buildOpsDiffView removed (unused) to reduce analyzer noise.
 
   static String _opKey(dynamic candidate) {
     try {

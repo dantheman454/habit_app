@@ -35,7 +35,6 @@ test('todos: create/get/update/delete + search + list + toggle occurrence', () =
   assert.ok(t1 && t1.id);
   const got = db.getTodoById(t1.id);
   assert.equal(got.title, 'Buy milk');
-  // priority removed
 
   // update
   const up = db.updateTodo(t1.id, { notes: 'whole', completed: true });
@@ -83,8 +82,6 @@ test('events: create/get/update/list/search/delete', () => {
   db.deleteEvent(e1.id);
   assert.equal(db.getEventById(e1.id), null);
 });
-
-// Habits tests removed on cleanup/legacy-code-removal branch: APIs removed/changed.
 
 test('goals: CRUD + items/children linking + cascades', () => {
   const g1 = db.createGoal({ title: 'Goal A' });

@@ -293,8 +293,6 @@ class TodoRow extends StatelessWidget {
     );
   }
 
-  // Removed: unused private widget _buildContextBadge
-
   Widget _buildKindBadge(String kind) {
     IconData icon;
     Color color;
