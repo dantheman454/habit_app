@@ -133,52 +133,68 @@ class AssistantPanel extends StatelessWidget {
           return defaultOpLabel(like);
         };
 
+    // Responsive header tweaks
+    final bool narrowHeader = () {
+      try {
+        return MediaQuery.of(context).size.width < 320;
+      } catch (_) {
+        return false;
+      }
+    }();
+
     return Container(
       color: Theme.of(
         context,
       ).colorScheme.surfaceContainerHighest.withAlpha((0.15 * 255).round()),
       child: Column(
         children: [
-          // Panel title: Mr. Assister
+          // Header: compact title + single actions row
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
-            child: Row(
-              children: const [
-                Icon(Icons.smart_toy_outlined, size: 18),
-                SizedBox(width: 6),
-                Text(
-                  'Mr. Assister',
-                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 32),
-                ),
-              ],
-            ),
-          ),
-          // Header controls
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            child: Row(
-              children: const [
-                Spacer(),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
             child: Row(
               children: [
+                const Icon(Icons.smart_toy_outlined, size: 18),
+                const SizedBox(width: 6),
+                const Text(
+                  'Mr. Assister',
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 20),
+                ),
                 const Spacer(),
+                if (onToggleThinking != null)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: TextButton.icon(
+                      onPressed: onToggleThinking,
+                      icon: Icon(
+                        showThinking ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                        size: 16,
+                      ),
+                      label: Text(showThinking ? 'Hide thinking' : 'Show thinking'),
+                    ),
+                  ),
                 if (onClearChat != null)
-                  TextButton.icon(
-                    onPressed: onClearChat,
-                    icon: const Icon(Icons.clear_all, size: 16),
-                    label: const Text('Clear'),
+                  (
+                    narrowHeader
+                      ? Tooltip(
+                          message: 'Clear',
+                          child: IconButton(
+                            onPressed: onClearChat,
+                            icon: const Icon(Icons.clear_all, size: 18),
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        )
+                      : TextButton.icon(
+                          onPressed: onClearChat,
+                          icon: const Icon(Icons.clear_all, size: 16),
+                          label: const Text('Clear'),
+                        )
                   ),
               ],
             ),
           ),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.all(8),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
               children: [
                 for (final turn in transcript) _buildTurnBubble(context, turn),
                 if ((clarifyQuestion != null && clarifyQuestion!.isNotEmpty) ||
@@ -191,11 +207,8 @@ class AssistantPanel extends StatelessWidget {
                   _buildProgress(context),
                 if (operations.isNotEmpty) ...[
                   const SizedBox(height: 8),
-                  Text(
-                    sending
-                        ? 'Proposed operations'
-                        : 'Executed operations (${operations.length})',
-                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  _SectionHeader(
+                    title: sending ? 'Proposed operations' : 'Executed operations (${operations.length})',
                   ),
                   if (operations.any((o) => _getErrors(o).isNotEmpty))
                     Padding(
@@ -306,14 +319,14 @@ class AssistantPanel extends StatelessWidget {
           ),
           const Divider(height: 1),
           Padding(
-            padding: const EdgeInsets.all(8.0),
+            padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
             child: Row(
               children: [
                 Expanded(
                   child: TextField(
                     controller: inputController,
                     decoration: InputDecoration(
-                      hintText: 'Ask Away...',
+                      hintText: 'Ask away…',
                       filled: true,
                       fillColor: Theme.of(context).colorScheme.surface,
                       contentPadding: const EdgeInsets.symmetric(
@@ -361,13 +374,16 @@ class AssistantPanel extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 4),
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(8),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520),
+        child: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(_parseLLMResponse(turn['text'] ?? ''), style: TextStyle(color: fg)),
         ),
-        child: Text(_parseLLMResponse(turn['text'] ?? ''), style: TextStyle(color: fg)),
       ),
     );
   }
@@ -565,7 +581,9 @@ class AssistantPanel extends StatelessWidget {
         final op = ops[i];
         final errs = _getErrors(op);
         final isInvalid = errs.isNotEmpty;
-        widgets.add(Row(
+        widgets.add(Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Tooltip(
@@ -626,7 +644,7 @@ class AssistantPanel extends StatelessWidget {
               ),
             ),
           ],
-        ));
+        )));
       }
     }
     return widgets;
@@ -676,12 +694,12 @@ class AssistantPanel extends StatelessWidget {
     final start = progressStart;
     final elapsed = start == null ? '' : ' • ${(DateTime.now().difference(start).inSeconds)}s';
     return Padding(
-      padding: const EdgeInsets.only(left: 6, bottom: 6, right: 6),
+      padding: const EdgeInsets.only(left: 8, bottom: 6, right: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Progress: ${progressStage ?? ''}$elapsed',
+            'Progress • ${progressStage ?? ''}$elapsed',
             style: TextStyle(
               fontSize: 12,
               color: theme.colorScheme.onSurfaceVariant.withAlpha((0.8 * 255).round()),
@@ -714,7 +732,7 @@ class AssistantPanel extends StatelessWidget {
   Widget _buildClarifySection(BuildContext context) {
     final theme = Theme.of(context);
     return Container(
-      padding: const EdgeInsets.all(8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
   color: theme.colorScheme.surfaceContainerHighest.withAlpha((0.4 * 255).round()),
         borderRadius: BorderRadius.circular(8),
@@ -898,6 +916,32 @@ class _TypingDots extends StatefulWidget {
 
   @override
   State<_TypingDots> createState() => _TypingDotsState();
+}
+
+class _SectionHeader extends StatelessWidget {
+  final String title;
+  const _SectionHeader({required this.title});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.onSurfaceVariant;
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 4),
+      child: Row(
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              color: color,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _TypingDotsState extends State<_TypingDots>

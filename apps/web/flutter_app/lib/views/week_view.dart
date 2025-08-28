@@ -125,20 +125,24 @@ class _WeekViewState extends State<WeekView> {
 
   List<Map<String, dynamic>> _interleaveByTime(List<Map<String, dynamic>> events, List<Map<String, dynamic>> tasks) {
     final List<Map<String, dynamic>> items = [];
+    // Tasks first, without time labels (upper bar semantics)
+    for (final t in tasks) {
+      items.add({
+        ...t,
+        'kind': 'todo',
+        // Force tasks to appear before timed events regardless of timeOfDay
+        'startMinutes': -1,
+        // Hide times for tasks in week view
+        'timeLabel': '',
+      });
+    }
+    // Then events, sorted by start time
     for (final e in events) {
       items.add({
         ...e,
         'kind': 'event',
         'startMinutes': _parseMinutes(e['startTime'] ?? e['timeOfDay']),
         'timeLabel': _formatTimeRange(e['startTime'], e['endTime']),
-      });
-    }
-    for (final t in tasks) {
-      items.add({
-        ...t,
-        'kind': 'todo',
-        'startMinutes': _parseMinutes(t['timeOfDay']),
-        'timeLabel': _formatSingleTime(t['timeOfDay']),
       });
     }
     items.sort((a, b) => (a['startMinutes'] as int).compareTo(b['startMinutes'] as int));
@@ -184,6 +188,7 @@ class _WeekRow extends StatelessWidget {
     final time = (item['timeLabel'] ?? '').toString();
     final contextValue = (item['context'] ?? '').toString();
     final color = ContextColors.getContextColor(contextValue.isEmpty ? null : contextValue);
+    final bool isTask = (item['kind'] == 'todo');
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
@@ -197,6 +202,11 @@ class _WeekRow extends StatelessWidget {
           Expanded(
             child: Text(title.isEmpty ? (item['kind'] == 'event' ? 'Event' : 'Task') : title, overflow: TextOverflow.ellipsis),
           ),
+          const SizedBox(width: 6),
+          if (isTask)
+            Icon(Icons.check_circle_outline, size: 12, color: Colors.blue.shade700)
+          else
+            Icon(Icons.event, size: 12, color: Colors.green.shade700),
         ],
       ),
     );

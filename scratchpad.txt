@@ -8,7 +8,7 @@ Keep in mind:
 -Core abstractions/entities (define these)
     *tasks: dishes, homework, 
     *events: classes, appointments, vacations
-    *habits: gym, pills, meal prepping, weed
+    *habits: gym, pills, meal prepping, weed(self medicating)(need to use Huberman's method to make and break habits)
     *goals: understand greasy hair, track supplements and food intake, sobriety for extended period of time??, fix memory issue(s)
 
     
@@ -33,9 +33,11 @@ Get done asap:
 Next:
     -Get assistant pipeline working for basic chats about events and tasks (maybe basic functions??)
         *Simplify/solidify pipeline and take out the different model constants
-        *Make sure context and prompting is solid
+        *Use attention sinks in the context; these models dump attention to the first tokens
+        *Make sure context and prompting is solid; Make sure it doesn't get fed same context twice!!!! Track if the context has been put already
         *Choose between normal qwen3 and coder version (leaning towards coding just for accuracy?)
         *have buttons for quick routes (daily overview, weekly planning, etc)
+        *Wrap text box and make it display the markdown properly
     -Modularize main and clean up/optimize the flutter directory??? (if access to GPT-5 again)
 
 

@@ -111,20 +111,22 @@ class _MonthViewState extends State<MonthView> {
 
   List<_PreviewItem> _interleavedTopFive(List<Map<String, dynamic>> events, List<Map<String, dynamic>> tasks) {
     final List<_PreviewItem> items = [];
+    // Tasks first, without time labels
+    for (final t in tasks) {
+      items.add(_PreviewItem(
+        title: (t['title'] ?? '').toString(),
+        kind: 'todo',
+        startMinutes: -1, // ensure tasks sort before events
+        timeLabel: '',
+      ));
+    }
+    // Then events, with time labels
     for (final e in events) {
       items.add(_PreviewItem(
         title: (e['title'] ?? '').toString(),
         kind: 'event',
         startMinutes: _parseMinutes(e['startTime'] ?? e['timeOfDay']),
         timeLabel: _formatTimeRange(e['startTime'], e['endTime']),
-      ));
-    }
-    for (final t in tasks) {
-      items.add(_PreviewItem(
-        title: (t['title'] ?? '').toString(),
-        kind: 'todo',
-        startMinutes: _parseMinutes(t['timeOfDay']),
-        timeLabel: _formatSingleTime(t['timeOfDay']),
       ));
     }
     items.sort((a, b) => (a.startMinutes).compareTo(b.startMinutes));
@@ -133,6 +135,17 @@ class _MonthViewState extends State<MonthView> {
 
   List<_PreviewItem> _interleaved(List<Map<String, dynamic>> events, List<Map<String, dynamic>> tasks) {
     final List<_PreviewItem> items = [];
+    // Tasks first, without time labels
+    for (final t in tasks) {
+      items.add(_PreviewItem(
+        title: (t['title'] ?? '').toString(),
+        kind: 'todo',
+        startMinutes: -1,
+        timeLabel: '',
+        contextValue: (t['context'] ?? '').toString(),
+      ));
+    }
+    // Then events with time labels
     for (final e in events) {
       items.add(_PreviewItem(
         title: (e['title'] ?? '').toString(),
@@ -140,15 +153,6 @@ class _MonthViewState extends State<MonthView> {
         startMinutes: _parseMinutes(e['startTime'] ?? e['timeOfDay']),
         timeLabel: _formatTimeRange(e['startTime'], e['endTime']),
         contextValue: (e['context'] ?? '').toString(),
-      ));
-    }
-    for (final t in tasks) {
-      items.add(_PreviewItem(
-        title: (t['title'] ?? '').toString(),
-        kind: 'todo',
-        startMinutes: _parseMinutes(t['timeOfDay']),
-        timeLabel: _formatSingleTime(t['timeOfDay']),
-        contextValue: (t['context'] ?? '').toString(),
       ));
     }
     items.sort((a, b) => (a.startMinutes).compareTo(b.startMinutes));
@@ -284,6 +288,7 @@ class _MonthRow extends StatelessWidget {
     final color = ContextColors.getContextColor(
       (item.contextValue.isEmpty) ? null : item.contextValue,
     );
+    final bool isTask = (item.kind == 'todo');
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
@@ -300,6 +305,11 @@ class _MonthRow extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
           ),
+          const SizedBox(width: 6),
+          if (isTask)
+            Icon(Icons.check_circle_outline, size: 12, color: Colors.blue.shade700)
+          else
+            Icon(Icons.event, size: 12, color: Colors.green.shade700),
         ],
       ),
     );

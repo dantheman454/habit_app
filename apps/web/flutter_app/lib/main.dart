@@ -1359,7 +1359,7 @@ class _HomePageState extends State<HomePage> {
   void _onSearchChanged(String v) {
     _searchDebounce?.cancel();
     _searchDebounce = Timer(
-      const Duration(milliseconds: 250),
+      const Duration(milliseconds: 300),
       () => _runSearch(v),
     );
   }
@@ -1619,75 +1619,102 @@ class _HomePageState extends State<HomePage> {
                                   )
                                 else
                                   Flexible(
-                                    child: ListView.separated(
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 6,
-                                      ),
-                                      shrinkWrap: true,
-                                      itemBuilder: (c, i) {
-                                        final t = results[i];
-                                        final selected = i == _searchHoverIndex;
-                                        return InkWell(
-                                          onTap: () => _selectSearchResult(t),
-                                          onHover: (h) => setState(
-                                            () => _searchHoverIndex = h
-                                                ? i
-                                                : _searchHoverIndex,
-                                          ),
-                                          child: Container(
-                                            color: selected
-                                                ? theme.colorScheme.primary
-                                                      .withAlpha(
-                                                        (0.08 * 255).round(),
-                                                      )
-                                                : Colors.transparent,
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 12,
-                                              vertical: 8,
+                                    child: Builder(
+                                      builder: (ctx) {
+                                        final theme = Theme.of(ctx);
+                                        // Group results by date, then type
+                                        final Map<String, List<Todo>> byDate = {};
+                                        for (final t in results) {
+                                          final k = (t.scheduledFor ?? 'unscheduled');
+                                          (byDate[k] ??= <Todo>[]).add(t);
+                                        }
+                                        final orderedDates = byDate.keys.toList()
+                                          ..sort((a, b) => a.compareTo(b));
+                                        final tiles = <Widget>[];
+                                        for (final d in orderedDates) {
+                                          tiles.add(Padding(
+                                            padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+                                            child: Text(
+                                              d,
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w600,
+                                                color: theme.colorScheme.onSurfaceVariant,
+                                              ),
                                             ),
-                                            child: Row(
-                                              children: [
-                                                Expanded(
-                                                  child: Column(
-                                                    crossAxisAlignment:
-                                                        CrossAxisAlignment
-                                                            .start,
-                                                    children: [
-                                                      Text(
-                                                        t.title,
-                                                        maxLines: 1,
-                                                        overflow: TextOverflow
-                                                            .ellipsis,
-                                                      ),
-                                                      const SizedBox(height: 4),
-                                                      Wrap(
-                                                        spacing: 6,
-                                                        runSpacing: 4,
+                                          ));
+                                          final items = byDate[d]!;
+                                          int rank(String? k) {
+                                            switch (k) {
+                                              case 'event':
+                                                return 0;
+                                              case 'todo':
+                                              case null:
+                                                return 1;
+                                              case 'habit':
+                                                return 2;
+                                              default:
+                                                return 3;
+                                            }
+                                          }
+                                          items.sort((a, b) {
+                                            final r = rank(a.kind) - rank(b.kind);
+                                            if (r != 0) return r;
+                                            return a.title.compareTo(b.title);
+                                          });
+                                          for (var i = 0; i < items.length; i++) {
+                                            final t = items[i];
+                                            final idx = results.indexOf(t);
+                                            final selected = idx == _searchHoverIndex;
+                                            tiles.add(InkWell(
+                                              onTap: () => _selectSearchResult(t),
+                                              onHover: (h) => setState(
+                                                () => _searchHoverIndex = h ? idx : _searchHoverIndex,
+                                              ),
+                                              child: Container(
+                                                color: selected
+                                                    ? theme.colorScheme.primary.withAlpha((0.08 * 255).round())
+                                                    : Colors.transparent,
+                                                padding: const EdgeInsets.symmetric(
+                                                  horizontal: 12,
+                                                  vertical: 8,
+                                                ),
+                                                child: Row(
+                                                  children: [
+                                                    Expanded(
+                                                      child: Column(
+                                                        crossAxisAlignment: CrossAxisAlignment.start,
                                                         children: [
-                                                          _chip(
-                                                            (t.scheduledFor ??
-                                                                'unscheduled'),
-                                                          ),
-
-                                                          _buildKindChip(
-                                                            t.kind ?? 'todo',
+                                                          _highlightedText(t.title, searchCtrl.text),
+                                                          const SizedBox(height: 4),
+                                                          Wrap(
+                                                            spacing: 6,
+                                                            runSpacing: 4,
+                                                            children: [
+                                                              _chip((t.scheduledFor ?? 'unscheduled')),
+                                                              _buildKindChip(t.kind ?? 'todo'),
+                                                            ],
                                                           ),
                                                         ],
                                                       ),
-                                                    ],
-                                                  ),
+                                                    ),
+                                                  ],
                                                 ),
-                                              ],
-                                            ),
-                                          ),
+                                              ),
+                                            ));
+                                            if (i < items.length - 1) {
+                                              tiles.add(Divider(
+                                                height: 1,
+                                                color: theme.colorScheme.outline.withAlpha((0.2 * 255).round()),
+                                              ));
+                                            }
+                                          }
+                                        }
+                                        return ListView(
+                                          padding: const EdgeInsets.symmetric(vertical: 6),
+                                          shrinkWrap: true,
+                                          children: tiles,
                                         );
                                       },
-                                      separatorBuilder: (_, __) => Divider(
-                                        height: 1,
-                                        color: theme.colorScheme.outline
-                                            .withAlpha((0.2 * 255).round()),
-                                      ),
-                                      itemCount: results.length,
                                     ),
                                   ),
                               ],
@@ -1730,6 +1757,28 @@ class _HomePageState extends State<HomePage> {
       child: Text(
         text,
         style: const TextStyle(fontSize: 12, color: Colors.black87),
+      ),
+    );
+  }
+
+  Widget _highlightedText(String text, String query) {
+    final q = query.trim();
+    if (q.isEmpty) return Text(text, maxLines: 1, overflow: TextOverflow.ellipsis);
+    final lower = text.toLowerCase();
+    final idx = lower.indexOf(q.toLowerCase());
+    if (idx < 0) return Text(text, maxLines: 1, overflow: TextOverflow.ellipsis);
+    final before = text.substring(0, idx);
+    final match = text.substring(idx, idx + q.length);
+    final after = text.substring(idx + q.length);
+    return RichText(
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      text: TextSpan(
+        children: [
+          TextSpan(text: before, style: const TextStyle(color: Colors.black87)),
+          TextSpan(text: match, style: const TextStyle(fontWeight: FontWeight.w700, color: Colors.black)),
+          TextSpan(text: after, style: const TextStyle(color: Colors.black87)),
+        ],
       ),
     );
   }

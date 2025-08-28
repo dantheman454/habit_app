@@ -139,6 +139,31 @@ class EventTimeline extends StatelessWidget {
           );
         }
 
+        // Optional "Now" indicator when viewing today
+        final nowYmd = () {
+          final dt = DateTime.now();
+          final y = dt.year.toString().padLeft(4, '0');
+          final m = dt.month.toString().padLeft(2, '0');
+          final d = dt.day.toString().padLeft(2, '0');
+          return '$y-$m-$d';
+        }();
+        final bool isToday = (dateYmd == nowYmd);
+        if (isToday) {
+          final int nowMinutes = DateTime.now().hour * 60 + DateTime.now().minute;
+          final double y = ((nowMinutes - (minHour * 60)).clamp(0, spanMinutes)) * pxPerMin;
+          gridLines.add(
+            Positioned(
+              top: y,
+              left: 0,
+              right: 0,
+              child: Container(
+                height: 2,
+                color: Theme.of(context).colorScheme.primary.withAlpha((0.9 * 255).round()),
+              ),
+            ),
+          );
+        }
+
         final content = Container(
           color: Theme.of(context).colorScheme.surface,
           child: Stack(children: [...gridLines, ...blocks]),
