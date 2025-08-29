@@ -394,7 +394,7 @@ class AssistantPanel extends StatelessWidget {
           ? (candidate['op'] as Map)
           : candidate as Map;
       return [
-        (m['kind'] ?? 'todo').toString(),
+        (m['kind'] ?? 'task').toString(),
         (m['action'] ?? m['op'] ?? 'create').toString(),
         (m['id'] ?? '').toString(),
         (m['scheduledFor'] ?? '').toString(),
@@ -516,18 +516,18 @@ class AssistantPanel extends StatelessWidget {
           final op = candidate['op'];
           if (op is String && op.isNotEmpty) {
             if (op.startsWith('goal_')) return 'goal';
-            return 'todo';
+            return 'task';
           }
         } else {
           final op = candidate['op'];
           if (op is String && op.isNotEmpty) {
             if (op.startsWith('goal_')) return 'goal';
-            return 'todo';
+            return 'task';
           }
         }
       } catch (_) {}
     } catch (_) {}
-    return 'todo';
+    return 'task';
   }
 
   Icon _kindIcon(String kind) {

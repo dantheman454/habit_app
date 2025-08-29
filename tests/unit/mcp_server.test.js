@@ -23,13 +23,13 @@ describe('HabitusMCPServer', () => {
     assert(Array.isArray(tools));
     assert(tools.length > 0);
     
-    // Check for expected todo tools
+    // Check for expected task tools
     const toolNames = tools.map(t => t.name);
-    assert(toolNames.includes('create_todo'));
-    assert(toolNames.includes('update_todo'));
-    assert(toolNames.includes('delete_todo'));
-    assert(toolNames.includes('set_todo_status'));
-    assert(toolNames.includes('complete_todo_occurrence'));
+    assert(toolNames.includes('create_task'));
+    assert(toolNames.includes('update_task'));
+    assert(toolNames.includes('delete_task'));
+    assert(toolNames.includes('set_task_status'));
+    assert(toolNames.includes('complete_task_occurrence'));
     
     // Check for expected event tools
     assert(toolNames.includes('create_event'));
@@ -45,16 +45,16 @@ describe('HabitusMCPServer', () => {
 
   test('should convert tool call to operation format', () => {
     const toolCall = {
-      title: 'Test Todo',
+      title: 'Test Task',
       notes: 'Test notes',
       recurrence: { type: 'none' }
     };
     
-    const operation = mcpServer.convertToolCallToOperation('create_todo', toolCall);
+    const operation = mcpServer.convertToolCallToOperation('create_task', toolCall);
     
-    assert.strictEqual(operation.kind, 'todo');
+    assert.strictEqual(operation.kind, 'task');
     assert.strictEqual(operation.action, 'create');
-    assert.strictEqual(operation.title, 'Test Todo');
+    assert.strictEqual(operation.title, 'Test Task');
     assert.strictEqual(operation.notes, 'Test notes');
     assert.deepStrictEqual(operation.recurrence, { type: 'none' });
   });
@@ -111,7 +111,7 @@ describe('HabitusMCPServer', () => {
     
     mcpServer.setOperationProcessor(mockProcessor);
     
-    const result = await mcpServer.handleToolCall('create_todo', {
+    const result = await mcpServer.handleToolCall('create_task', {
       title: 'Test',
       recurrence: { type: 'none' }
     });
@@ -125,7 +125,7 @@ describe('HabitusMCPServer', () => {
   test('should throw error when operation processor not set', async () => {
     await assert.rejects(
       async () => {
-        await mcpServer.handleToolCall('create_todo', { title: 'Test' });
+        await mcpServer.handleToolCall('create_task', { title: 'Test' });
       },
       /Operation processor not set/
     );

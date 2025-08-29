@@ -6,32 +6,32 @@ import { ymd } from '../utils/date.js';
 
 const router = Router();
 
-function expandTodoOccurrences(todo, fromDate, toDate) {
+function expandTaskOccurrences(task, fromDate, toDate) {
   const occurrences = [];
-  const anchor = todo.scheduledFor ? parseYMD(todo.scheduledFor) : null;
+  const anchor = task.scheduledFor ? parseYMD(task.scheduledFor) : null;
   if (!anchor) return occurrences;
-  const untilYmd = todo.recurrence?.until ?? undefined;
+  const untilYmd = task.recurrence?.until ?? undefined;
   const untilDate = (untilYmd && isYmdString(untilYmd)) ? parseYMD(untilYmd) : null;
   const inclusiveEnd = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate() + 1);
   for (let d = new Date(Math.max(fromDate.getTime(), anchor.getTime())); d < inclusiveEnd; d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)) {
     if (untilDate && d > untilDate) break;
-    if (matchesRule(d, anchor, todo.recurrence)) {
+    if (matchesRule(d, anchor, task.recurrence)) {
       const dateStr = ymd(d);
-      const occCompleted = Array.isArray(todo.completedDates) && todo.completedDates.includes(dateStr);
-      const occSkipped = Array.isArray(todo.skippedDates) && todo.skippedDates.includes(dateStr);
+      const occCompleted = Array.isArray(task.completedDates) && task.completedDates.includes(dateStr);
+      const occSkipped = Array.isArray(task.skippedDates) && task.skippedDates.includes(dateStr);
       occurrences.push({
-        id: todo.id,
-        masterId: todo.id,
-        title: todo.title,
-        notes: todo.notes,
+        id: task.id,
+        masterId: task.id,
+        title: task.title,
+        notes: task.notes,
         scheduledFor: dateStr,
-        timeOfDay: todo.timeOfDay,
+        timeOfDay: task.timeOfDay,
         completed: !!occCompleted,
         status: occCompleted ? 'completed' : (occSkipped ? 'skipped' : 'pending'),
-        recurrence: todo.recurrence,
-        context: todo.context,
-        createdAt: todo.createdAt,
-        updatedAt: todo.updatedAt,
+        recurrence: task.recurrence,
+        context: task.context,
+        createdAt: task.createdAt,
+        updatedAt: task.updatedAt,
       });
     }
   }
@@ -71,7 +71,7 @@ function expandEventOccurrences(event, fromDate, toDate) {
 }
 
 router.get('/api/schedule', (req, res) => {
-  const { from, to, kinds, completed, status_todo, context } = req.query || {};
+  const { from, to, kinds, completed, status_task, context } = req.query || {};
   if (!isYmdString(from)) return res.status(400).json({ error: 'invalid_from' });
   if (!isYmdString(to)) return res.status(400).json({ error: 'invalid_to' });
   let completedBool;
@@ -80,14 +80,14 @@ router.get('/api/schedule', (req, res) => {
     else if (completed === 'false' || completed === false) completedBool = false;
     else return res.status(400).json({ error: 'invalid_completed' });
   }
-  if (status_todo !== undefined && !['pending','completed','skipped'].includes(String(status_todo))) return res.status(400).json({ error: 'invalid_status_todo' });
+  if (status_task !== undefined && !['pending','completed','skipped'].includes(String(status_task))) return res.status(400).json({ error: 'invalid_status_task' });
   if (context !== undefined && !['school','personal','work'].includes(String(context))) return res.status(400).json({ error: 'invalid_context' });
 
   const requestedKinds = (() => {
-    const csv = String(kinds || 'todo,event').trim();
+    const csv = String(kinds || 'task,event').trim();
     const parts = csv.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-    const set = new Set(parts.length ? parts : ['todo','event']);
-    return ['todo','event'].filter(k => set.has(k));
+    const set = new Set(parts.length ? parts : ['task','event']);
+    return ['task','event'].filter(k => set.has(k));
   })();
 
   try {
@@ -101,21 +101,21 @@ router.get('/api/schedule', (req, res) => {
 
     const items = [];
 
-    if (requestedKinds.includes('todo')) {
-      let todos = db.listTodos({ from: null, to: null, status: status_todo || null, context: context || null }).filter(t => t.scheduledFor !== null);
-      for (const t of todos) {
+    if (requestedKinds.includes('task')) {
+      let tasks = db.listTasks({ from: null, to: null, status: status_task || null, context: context || null }).filter(t => t.scheduledFor !== null);
+      for (const t of tasks) {
         const isRepeating = (t.recurrence && t.recurrence.type && t.recurrence.type !== 'none');
         if (isRepeating) {
-          for (const occ of expandTodoOccurrences(t, fromDate, toDate)) {
-            if (status_todo === undefined || occ.status === status_todo) {
-              items.push({ kind: 'todo', ...occ });
+          for (const occ of expandTaskOccurrences(t, fromDate, toDate)) {
+            if (status_task === undefined || occ.status === status_task) {
+              items.push({ kind: 'task', ...occ });
             }
           }
         } else {
           const td = t.scheduledFor ? parseYMD(t.scheduledFor) : null;
-          if (inRange(td) && (status_todo === undefined || t.status === status_todo)) {
+          if (inRange(td) && (status_task === undefined || t.status === status_task)) {
             items.push({
-              kind: 'todo',
+              kind: 'task',
               id: t.id,
               title: t.title,
               notes: t.notes,
@@ -165,7 +165,7 @@ router.get('/api/schedule', (req, res) => {
       }
     }
 
-    const kindOrder = { event: 0, todo: 1 };
+    const kindOrder = { event: 0, task: 1 };
     items.sort((a, b) => {
       const da = String(a.scheduledFor || '');
       const dbs = String(b.scheduledFor || '');

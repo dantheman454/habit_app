@@ -1,7 +1,7 @@
 import { ymd, parseYMD } from './date.js';
 
-export function filterTodosByWhere(where = {}, { listAllTodosRaw }) {
-  const items = (typeof listAllTodosRaw === 'function' ? listAllTodosRaw() : []).slice();
+export function filterTasksByWhere(where = {}, { listAllTasksRaw }) {
+  const items = (typeof listAllTasksRaw === 'function' ? listAllTasksRaw() : []).slice();
   let filtered = items;
   if (Array.isArray(where.ids) && where.ids.length) {
     const set = new Set(where.ids.map((id) => parseInt(id, 10)));
@@ -42,7 +42,7 @@ export function filterTodosByWhere(where = {}, { listAllTodosRaw }) {
     else filtered = filtered.filter((t) => String(t.status) !== 'completed');
   }
   if (typeof where.repeating === 'boolean') {
-    const isRepeating = (todo) => !!(todo?.recurrence && todo.recurrence.type && todo.recurrence.type !== 'none');
+    const isRepeating = (task) => !!(task?.recurrence && task.recurrence.type && task.recurrence.type !== 'none');
     filtered = filtered.filter((t) => isRepeating(t) === where.repeating);
   }
   return filtered;
@@ -91,8 +91,8 @@ export function filterItemsByWhere(items, where = {}) {
   return filtered;
 }
 
-export function getAggregatesFromDb({ listAllTodosRaw }) {
-  const items = (typeof listAllTodosRaw === 'function' ? listAllTodosRaw() : []);
+export function getAggregatesFromDb({ listAllTasksRaw }) {
+  const items = (typeof listAllTasksRaw === 'function' ? listAllTasksRaw() : []);
   const today = new Date();
   const todayY = ymd(today);
   let overdueCount = 0; let next7DaysCount = 0; let backlogCount = 0; let scheduledCount = 0;

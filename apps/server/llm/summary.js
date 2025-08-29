@@ -24,7 +24,7 @@ export async function runSummary({ operations = [], issues = [], timezone } = {}
   });
 
   const qwenPrompt = createQwenPrompt({
-    system: "You are a helpful, concise assistant for a todo application. Your job is to explain what actions will be taken in clear, user-friendly language.",
+    system: "You are a helpful, concise assistant for a tasks/events application. Your job is to explain what actions will be taken in clear, user-friendly language.",
     user: `Today: ${todayYmd} (${timezone || TIMEZONE})
 
 Operations to perform:

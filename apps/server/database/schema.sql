@@ -1,7 +1,7 @@
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
 
-CREATE TABLE IF NOT EXISTS todos (
+CREATE TABLE IF NOT EXISTS tasks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   title TEXT NOT NULL,
   notes TEXT NOT NULL DEFAULT '',
@@ -44,12 +44,12 @@ CREATE TABLE IF NOT EXISTS goals (
   updated_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS goal_todo_items (
+CREATE TABLE IF NOT EXISTS goal_task_items (
   goal_id INTEGER NOT NULL,
-  todo_id INTEGER NOT NULL,
-  PRIMARY KEY (goal_id, todo_id),
+  task_id INTEGER NOT NULL,
+  PRIMARY KEY (goal_id, task_id),
   FOREIGN KEY (goal_id) REFERENCES goals(id) ON DELETE CASCADE,
-  FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE CASCADE
+  FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS goal_event_items (
@@ -107,23 +107,23 @@ CREATE TABLE IF NOT EXISTS op_batch_ops (
 );
 
 -- FTS5 virtual tables
-CREATE VIRTUAL TABLE IF NOT EXISTS todos_fts USING fts5(
-  title, notes, content='todos', content_rowid='id'
+CREATE VIRTUAL TABLE IF NOT EXISTS tasks_fts USING fts5(
+  title, notes, content='tasks', content_rowid='id'
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS events_fts USING fts5(
   title, notes, location, content='events', content_rowid='id'
 );
 
--- FTS5 triggers for todos
-CREATE TRIGGER IF NOT EXISTS todos_ai AFTER INSERT ON todos BEGIN
-  INSERT INTO todos_fts(rowid, title, notes) VALUES (new.id, new.title, new.notes);
+-- FTS5 triggers for tasks
+CREATE TRIGGER IF NOT EXISTS tasks_ai AFTER INSERT ON tasks BEGIN
+  INSERT INTO tasks_fts(rowid, title, notes) VALUES (new.id, new.title, new.notes);
 END;
-CREATE TRIGGER IF NOT EXISTS todos_ad AFTER DELETE ON todos BEGIN
-  INSERT INTO todos_fts(todos_fts, rowid, title, notes) VALUES('delete', old.id, old.title, old.notes);
+CREATE TRIGGER IF NOT EXISTS tasks_ad AFTER DELETE ON tasks BEGIN
+  INSERT INTO tasks_fts(tasks_fts, rowid, title, notes) VALUES('delete', old.id, old.title, old.notes);
 END;
-CREATE TRIGGER IF NOT EXISTS todos_au AFTER UPDATE ON todos BEGIN
-  INSERT INTO todos_fts(todos_fts, rowid, title, notes) VALUES('delete', old.id, old.title, old.notes);
-  INSERT INTO todos_fts(rowid, title, notes) VALUES (new.id, new.title, new.notes);
+CREATE TRIGGER IF NOT EXISTS tasks_au AFTER UPDATE ON tasks BEGIN
+  INSERT INTO tasks_fts(tasks_fts, rowid, title, notes) VALUES('delete', old.id, old.title, old.notes);
+  INSERT INTO tasks_fts(rowid, title, notes) VALUES (new.id, new.title, new.notes);
 END;
 
 -- FTS5 triggers for events

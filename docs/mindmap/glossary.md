@@ -7,22 +7,22 @@ This glossary defines key terms and concepts used throughout the Habit App syste
 **Anchor (date)**: The `scheduledFor` date on a repeating master that determines recurrence alignment. Required when `recurrence.type != 'none'`. This date serves as the reference point for calculating all future occurrences of a repeating item.
 
 - **Usage**: Used in recurrence expansion algorithms to determine which dates match the recurrence rule
-- **Example**: A weekly todo with anchor `2024-01-15` (Monday) will occur every Monday
+- **Example**: A weekly task with anchor `2024-01-15` (Monday) will occur every Monday
 - **Reference**: See [Data Model](./data_model.md#recurrence-system) for detailed recurrence rules
 
-**Occurrence**: A per-day instance expanded from a repeating master within a range. Has `masterId = id`, `scheduledFor = occurrence date`. For todos, `status` is derived from `completedDates` and `skippedDates`; for events, `completed` derives from `completedDates`. Occurrences are view constructs.
+**Occurrence**: A per-day instance expanded from a repeating master within a range. Has `masterId = id`, `scheduledFor = occurrence date`. For tasks, `status` is derived from `completedDates` and `skippedDates`; for events, `completed` derives from `completedDates`. Occurrences are view constructs.
 
 - **Usage**: Generated on-demand when listing items with date ranges
 - **Example**: A daily habit creates 7 occurrences when viewing a week range
 - **Reference**: See [Data Model](./data_model.md#occurrence-expansion) for expansion algorithm
 
-**CompletedDates**: Array of `YYYY-MM-DD` on repeating masters marking which occurrences were completed. For todos, toggled by `/api/todos/:id/occurrence` and by `set_status` in apply operations.
+**CompletedDates**: Array of `YYYY-MM-DD` on repeating masters marking which occurrences were completed. For tasks, toggled by `/api/tasks/:id/occurrence` and by `set_status` in apply operations.
 
 - **Usage**: Tracks completion state for individual occurrences of repeating items
 - **Example**: `["2024-01-15", "2024-01-17"]` indicates occurrences on those dates were completed
-- **Reference**: See [API Surface](./api_surface.md#update-todo-occurrence) for endpoint usage
+- **Reference**: See [API Surface](./api_surface.md#update-task-occurrence) for endpoint usage
 
-**Backlog**: Todos with `scheduledFor = null`. Served by filtering `/api/todos` with no date range.
+**Backlog**: Tasks with `scheduledFor = null`. Served by filtering `/api/tasks` with no date range.
 
 - **Usage**: Represents unscheduled tasks that need to be assigned dates
 - **Example**: "Write documentation" with no scheduled date appears in backlog
@@ -30,10 +30,10 @@ This glossary defines key terms and concepts used throughout the Habit App syste
 
 ### System Architecture Terms
 
-**Unified schedule**: Range-based view that merges todos and events. Items carry `kind` and kind-specific time fields; repeating items are expanded within `[from,to]` range.
+**Unified schedule**: Range-based view that merges tasks and events. Items carry `kind` and kind-specific time fields; repeating items are expanded within `[from,to]` range.
 
 - **Usage**: Provides a single view of all scheduled items across types
-- **Example**: Shows todos, events, and habits together in chronological order
+- **Example**: Shows tasks and events together in chronological order
 - **Reference**: See [API Surface](./api_surface.md#unified-schedule) for endpoint details
 
 **Bulk operations**: Not supported. Proposals attempting `bulk_*` are rejected with `bulk_operations_removed` error.
@@ -44,10 +44,10 @@ This glossary defines key terms and concepts used throughout the Habit App syste
 
 **Router**: Removed. Assistant uses a single tool-calling OpsAgent path.
 
-**Tool calling**: Native LLM tool calling with Qwen model for operation proposal. Uses a predefined tool surface limited to todos and events.
+**Tool calling**: Native LLM tool calling with Qwen model for operation proposal. Uses a predefined tool surface limited to tasks and events.
 
 - **Usage**: Executes operations directly through LLM tool calls
-- **Example**: `todo.update` tool call with arguments for updating a todo
+- **Example**: `task.update` tool call with arguments for updating a task
 - **Reference**: See [Assistant Chat Mindmap](./assistant_chat_mindmap.md#tool-calling-generation-algorithm) for implementation
 
 ### Data Integrity and Safety
@@ -61,23 +61,23 @@ This glossary defines key terms and concepts used throughout the Habit App syste
 **Audit log**: Append-only records of assistant and CRUD actions written during operation execution.
 
 - **Usage**: Provides transparency and debugging for all system changes
-- **Example**: Logs every todo creation, update, and deletion
+- **Example**: Logs every task creation, update, and deletion
 - **Reference**: See [Data Model](./data_model.md#supporting-tables) for schema details
 
 ### Entity Types
 
 **Habits**: Removed. Habit entities and endpoints are not present in the current server.
 
-**Goals**: High-level objectives with optional progress fields and links to todos/events and child goals.
+**Goals**: High-level objectives with optional progress fields and links to tasks/events and child goals.
 
 - **Usage**: Organize related tasks and track progress toward objectives
-- **Example**: "Learn Flutter" goal with linked todos and sub-goals
+- **Example**: "Learn Flutter" goal with linked tasks and sub-goals
 - **Reference**: See [Data Model](./data_model.md#goal-schema) for schema details
 
-**Context**: Categorization field for todos and events. Values: 'school', 'personal', 'work' with 'personal' as default. Goals do not have context.
+**Context**: Categorization field for tasks and events. Values: 'school', 'personal', 'work' with 'personal' as default. Goals do not have context.
 
 - **Usage**: Filter and organize items by life area
-- **Example**: Work todos vs personal todos for different focus modes
+- **Example**: Work tasks vs personal tasks for different focus modes
 - **Reference**: See [API Surface](./api_surface.md#validation-rules) for validation rules
 
 ### Communication Protocols
@@ -89,12 +89,12 @@ This glossary defines key terms and concepts used throughout the Habit App syste
 - **Reference**: See [Assistant Chat Mindmap](./assistant_chat_mindmap.md#sse-stream-handling) for implementation
 
 **Operation types**: 
-- **Todos**: `create|update|delete|set_status`
+- **Tasks**: `create|update|delete|set_status`
 - **Events**: `create|update|delete`
 - **Goals**: `create|update|delete|add_items|remove_item|add_child|remove_child`
 
 - **Usage**: Define what actions can be performed on each entity type
-- **Example**: `{"kind": "todo", "action": "set_status", "id": 1, "status": "completed"}`
+- **Example**: `{"kind": "task", "action": "set_status", "id": 1, "status": "completed"}`
 - **Reference**: See [Backend Algorithms](./backend_algorithms.md#operation-validation) for validation rules
 
 ### Data Formats
@@ -115,10 +115,10 @@ This glossary defines key terms and concepts used throughout the Habit App syste
 
 ### Performance and Optimization
 
-**FTS5**: Full-Text Search version 5, SQLite's built-in search engine used for searching todos and events.
+**FTS5**: Full-Text Search version 5, SQLite's built-in search engine used for searching tasks and events.
 
 - **Usage**: Provides fast text search across titles, notes, and locations
-- **Example**: Search "meeting" finds todos and events containing that word
+- **Example**: Search "meeting" finds tasks and events containing that word
 - **Reference**: See [Data Model](./data_model.md#fts5-virtual-tables) for implementation
 
 **WAL mode**: Write-Ahead Logging, SQLite's journaling mode that enables concurrent read/write access.
@@ -132,7 +132,7 @@ This glossary defines key terms and concepts used throughout the Habit App syste
 **Validation errors**: Server-side checks that ensure data integrity and business rule compliance.
 
 - **Usage**: Prevent invalid data from entering the system
-- **Example**: `missing_recurrence` when creating todo without recurrence object
+- **Example**: `missing_recurrence` when creating task without recurrence object
 - **Reference**: See [Backend Algorithms](./backend_algorithms.md#error-messages-catalog) for complete list
 
 **Repair attempts**: Single LLM-powered attempt to fix invalid operations before rejecting them.

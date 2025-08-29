@@ -49,20 +49,13 @@ router.delete('/api/goals/:id', (req, res) => {
 router.post('/api/goals/:id/items', (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
-  const { todos = [], events = [] } = req.body || {};
+  const { tasks = [], events = [] } = req.body || {};
   try {
-    db.addGoalTodoItems(id, (Array.isArray(todos)?todos:[]).map(Number).filter(Number.isFinite));
+    const taskIds = (Array.isArray(tasks) ? tasks : []).map(Number).filter(Number.isFinite);
+    if (taskIds.length) db.addGoalTaskItems(id, taskIds);
     db.addGoalEventItems(id, (Array.isArray(events)?events:[]).map(Number).filter(Number.isFinite));
     return res.json({ ok: true });
   } catch { return res.status(500).json({ error: 'add_items_failed' }); }
-});
-
-router.delete('/api/goals/:goalId/items/todo/:todoId', (req, res) => {
-  const gid = parseInt(req.params.goalId, 10);
-  const tid = parseInt(req.params.todoId, 10);
-  if (!Number.isFinite(gid) || !Number.isFinite(tid)) return res.status(400).json({ error: 'invalid_id' });
-  try { db.removeGoalTodoItem(gid, tid); return res.json({ ok: true }); }
-  catch { return res.status(500).json({ error: 'remove_item_failed' }); }
 });
 
 router.delete('/api/goals/:goalId/items/event/:eventId', (req, res) => {
@@ -70,6 +63,15 @@ router.delete('/api/goals/:goalId/items/event/:eventId', (req, res) => {
   const eid = parseInt(req.params.eventId, 10);
   if (!Number.isFinite(gid) || !Number.isFinite(eid)) return res.status(400).json({ error: 'invalid_id' });
   try { db.removeGoalEventItem(gid, eid); return res.json({ ok: true }); }
+  catch { return res.status(500).json({ error: 'remove_item_failed' }); }
+});
+
+// Delete link to a task item
+router.delete('/api/goals/:goalId/items/task/:taskId', (req, res) => {
+  const gid = parseInt(req.params.goalId, 10);
+  const tid = parseInt(req.params.taskId, 10);
+  if (!Number.isFinite(gid) || !Number.isFinite(tid)) return res.status(400).json({ error: 'invalid_id' });
+  try { db.removeGoalTaskItem(gid, tid); return res.json({ ok: true }); }
   catch { return res.status(500).json({ error: 'remove_item_failed' }); }
 });
 

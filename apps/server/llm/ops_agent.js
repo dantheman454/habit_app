@@ -73,9 +73,9 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
 
   // Build tool surface with JSON Schemas from OperationRegistry
   const registry = new OperationRegistry(db);
-  // Limit tool surface to todos and events only (habits excluded per user preference)
+  // Limit tool surface to tasks and events only
   const toolNames = [
-    'todo.create','todo.update','todo.delete','todo.set_status',
+    'task.create','task.update','task.delete','task.set_status',
     'event.create','event.update','event.delete'
   ];
   const operationTools = toolNames.map((name) => {
@@ -92,7 +92,7 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
     });
   });
 
-  const system = 'You are an operations executor for a tasks/events app. Use provided tools precisely.\n\nFields map (strict):\n- Todos: date -> scheduledFor; time -> timeOfDay; status -> status; DO NOT use startTime/endTime.\n- Events: date -> scheduledFor; start -> startTime; end -> endTime; DO NOT use timeOfDay.\n\nDisambiguation rules:\n- Prefer IDs from focused.candidates when present.\n- When matching by title, compare case-insensitively (ignore punctuation/extra whitespace) using indexes.todo_by_title_ci and indexes.event_by_title_ci.\n- Cross-check matches with indexes.id_to_kind and indexes.id_to_title to avoid mixing todo vs event.\n- For instructions like "update X to HH:MM", set timeOfDay for todos or startTime for events accordingly.\n- Never invent IDs; if still ambiguous after candidates/indexes, return a concise clarify question.\n\nValidation: Validate dates (YYYY-MM-DD) and times (HH:MM). Keep operations under 20 total. Output MUST be a single JSON object, no code fences, no extra text.';
+  const system = 'You are an operations executor for a tasks/events app. Use provided tools precisely.\n\nFields map (strict):\n- Tasks: date -> scheduledFor; time -> timeOfDay; status -> status; DO NOT use startTime/endTime.\n- Events: date -> scheduledFor; start -> startTime; end -> endTime; DO NOT use timeOfDay.\n\nDisambiguation rules:\n- Prefer IDs from focused.candidates when present.\n- When matching by title, compare case-insensitively (ignore punctuation/extra whitespace) using indexes.task_by_title_ci and indexes.event_by_title_ci.\n- Cross-check matches with indexes.id_to_kind and indexes.id_to_title to avoid mixing task vs event.\n- For instructions like "update X to HH:MM", set timeOfDay for tasks or startTime for events accordingly.\n- Never invent IDs; if still ambiguous after candidates/indexes, return a concise clarify question.\n\nValidation: Validate dates (YYYY-MM-DD) and times (HH:MM). Keep operations under 20 total. Output MUST be a single JSON object, no code fences, no extra text.';
   const user = `Task: ${instruction}\nWhere: ${JSON.stringify(where)}\nFocused Context:\n${contextJson}\nRecent Conversation:\n${convo}`;
 
   const prompt = createQwenToolPrompt({ system, user, tools: operationTools });
@@ -185,7 +185,7 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
       }
 
       // Normalize common arg variants
-      if (name === 'todo.update' && parsedArgs) {
+      if (name === 'task.update' && parsedArgs) {
         if (parsedArgs.where && parsedArgs.where.id && parsedArgs.id === undefined) parsedArgs.id = parsedArgs.where.id;
         if (parsedArgs.data && typeof parsedArgs.data === 'object') {
           for (const [k,v] of Object.entries(parsedArgs.data)) { if (parsedArgs[k] === undefined) parsedArgs[k] = v; }
@@ -245,7 +245,7 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
         const timeOfDay = m ? m[0] : null;
         // Choose target: prefer focused candidates, then explicit where.id, then title matching
         let targetId = null;
-        let targetKind = 'todo';
+        let targetKind = 'task';
         
         // First, check focused candidates
         if (focusedContext.focused && Array.isArray(focusedContext.focused.candidates)) {
@@ -269,11 +269,11 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
         // Fallback to explicit where.id
         if (!targetId && where && Number.isFinite(where.id)) {
           targetId = where.id;
-          // Try to determine kind by checking both todos and events
-          const todosInContext = (focusedContext && Array.isArray(focusedContext.todos)) ? focusedContext.todos : [];
+          // Try to determine kind by checking both tasks and events
+          const tasksInContext = (focusedContext && Array.isArray(focusedContext.tasks)) ? focusedContext.tasks : [];
           const eventsInContext = (focusedContext && Array.isArray(focusedContext.events)) ? focusedContext.events : [];
-          if (todosInContext.find(t => t.id === targetId)) {
-            targetKind = 'todo';
+          if (tasksInContext.find(t => t.id === targetId)) {
+            targetKind = 'task';
           } else if (eventsInContext.find(e => e.id === targetId)) {
             targetKind = 'event';
           }
@@ -282,18 +282,18 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
         // Last resort: title matching using indexes
         if (!targetId) {
           try {
-            // Try todo index first
-            if (focusedContext.indexes && focusedContext.indexes.todo_by_title_ci) {
-              for (const [title, id] of Object.entries(focusedContext.indexes.todo_by_title_ci)) {
+            // Try task index first (task_by_title_ci)
+            if (focusedContext.indexes && focusedContext.indexes.task_by_title_ci) {
+              for (const [title, id] of Object.entries(focusedContext.indexes.task_by_title_ci)) {
                 if (lower.includes(title)) {
                   targetId = id;
-                  targetKind = 'todo';
+                  targetKind = 'task';
                   break;
                 }
               }
             }
             
-            // Try event index if no todo match
+            // Try event index if no task match
             if (!targetId && focusedContext.indexes && focusedContext.indexes.event_by_title_ci) {
               for (const [title, id] of Object.entries(focusedContext.indexes.event_by_title_ci)) {
                 if (lower.includes(title)) {
@@ -309,7 +309,7 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
         if (targetId && (timeOfDay || lower.includes('time'))) {
           const inferred = { kind: targetKind, action: 'update', id: targetId };
           if (timeOfDay) {
-            if (targetKind === 'todo') {
+            if (targetKind === 'task') {
               inferred.timeOfDay = timeOfDay;
             } else if (targetKind === 'event') {
               inferred.startTime = timeOfDay;

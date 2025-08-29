@@ -115,7 +115,7 @@ class _MonthViewState extends State<MonthView> {
     for (final t in tasks) {
       items.add(_PreviewItem(
         title: (t['title'] ?? '').toString(),
-        kind: 'todo',
+        kind: 'task',
         startMinutes: -1, // ensure tasks sort before events
         timeLabel: '',
       ));
@@ -139,7 +139,7 @@ class _MonthViewState extends State<MonthView> {
     for (final t in tasks) {
       items.add(_PreviewItem(
         title: (t['title'] ?? '').toString(),
-        kind: 'todo',
+        kind: 'task',
         startMinutes: -1,
         timeLabel: '',
         contextValue: (t['context'] ?? '').toString(),
@@ -193,7 +193,7 @@ class _MonthViewState extends State<MonthView> {
 
 class _PreviewItem {
   final String title;
-  final String kind; // 'event' | 'todo'
+  final String kind; // 'event' | 'task'
   final int startMinutes; // used for sorting; 24*60+ pushes to end
   final String timeLabel;
   final String contextValue;
@@ -288,7 +288,7 @@ class _MonthRow extends StatelessWidget {
     final color = ContextColors.getContextColor(
       (item.contextValue.isEmpty) ? null : item.contextValue,
     );
-    final bool isTask = (item.kind == 'todo');
+    final bool isTask = (item.kind == 'task');
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(

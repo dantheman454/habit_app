@@ -5,29 +5,34 @@ Keep in mind:
     *Task allocation/planning
     *Event tracking/planning
     *Habit/Goal Tracking
--Core abstractions/entities (define these)
-    *tasks: dishes, homework, 
-    *events: classes, appointments, vacations
-    *habits: gym, pills, meal prepping, weed(self medicating)(need to use Huberman's method to make and break habits)
-    *goals: understand greasy hair, track supplements and food intake, sobriety for extended period of time??, fix memory issue(s)
+-Core abstractions/entities (only do habits but do goal and identity based???)
+    *task: A distinct action with a well defined completion criteria
+        >dishes, homework, 
+    *event: a time period where I must be at a specific place
+        >classes, appointments, vacations
+    *habit: a set of tasks or events that are consistent with identity or goal
+        >gym, pills, meal prepping, weed(self medicating)(need to use Huberman's method to make and break habits)
+    *goal: goal based habits???
+        >understand greasy hair, track supplements and food intake, sobriety for extended period of time??, fix memory issue(s)
 
     
 
 Get done asap:    
-    -Clean up UI (Look at cursor, google calendar, and apple calendar/reminders for inspiration)
-        *standardize to tasks and events (no more todos, habits or goals or any other entities)
+    -Clean up UI 
+        *get 'work' context button working
+        *Make the tasks subheader have less whitespace
         *make updating/creating tasks and events easier (time and date are a pain right now)
         *get searchbar working
-        *update subheader to be cleaner
-            >Make sure the scroll wheel (< Today >) switches with the view
         *fix it from being so snappy when deleting todos or going between tabs
-        *FOCUS ONLY ON DAILY VIEW!!!!!!!!! (can use Mr Assister to see bigger for now???)
-    
+
+    -Clean up legacy code and unused imports
+        >Remove harmony prompting and Qwen specific functionality
+        >
     -Delete and remake the unit tests
     -spam flutter analyze until no issues found and functionality is preserved
     -Place work and school schedule in (still keep using gc and reminders until this system is rock solid with regular backups and good UX)
 
-    -have method to be able to do minimal tasks from phone. Remote client that updates locally until connected to server?
+    
 
 
 Next:
@@ -39,7 +44,7 @@ Next:
         *have buttons for quick routes (daily overview, weekly planning, etc)
         *Wrap text box and make it display the markdown properly
     -Modularize main and clean up/optimize the flutter directory??? (if access to GPT-5 again)
-
+    -have method to be able to do minimal tasks from phone. Remote client that updates locally until connected to server?
 
 
 
@@ -47,10 +52,10 @@ Next:
 
 
 Long term:
--QTOT
--HRM
 -Scratchpad for Mr Assister
--Make unit tests once stable version is here
 -ask mitchell if I could fine tune models on the dgx (figure out best way to do this)
 -kaizen journal integration somehow?
+-QTOT
+-HRM
+
 

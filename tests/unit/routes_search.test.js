@@ -77,8 +77,8 @@ describe('routes: /api/search', () => {
     assert.equal(res.status, 400);
   });
 
-  test('invalid status_todo returns 400', async () => {
-    const res = await request('GET', '/api/search?q=smoke&status_todo=done');
+  test('invalid status_task returns 400', async () => {
+    const res = await request('GET', '/api/search?q=smoke&status_task=done');
     assert.equal(res.status, 400);
   });
 

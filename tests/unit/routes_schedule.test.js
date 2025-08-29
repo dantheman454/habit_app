@@ -81,8 +81,8 @@ describe('routes: /api/schedule', () => {
     assert.equal(res.status, 400);
   });
 
-  test('invalid status_todo returns 400', async () => {
-    const res = await request('GET', '/api/schedule?from=2025-01-01&to=2025-01-01&status_todo=done');
+  test('invalid status_task returns 400', async () => {
+    const res = await request('GET', '/api/schedule?from=2025-01-01&to=2025-01-01&status_task=done');
     assert.equal(res.status, 400);
   });
 

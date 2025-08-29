@@ -1,5 +1,5 @@
 export class OperationValidators {
-  static todoCreate(op) {
+  static taskCreate(op) {
     const errors = [];
     
     if (!op.title || typeof op.title !== 'string' || op.title.trim().length === 0) {
@@ -40,7 +40,7 @@ export class OperationValidators {
     };
   }
   
-  static todoUpdate(op) {
+  static taskUpdate(op) {
     const errors = [];
     
     if (!op.id || typeof op.id !== 'number' || op.id <= 0) {
@@ -77,7 +77,7 @@ export class OperationValidators {
     };
   }
   
-  static todoDelete(op) {
+  static taskDelete(op) {
     const errors = [];
     
     if (!op.id || typeof op.id !== 'number' || op.id <= 0) {
@@ -90,7 +90,7 @@ export class OperationValidators {
     };
   }
 
-  static todoSetStatus(op) {
+  static taskSetStatus(op) {
     const errors = [];
     if (!op.id || typeof op.id !== 'number' || op.id <= 0) {
       errors.push('Valid ID is required');

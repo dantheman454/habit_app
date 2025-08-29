@@ -35,9 +35,9 @@ describe('OperationProcessor', () => {
 
   test('should infer operation type from kind and action', async () => {
     const processor = new OperationProcessor();
-    const op = { kind: 'todo', action: 'create' };
+    const op = { kind: 'task', action: 'create' };
     const type = processor.inferOperationType(op);
-    assert.strictEqual(type, 'todo_create');
+    assert.strictEqual(type, 'task_create');
   });
 
   test('should infer operation type from op field', async () => {
@@ -59,12 +59,12 @@ describe('OperationProcessor', () => {
     const mockValidator = (op) => ({ valid: true, errors: [] });
     const mockExecutor = (op) => ({ created: true });
     
-    processor.registerOperationType('todo_create', {
+    processor.registerOperationType('task_create', {
       validator: mockValidator,
       executor: mockExecutor
     });
     
-    const operations = [{ kind: 'todo', action: 'create', title: 'Test' }];
+    const operations = [{ kind: 'task', action: 'create', title: 'Test' }];
     const result = await processor.processOperations(operations);
     
     assert.strictEqual(result.results.length, 1);
@@ -77,12 +77,12 @@ describe('OperationProcessor', () => {
     const mockValidator = (op) => ({ valid: false, errors: ['Invalid operation'] });
     const mockExecutor = (op) => ({ created: true });
     
-    processor.registerOperationType('todo_create', {
+    processor.registerOperationType('task_create', {
       validator: mockValidator,
       executor: mockExecutor
     });
     
-    const operations = [{ kind: 'todo', action: 'create' }];
+    const operations = [{ kind: 'task', action: 'create' }];
     const result = await processor.processOperations(operations);
     
     assert.strictEqual(result.results.length, 1);
@@ -105,12 +105,12 @@ describe('OperationProcessor', () => {
     const mockValidator = (op) => ({ valid: true, errors: [] });
     const mockExecutor = (op) => { throw new Error('Executor failed'); };
     
-    processor.registerOperationType('todo_create', {
+    processor.registerOperationType('task_create', {
       validator: mockValidator,
       executor: mockExecutor
     });
     
-    const operations = [{ kind: 'todo', action: 'create', title: 'Test' }];
+    const operations = [{ kind: 'task', action: 'create', title: 'Test' }];
     const result = await processor.processOperations(operations);
     
     assert.strictEqual(result.results.length, 1);
@@ -128,28 +128,28 @@ describe('OperationProcessor', () => {
       return { completed: true };
     };
     
-    processor.registerOperationType('todo_create', {
+    processor.registerOperationType('task_create', {
       validator: mockValidator,
       executor: mockExecutor
     });
-    processor.registerOperationType('todo_update', {
+    processor.registerOperationType('task_update', {
       validator: mockValidator,
       executor: mockExecutor
     });
-    processor.registerOperationType('todo_delete', {
+    processor.registerOperationType('task_delete', {
       validator: mockValidator,
       executor: mockExecutor
     });
-    processor.registerOperationType('todo_complete', {
+    processor.registerOperationType('task_set_status', {
       validator: mockValidator,
       executor: mockExecutor
     });
     
     const operations = [
-      { kind: 'todo', action: 'create', title: 'Test 1' },
-      { kind: 'todo', action: 'update', id: 1, title: 'Test 2' },
-      { kind: 'todo', action: 'delete', id: 1 },
-      { kind: 'todo', action: 'complete', id: 1 }
+      { kind: 'task', action: 'create', title: 'Test 1' },
+      { kind: 'task', action: 'update', id: 1, title: 'Test 2' },
+      { kind: 'task', action: 'delete', id: 1 },
+      { kind: 'task', action: 'set_status', id: 1 }
     ];
     const result = await processor.processOperations(operations);
     
@@ -173,19 +173,19 @@ describe('OperationProcessor', () => {
 
   test('should list registered operation types', async () => {
     const processor = new OperationProcessor();
-    processor.registerOperationType('todo_create', {
+    processor.registerOperationType('task_create', {
       validator: (op) => ({ valid: true, errors: [] }),
       executor: (op) => ({ created: true })
     });
-    processor.registerOperationType('todo_update', {
+    processor.registerOperationType('task_update', {
       validator: (op) => ({ valid: true, errors: [] }),
       executor: (op) => ({ updated: true })
     });
     
     const types = processor.listOperationTypes();
     assert.strictEqual(types.length, 2);
-    assert(types.includes('todo_create'));
-    assert(types.includes('todo_update'));
+    assert(types.includes('task_create'));
+    assert(types.includes('task_update'));
   });
 
   test('should use transactions for multiple operations when database service is available', async () => {
@@ -196,14 +196,14 @@ describe('OperationProcessor', () => {
     const mockValidator = (op) => ({ valid: true, errors: [] });
     const mockExecutor = (op) => ({ created: true });
     
-    processor.registerOperationType('todo_create', {
+    processor.registerOperationType('task_create', {
       validator: mockValidator,
       executor: mockExecutor
     });
     
     const operations = [
-      { kind: 'todo', action: 'create', title: 'Test 1' },
-      { kind: 'todo', action: 'create', title: 'Test 2' }
+      { kind: 'task', action: 'create', title: 'Test 1' },
+      { kind: 'task', action: 'create', title: 'Test 2' }
     ];
     
     const result = await processor.processOperations(operations);
@@ -223,12 +223,12 @@ describe('OperationProcessor', () => {
     const mockValidator = (op) => ({ valid: true, errors: [] });
     const mockExecutor = (op) => ({ created: true });
     
-    processor.registerOperationType('todo_create', {
+    processor.registerOperationType('task_create', {
       validator: mockValidator,
       executor: mockExecutor
     });
     
-    const operations = [{ kind: 'todo', action: 'create', title: 'Test' }];
+    const operations = [{ kind: 'task', action: 'create', title: 'Test' }];
     
     const result = await processor.processOperations(operations);
     
@@ -253,8 +253,8 @@ describe('OperationProcessor', () => {
     });
     
     const operations = [
-      { kind: 'todo', action: 'create', title: 'Test 1' },
-      { kind: 'todo', action: 'create', title: 'Test 2' }
+      { kind: 'task', action: 'create', title: 'Test 1' },
+      { kind: 'task', action: 'create', title: 'Test 2' }
     ];
     
     const result = await processor.processOperations(operations);

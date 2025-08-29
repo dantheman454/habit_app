@@ -18,40 +18,40 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
   - Simple health check for load balancers and monitoring
   - No authentication required
 
-#### Todos
+#### Tasks
 
-**List Todos**
-- **GET** `/api/todos`
+**List Tasks**
+- **GET** `/api/tasks`
   - **Query Parameters**:
     - `from?: YYYY-MM-DD` - Start date for range filtering
     - `to?: YYYY-MM-DD` - End date for range filtering  
     - `completed?: true|false` - Filter by completion status
-    - `status?: pending|completed|skipped` - Filter by todo status
+    - `status?: pending|completed|skipped` - Filter by task status
     - `context?: school|personal|work` - Filter by context
-  - **Behavior**: When both `from` and `to` provided, repeating todos expanded into per-day occurrences over `[from, to+1d)`; otherwise returns scheduled masters
-  - **Response**: `{ todos: Todo[] }`
-  - **Example**: `GET /api/todos?from=2024-01-15&to=2024-01-21&status=pending`
-  - **Location**: `apps/server/routes/todos.js`
+  - **Behavior**: When both `from` and `to` provided, repeating tasks expanded into per-day occurrences over `[from, to+1d)`; otherwise returns scheduled masters
+  - **Response**: `{ tasks: Task[] }`
+  - **Example**: `GET /api/tasks?from=2024-01-15&to=2024-01-21&status=pending`
+  - **Location**: `apps/server/routes/tasks.js`
 
-**Search Todos**
-- **GET** `/api/todos/search`
+**Search Tasks**
+- **GET** `/api/tasks/search`
   - **Query Parameters**:
     - `query: string` - Search text (required, min 1 character)
     - `status?: pending|completed|skipped` - Filter by status
     - `context?: school|personal|work` - Filter by context
-  - **Response**: `{ todos: Todo[] }`
+  - **Response**: `{ tasks: Task[] }`
   - **Features**: FTS5 full-text search on title and notes
-  - **Example**: `GET /api/todos/search?query=meeting&status=pending`
-  - **Location**: `apps/server/routes/todos.js`
+  - **Example**: `GET /api/tasks/search?query=meeting&status=pending`
+  - **Location**: `apps/server/routes/tasks.js`
 
-**Get Single Todo**
-- **GET** `/api/todos/:id`
-  - **Response**: `{ todo: Todo }`
-  - **Errors**: `404 not_found` if todo doesn't exist
-  - **Location**: `apps/server/routes/todos.js`
+**Get Single Task**
+- **GET** `/api/tasks/:id`
+  - **Response**: `{ task: Task }`
+  - **Errors**: `404 not_found` if task doesn't exist
+  - **Location**: `apps/server/routes/tasks.js`
 
-**Create Todo**
-- **POST** `/api/todos`
+**Create Task**
+- **POST** `/api/tasks`
   - **Body**:
     ```json
     {
@@ -68,7 +68,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
     }
     ```
   - **Validation**: `recurrence` object required; if repeating, `scheduledFor` anchor required
-  - **Response**: `{ todo: Todo }`
+  - **Response**: `{ task: Task }`
   - **Example**:
     ```json
     {
@@ -78,13 +78,13 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
       "context": "work"
     }
     ```
-  - **Location**: `apps/server/routes/todos.js`
+  - **Location**: `apps/server/routes/tasks.js`
 
-**Update Todo**
-- **PATCH** `/api/todos/:id`
+**Update Task**
+- **PATCH** `/api/tasks/:id`
   - **Body**: Partial update with any of: `title?`, `notes?`, `scheduledFor?`, `status?`, `timeOfDay?`, `recurrence?`, `context?`
   - **Validation**: `recurrence` object required on update; if repeating, anchor date must exist
-  - **Response**: `{ todo: Todo }`
+  - **Response**: `{ task: Task }`
   - **Example**:
     ```json
     {
@@ -92,10 +92,10 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
       "notes": "Finished early"
     }
     ```
-  - **Location**: `apps/server/routes/todos.js`
+  - **Location**: `apps/server/routes/tasks.js`
 
-**Update Todo Occurrence**
-- **PATCH** `/api/todos/:id/occurrence`
+**Update Task Occurrence**
+- **PATCH** `/api/tasks/:id/occurrence`
   - **Body**:
     ```json
     {
@@ -103,21 +103,20 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
       "status": "pending|completed|skipped (optional, defaults to completed)"
     }
     ```
-  - **Response**: `{ todo: Todo }`
-  - **Errors**: `400 not_repeating` if todo is not repeating
-  - **Location**: `apps/server/routes/todos.js`
+  - **Response**: `{ task: Task }`
+  - **Errors**: `400 not_repeating` if task is not repeating
+  - **Location**: `apps/server/routes/tasks.js`
 
-**Delete Todo**
-- **DELETE** `/api/todos/:id`
+**Delete Task**
+- **DELETE** `/api/tasks/:id`
   - **Response**: `{ ok: true }`
-  - **Cascade**: Removes from linked habits and goals
-  - **Location**: `apps/server/routes/todos.js`
+  - **Cascade**: Removes from linked goals
 
 #### Events
 
 **List Events**
 - **GET** `/api/events`
-  - **Query Parameters**: Same as todos (`from`, `to`, `completed`, `context`)
+  - **Query Parameters**: Same as tasks (`from`, `to`, `completed`, `context`)
   - **Behavior**: Expands repeating events when both `from`/`to` provided
   - **Response**: `{ events: Event[] }`
   - **Location**: `apps/server/routes/events.js`
@@ -173,7 +172,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 **Get Goal with Details**
 - **GET** `/api/goals/:id`
   - **Query Parameters**:
-    - `includeItems?: boolean` - Include linked todos/events
+    - `includeItems?: boolean` - Include linked tasks/events
     - `includeChildren?: boolean` - Include child goals
   - **Response**: `{ goal: Goal }`
   - **Location**: `apps/server/routes/goals.js`
@@ -199,7 +198,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
   - **Body**:
     ```json
     {
-      "todos": [1, 2, 3],
+      "tasks": [1, 2, 3],
       "events": [4, 5, 6]
     }
     ```
@@ -219,10 +218,10 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
   - **Query Parameters**:
     - `from: YYYY-MM-DD` - Start date (required)
     - `to: YYYY-MM-DD` - End date (required)
-    - `kinds: string` - Comma-separated list: `todo,event` (habits removed)
+    - `kinds: string` - Comma-separated list: `task,event` (habits removed)
     - `completed?: true|false` - Filter events by completion
-    - `status_todo?: pending|completed|skipped` - Filter todos by status
-  - **Response**: `{ items: Array }` with unified items containing `kind: 'todo'|'event'`
+    - `status_task?: pending|completed|skipped` - Filter tasks by status
+  - **Response**: `{ items: Array }` with unified items containing `kind: 'task'|'event'`
   - **Behavior**: Expands repeating items into per-day occurrences; habits removed from unified schedule
   - **Location**: `apps/server/routes/schedule.js`
 
@@ -232,12 +231,12 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 - **GET** `/api/search`
   - **Query Parameters**:
     - `q: string` - Search query (required)
-    - `scope?: todo|event|all` - Search scope (default: all)
+    - `scope?: task|event|all` - Search scope (default: all)
     - `completed?: true|false` - Filter events by completion
-    - `status_todo?: pending|completed|skipped` - Filter todos by status
+    - `status_task?: pending|completed|skipped` - Filter tasks by status
     - `limit?: number` - Result limit (default: 30)
   - **Response**: `{ items: Array }` with unified items
-  - **Features**: FTS5 search across todos and events (habits removed)
+  - **Features**: FTS5 search across tasks and events (habits removed)
   - **Location**: `apps/server/routes/search.js`
 
 #### Assistant and LLM
@@ -306,7 +305,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 
 ### Validation Rules
 
-**Todo Validation**:
+**Task Validation**:
 - `recurrence` object required on create and update
 - If repeating (`type != 'none'`), `scheduledFor` anchor required
 - `status` must be one of: `pending`, `completed`, `skipped`
@@ -328,14 +327,14 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 
 ### Client API Functions (Flutter api.dart)
 
-**Todo Operations**:
-- `fetchScheduled({ from, to, status?, context? })` → `List<Todo>`
-- `fetchScheduledAllTime({ status?, context? })` → `List<Todo>`
-- `searchTodos(query, { status?, context?, cancelToken? })` → `List<Todo>`
-- `createTodo(data)` → `Todo`
-- `updateTodo(id, patch)` → `Todo`
-- `setTodoOccurrenceStatus(id, occurrenceDate, status)` → `Todo`
-- `deleteTodo(id)` → `void`
+**Task Operations**:
+- `fetchScheduled({ from, to, status?, context? })` → `List<Task>`
+- `fetchScheduledAllTime({ status?, context? })` → `List<Task>`
+- `searchTasks(query, { status?, context?, cancelToken? })` → `List<Task>`
+- `createTask(data)` → `Task`
+- `updateTask(id, patch)` → `Task`
+- `setTaskOccurrenceStatus(id, occurrenceDate, status)` → `Task`
+- `deleteTask(id)` → `void`
 
 **Event Operations**:
 - `listEvents({ context? })` → `List<Event>`
@@ -353,15 +352,15 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 - `createGoal(data)` → `Goal`
 - `updateGoal(id, patch)` → `Goal`
 - `deleteGoal(id)` → `void`
-- `addGoalItems(goalId, { todos?, events? })` → `void`
-- `removeGoalTodoItem(goalId, todoId)` → `void`
+- `addGoalItems(goalId, { tasks?, events? })` → `void`
+- `removeGoalTaskItem(goalId, taskId)` → `void`
 - `removeGoalEventItem(goalId, eventId)` → `void`
 - `addGoalChild(goalId, childIds)` → `void`
 - `removeGoalChild(parentId, childId)` → `void`
 
 **Unified Operations**:
-- `fetchSchedule({ from, to, kinds, completed?, statusTodo? })` → `List<dynamic>`
-- `searchUnified(query, { scope?, completed?, statusTodo?, limit?, cancelToken? })` → `List<dynamic>`
+- `fetchSchedule({ from, to, kinds, completed?, statusTask? })` → `List<dynamic>`
+- `searchUnified(query, { scope?, completed?, statusTask?, limit?, cancelToken? })` → `List<dynamic>`
 
 **Assistant Operations**:
 - `assistantMessage(message, { transcript?, streamSummary?, onSummary?, onClarify?, onStage?, onOps? })` → `Map<String, dynamic>`
@@ -390,7 +389,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 - `not_found` - Resource not found
 - `not_repeating` - Item is not repeating (for occurrence operations)
 - `invalid_occurrenceDate` - Occurrence date is invalid
-- `use_set_status` - Use set_status instead of complete for todos
+- `use_set_status` - Use set_status instead of complete for tasks
 - `invalid_context` - Context value is invalid
 - `invalid_from` - From date is invalid
 - `invalid_to` - To date is invalid
@@ -417,7 +416,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 **LlmOperation**:
 ```typescript
 {
-  kind: 'todo' | 'event' | 'habit' | 'goal',
+  kind: 'task' | 'event' | 'habit' | 'goal',
   action: 'create' | 'update' | 'delete' | 'set_status' | 'complete' | 'complete_occurrence' | 'goal_create' | 'goal_update' | 'goal_delete' | 'goal_add_items' | 'goal_remove_item' | 'goal_add_child' | 'goal_remove_child',
   id?: number,
   title?: string,
@@ -435,12 +434,12 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 
 | Endpoint | Client Function | Notes |
 |----------|----------------|-------|
-| `GET /api/todos` | `fetchScheduled`, `fetchScheduledAllTime` | Range vs all-time |
-| `GET /api/todos/search` | `searchTodos` | FTS5 search |
-| `POST /api/todos` | `createTodo` | Requires recurrence |
-| `PATCH /api/todos/:id` | `updateTodo` | Partial updates |
-| `PATCH /api/todos/:id/occurrence` | `setTodoOccurrenceStatus` | For repeating todos |
-| `DELETE /api/todos/:id` | `deleteTodo` | Cascade deletes |
+| `GET /api/tasks` | `fetchScheduled`, `fetchScheduledAllTime` | Range vs all-time |
+| `GET /api/tasks/search` | `searchTasks` | FTS5 search |
+| `POST /api/tasks` | `createTask` | Requires recurrence |
+| `PATCH /api/tasks/:id` | `updateTask` | Partial updates |
+| `PATCH /api/tasks/:id/occurrence` | `setTaskOccurrenceStatus` | For repeating tasks |
+| `DELETE /api/tasks/:id` | `deleteTask` | Cascade deletes |
 | `GET /api/events` | `listEvents` | With optional expansion |
 | `GET /api/events/search` | `searchEvents` | FTS5 search |
 | `POST /api/events` | `createEvent` | Requires recurrence |
@@ -448,13 +447,11 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 | `DELETE /api/events/:id` | `deleteEvent` | Cascade deletes |
 | `GET /api/goals` | `listGoals` | With status filtering |
 | `GET /api/goals/:id` | `getGoal` | With optional includes |
-| `POST /api/goals` | `createGoal` | No recurrence required |
+| `POST /api/goals/:id` | `createGoal` | No recurrence required |
 | `PATCH /api/goals/:id` | `updateGoal` | Partial updates |
 | `DELETE /api/goals/:id` | `deleteGoal` | Cascade deletes |
-| `POST /api/goals/:id/items` | `addGoalItems` | Link todos/events |
-| `DELETE /api/goals/:id/items/*` | `removeGoalTodoItem`, `removeGoalEventItem` | Unlink items |
-| `POST /api/goals/:id/children` | `addGoalChild` | Add child goals |
-| `DELETE /api/goals/:id/children/*` | `removeGoalChild` | Remove child goals |
+| `POST /api/goals/:id/items` | `addGoalItems` | Link tasks/events |
+| `DELETE /api/goals/:id/items/*` | `removeGoalTaskItem`, `removeGoalEventItem` | Unlink items |
 | `GET /api/schedule` | `fetchSchedule` | Unified schedule view |
 | `GET /api/search` | `searchUnified` | Cross-type search |
 | `POST /api/assistant/message` | `assistantMessage` | Non-streaming |

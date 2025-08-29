@@ -81,10 +81,10 @@ function main() {
 
   // Preferred order first, then remaining
   const preferred = [
-    'todos', 'events', 'goals',
-    'goal_todo_items', 'goal_event_items', 'goal_hierarchy',
+    'tasks', 'events', 'goals',
+    'goal_task_items', 'goal_event_items', 'goal_hierarchy',
     'audit_log', 'idempotency',
-    'todos_fts', 'events_fts'
+    'tasks_fts', 'events_fts'
   ];
   const byName = new Map(tables.map(t => [t.name, t]));
   const ordered = [];

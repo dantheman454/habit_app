@@ -9,7 +9,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: TabsHeader(
-            selected: AppTab.todos,
+            selected: AppTab.tasks,
             onChanged: (t) {
               changed = t;
             },
@@ -19,7 +19,7 @@ void main() {
     );
 
     // Expect four segments with text labels
-    expect(find.text('Todos'), findsOneWidget);
+    expect(find.text('Tasks'), findsOneWidget);
     expect(find.text('Events'), findsOneWidget);
     expect(find.text('Habits'), findsOneWidget);
     expect(find.text('Goals'), findsOneWidget);

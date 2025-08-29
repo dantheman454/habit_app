@@ -5,4 +5,4 @@ enum MainView { tasks, habits, goals }
 
 enum SmartList { today, all }
 
-enum AppTab { todos, events, habits, goals }
+enum AppTab { tasks, events, habits, goals }

@@ -129,7 +129,7 @@ class _WeekViewState extends State<WeekView> {
     for (final t in tasks) {
       items.add({
         ...t,
-        'kind': 'todo',
+        'kind': 'task',
         // Force tasks to appear before timed events regardless of timeOfDay
         'startMinutes': -1,
         // Hide times for tasks in week view
@@ -188,7 +188,7 @@ class _WeekRow extends StatelessWidget {
     final time = (item['timeLabel'] ?? '').toString();
     final contextValue = (item['context'] ?? '').toString();
     final color = ContextColors.getContextColor(contextValue.isEmpty ? null : contextValue);
-    final bool isTask = (item['kind'] == 'todo');
+    final bool isTask = (item['kind'] == 'task');
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(

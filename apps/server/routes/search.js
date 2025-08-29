@@ -5,9 +5,9 @@ import { ymdInTimeZone } from '../utils/date.js';
 const router = Router();
 const TIMEZONE = process.env.TZ_NAME || 'America/New_York';
 
-// Unified search across todos + events 
-// Params: q (required), scope=todo|event|all (default all),
-// completed (optional for events), status_todo (optional), context (optional), limit (default 30)
+// Unified search across tasks + events 
+// Params: q (required), scope=task|event|all (default all),
+// completed (optional for events), status_task (optional), context (optional), limit (default 30)
 router.get('/api/search', (req, res) => {
   const qRaw = String(req.query.q || req.query.query || '');
   const q = qRaw.trim();
@@ -19,8 +19,8 @@ router.get('/api/search', (req, res) => {
     else if (req.query.completed === 'false' || req.query.completed === false) completedBool = false;
     else return res.status(400).json({ error: 'invalid_completed' });
   }
-  const status_todo = (req.query.status_todo === undefined) ? undefined : String(req.query.status_todo);
-  if (status_todo !== undefined && !['pending','completed','skipped'].includes(status_todo)) return res.status(400).json({ error: 'invalid_status_todo' });
+  const status_task = (req.query.status_task === undefined) ? undefined : String(req.query.status_task);
+  if (status_task !== undefined && !['pending','completed','skipped'].includes(status_task)) return res.status(400).json({ error: 'invalid_status_task' });
   const context = (req.query.context === undefined) ? undefined : String(req.query.context);
   if (context !== undefined && !['school','personal','work'].includes(context)) return res.status(400).json({ error: 'invalid_context' });
   const limit = (() => {
@@ -29,9 +29,9 @@ router.get('/api/search', (req, res) => {
     return Math.max(1, Math.min(200, n));
   })();
 
-  const wantTodos = (scope === 'all' || scope === 'todo');
+  const wantTasks = (scope === 'all' || scope === 'task');
   const wantEvents = (scope === 'all' || scope === 'event');
-  if (!wantTodos && !wantEvents) return res.status(400).json({ error: 'invalid_scope' });
+  if (!wantTasks && !wantEvents) return res.status(400).json({ error: 'invalid_scope' });
 
   try {
     let out = [];
@@ -45,14 +45,14 @@ router.get('/api/search', (req, res) => {
       return s;
     };
 
-    if (wantTodos) {
-      let items = db.searchTodos({ q, status: status_todo, context });
+    if (wantTasks) {
+      let items = db.searchTasks({ q, status: status_task, context });
       if (q.length < 2) {
         const ql = q.toLowerCase();
         items = items.filter(t => String(t.title || '').toLowerCase().includes(ql) || String(t.notes || '').toLowerCase().includes(ql));
       }
       out.push(...items.map(t => ({
-        kind: 'todo',
+        kind: 'task',
         id: t.id,
         title: t.title,
         notes: t.notes,
@@ -88,7 +88,7 @@ router.get('/api/search', (req, res) => {
       .sort((a, b) => (
         b.s - a.s ||
         String(a.r.scheduledFor || '').localeCompare(String(b.r.scheduledFor || '')) ||
-        // time compare (events startTime vs todos timeOfDay)
+        // time compare (events startTime vs tasks timeOfDay)
         (String((a.r.startTime || a.r.timeOfDay || '')) || '').localeCompare(String((b.r.startTime || b.r.timeOfDay || '')) || '') ||
         ((a.r.id || 0) - (b.r.id || 0))
       ))

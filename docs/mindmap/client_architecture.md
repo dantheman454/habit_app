@@ -25,9 +25,9 @@ class _HomePageState extends State<HomePage> {
   int? _highlightedId;
   
   // Search filter state
-  String _searchScope = 'all'; // 'all', 'todo', 'event', 'habit'
+  String _searchScope = 'all'; // 'all', 'task', 'event'
   String? _searchContext; // null for 'all', or 'personal', 'work', 'school'
-  String _searchStatusTodo = 'pending'; // 'pending', 'completed', 'skipped'
+  String _searchStatusTask = 'pending'; // 'pending', 'completed', 'skipped'
   bool? _searchCompleted; // null for 'all', true for completed, false for incomplete
   
   // Navigation state
@@ -36,14 +36,14 @@ class _HomePageState extends State<HomePage> {
   String? selectedContext; // 'school', 'personal', 'work', null for 'all'
   
   // Data collections
-  List<Todo> scheduled = [];           // Unified schedule items
-  List<Todo> scheduledAllTime = [];    // All scheduled todos for counts
-  List<Todo> searchResults = [];       // Search results
+  List<Task> scheduled = [];           // Unified schedule items
+  List<Task> scheduledAllTime = [];    // All scheduled tasks for counts
+  List<Task> searchResults = [];       // Search results
   Map<int, Map<String, dynamic>> habitStatsById = {}; // Habit stats for current range
   Map<String, Map<String, dynamic>> _itemGoalByKey = {}; // Goal badges mapping
   
   // Unified schedule filters (chips)
-  Set<String> _kindFilter = <String>{'todo', 'event'};
+  Set<String> _kindFilter = <String>{'task', 'event'};
   
   // UI state
   bool loading = false;
@@ -109,7 +109,7 @@ class _HomePageState extends State<HomePage> {
 enum ViewMode { day, week, month }
 enum MainView { tasks, habits, goals }
 enum SmartList { today, all }
-enum AppTab { todos, events, habits, goals }
+enum AppTab { tasks, events, habits, goals }
 
 // Date range calculation
 Map<String, String> rangeForView(DateTime anchor, ViewMode view) {
@@ -155,17 +155,17 @@ Future<void> _refreshAll() async {
       to: range['to']!,
       kinds: _kindFilter.toList(),
       completed: showCompleted,
-      statusTodo: showCompleted ? null : 'pending',
+      statusTask: showCompleted ? null : 'pending',
       context: selectedContext,
     );
-    scheduled = (scheduleResponse as List<dynamic>).map((e) => Todo.fromJson(e)).toList();
+    scheduled = (scheduleResponse as List<dynamic>).map((e) => Task.fromJson(e)).toList();
     
     // Load counts and backlog
     final allTimeResponse = await api.fetchScheduledAllTime(
       status: showCompleted ? null : 'pending',
       context: selectedContext,
     );
-    scheduledAllTime = (allTimeResponse as List<dynamic>).map((e) => Todo.fromJson(e)).toList();
+    scheduledAllTime = (allTimeResponse as List<dynamic>).map((e) => Task.fromJson(e)).toList();
     
     // Load habit stats when needed
     if (mainView == MainView.habits || _kindFilter.contains('habit')) {
@@ -261,14 +261,14 @@ class _SearchOverlayState extends State<SearchOverlay> {
         query,
         scope: _searchScope,
         completed: _searchCompleted,
-        statusTodo: _searchStatusTodo,
+        statusTask: _searchStatusTask,
         context: _searchContext,
         limit: 30,
         cancelToken: _cancelToken,
       );
       
       setState(() {
-        searchResults = (response as List<dynamic>).map((e) => Todo.fromJson(e)).toList();
+        searchResults = (response as List<dynamic>).map((e) => Task.fromJson(e)).toList();
       });
     } catch (e) {
       if (e is! CancelException) {
@@ -297,7 +297,7 @@ Widget _buildSearchResults() {
   );
 }
 
-void _selectSearchResult(Todo item) {
+void _selectSearchResult(Task item) {
   // Focus appropriate list and scroll to item
   _highlightedId = item.id;
   
@@ -308,33 +308,33 @@ void _selectSearchResult(Todo item) {
 
 ### CRUD Operations
 
-#### Todo Operations
+#### Task Operations
 
 ```dart
-// Toggle completion for repeating todos
-Future<void> _toggleTodoOccurrence(int todoId, String occurrenceDate, String status) async {
+// Set status for repeating tasks
+Future<void> _setTaskOccurrenceStatus(int taskId, String occurrenceDate, String status) async {
   try {
-    await api.setTodoOccurrenceStatus(todoId, occurrenceDate, status);
+    await api.setTaskOccurrenceStatus(taskId, occurrenceDate, status);
     _refreshAll(); // Refresh to show updated state
   } catch (e) {
-    _showError('Failed to update todo: ${e.toString()}');
+    _showError('Failed to update task: ${e.toString()}');
   }
 }
 
-// Toggle completion for non-repeating todos
-Future<void> _toggleTodoStatus(int todoId, String status) async {
+// Update status for non-repeating tasks
+Future<void> _updateTaskStatus(int taskId, String status) async {
   try {
-    await api.updateTodo(todoId, {'status': status});
+    await api.updateTask(taskId, {'status': status});
     _refreshAll();
   } catch (e) {
-    _showError('Failed to update todo: ${e.toString()}');
+    _showError('Failed to update task: ${e.toString()}');
   }
 }
 
-// Create new todo
-Future<void> _createTodo(String title, {String? notes, String? scheduledFor, String? timeOfDay}) async {
+// Create new task
+Future<void> _createTask(String title, {String? notes, String? scheduledFor, String? timeOfDay}) async {
   try {
-    await api.createTodo({
+    await api.createTask({
       'title': title,
       'notes': notes ?? '',
       'scheduledFor': scheduledFor,
@@ -344,7 +344,7 @@ Future<void> _createTodo(String title, {String? notes, String? scheduledFor, Str
     });
     _refreshAll();
   } catch (e) {
-    _showError('Failed to create todo: ${e.toString()}');
+    _showError('Failed to create task: ${e.toString()}');
   }
 }
 ```
@@ -693,7 +693,7 @@ Future<void> _executeSelectedOperations() async {
 ```dart
 Widget _buildUnifiedSchedule() {
   // Group items by date
-  final grouped = <String, List<Todo>>{};
+  final grouped = <String, List<Task>>{};
   for (final item in scheduled) {
     final date = item.scheduledFor ?? 'unscheduled';
     grouped.putIfAbsent(date, () => []).add(item);
@@ -726,7 +726,7 @@ Widget _buildUnifiedSchedule() {
   );
 }
 
-int _compareItems(Todo a, Todo b) {
+int _compareItems(Task a, Task b) {
   // 1. Sort by time (nulls first)
   final timeA = a.timeOfDay;
   final timeB = b.timeOfDay;
@@ -737,10 +737,10 @@ int _compareItems(Todo a, Todo b) {
     if (timeCompare != 0) return timeCompare;
   }
   
-  // 2. Sort by kind: event < todo < habit
-  final kindOrder = {'event': 0, 'todo': 1, 'habit': 2};
-  final kindA = kindOrder[a.kind ?? 'todo'] ?? 3;
-  final kindB = kindOrder[b.kind ?? 'todo'] ?? 3;
+  // 2. Sort by kind: event < task
+  final kindOrder = {'event': 0, 'task': 1};
+  final kindA = kindOrder[a.kind ?? 'task'] ?? 3;
+  final kindB = kindOrder[b.kind ?? 'task'] ?? 3;
   if (kindA != kindB) return kindA.compareTo(kindB);
   
   // 3. Sort by ID
@@ -892,18 +892,18 @@ void _showSuccess(String message) {
 
 ```dart
 // Use const constructors where possible
-class TodoItem extends StatelessWidget {
-  const TodoItem({Key? key, required this.todo}) : super(key: key);
+class TaskItem extends StatelessWidget {
+  const TaskItem({Key? key, required this.task}) : super(key: key);
   
-  final Todo todo;
+  final Task task;
   
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      title: Text(todo.title),
-      subtitle: todo.notes.isNotEmpty ? Text(todo.notes) : null,
-      trailing: _buildStatusIcon(todo.status),
-      onTap: () => _onTodoTap(todo),
+      title: Text(task.title),
+      subtitle: task.notes.isNotEmpty ? Text(task.notes) : null,
+      trailing: _buildStatusIcon(task.status),
+      onTap: () => _onTaskTap(task),
     );
   }
 }
@@ -915,7 +915,7 @@ class LazyScheduleList extends StatefulWidget {
 }
 
 class _LazyScheduleListState extends State<LazyScheduleList> {
-  final List<Todo> _items = [];
+  final List<Task> _items = [];
   bool _isLoading = false;
   int _page = 0;
   
@@ -963,7 +963,7 @@ class OptimizedHomePageState extends State<HomePage> {
   }
   
   // Only update relevant state
-  void updateScheduled(List<Todo> newScheduled) {
+  void updateScheduled(List<Task> newScheduled) {
     scheduled = newScheduled;
     _notifyScheduledChanged();
   }

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-enum AppTab { todos, events, habits, goals }
+enum AppTab { tasks, events, habits, goals }
 
 class TabsHeader extends StatelessWidget {
   final AppTab selected;
@@ -16,7 +16,7 @@ class TabsHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return SegmentedButton<AppTab>(
       segments: const [
-        ButtonSegment(value: AppTab.todos, label: Text('Todos')),
+        ButtonSegment(value: AppTab.tasks, label: Text('Tasks')),
         ButtonSegment(value: AppTab.events, label: Text('Events')),
         ButtonSegment(value: AppTab.habits, label: Text('Habits')),
         ButtonSegment(value: AppTab.goals, label: Text('Goals')),

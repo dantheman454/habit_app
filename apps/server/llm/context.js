@@ -96,23 +96,23 @@ function filterByWhere(items, where = {}, { todayY } = {}) {
   return filtered;
 }
 
-function listAllTodosRaw() {
-  try { return db.searchTodos({ q: ' ' }); } catch { return []; }
+function listAllTasksRaw() {
+  try { return db.searchTasks({ q: ' ' }); } catch { return []; }
 }
 function listAllEventsRaw() {
   try { return db.searchEvents({ q: ' ' }); } catch { return []; }
 }
 
 // Helper function to build title indexes for case-insensitive matching
-function buildTitleIndexes(todos, events) {
-  const todoIndex = {};
+function buildTitleIndexes(tasks, events) {
+  const taskIndex = {};
   const eventIndex = {};
   
-  // Build todo index (first 50 items)
-  todos.slice(0, 50).forEach(todo => {
-    if (todo.title) {
-      const key = todo.title.toLowerCase().trim();
-      todoIndex[key] = todo.id;
+  // Build task index (first 50 items)
+  tasks.slice(0, 50).forEach(task => {
+    if (task.title) {
+      const key = task.title.toLowerCase().trim();
+      taskIndex[key] = task.id;
     }
   });
   
@@ -124,32 +124,32 @@ function buildTitleIndexes(todos, events) {
     }
   });
   
-  return { todoIndex, eventIndex };
+  return { taskIndex, eventIndex };
 }
 
 // Helper: build compact id→kind and id→title maps to reduce ambiguity
-function buildIdIndexes(todos, events) {
+function buildIdIndexes(tasks, events) {
   const idToKind = {};
   const idToTitle = {};
-  for (const t of todos) { idToKind[t.id] = 'todo'; idToTitle[t.id] = t.title || ''; }
+  for (const t of tasks) { idToKind[t.id] = 'task'; idToTitle[t.id] = t.title || ''; }
   for (const e of events) { idToKind[e.id] = 'event'; idToTitle[e.id] = e.title || ''; }
   return { idToKind, idToTitle };
 }
 
 // Helper function to build focused candidates from UI selection
-function buildFocusedCandidates(where, todos, events) {
+function buildFocusedCandidates(where, tasks, events) {
   const candidates = [];
   
   // Handle UI selection from where.selected
   if (where.selected) {
-    if (Array.isArray(where.selected.todos)) {
-      where.selected.todos.forEach(id => {
-        const todo = todos.find(t => t.id === id);
-        if (todo) {
+    if (Array.isArray(where.selected.tasks)) {
+      where.selected.tasks.forEach(id => {
+        const task = tasks.find(t => t.id === id);
+        if (task) {
           candidates.push({
-            kind: 'todo',
-            id: todo.id,
-            title: todo.title,
+            kind: 'task',
+            id: task.id,
+            title: task.title,
             reason: 'selected_in_ui'
           });
         }
@@ -173,12 +173,12 @@ function buildFocusedCandidates(where, todos, events) {
   
   // Handle single where.id (backward compatibility)
   if (where.id && Number.isFinite(where.id)) {
-    const todo = todos.find(t => t.id === where.id);
-    if (todo) {
+    const task = tasks.find(t => t.id === where.id);
+    if (task) {
       candidates.push({
-        kind: 'todo',
-        id: todo.id,
-        title: todo.title,
+        kind: 'task',
+        id: task.id,
+        title: task.title,
         reason: 'explicit_id'
       });
     } else {
@@ -201,9 +201,9 @@ export function buildRouterSnapshots({ timezone = DEFAULT_TZ } = {}) {
   const tz = timezone || DEFAULT_TZ;
   const { fromYmd, toYmd } = weekRangeFromToday(tz);
   // Completed=false by convention for week + backlog
-  const todosWeek = filterByWhere(listAllTodosRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false }, { todayY: ymdInTimeZone(new Date(), tz) });
+  const tasksWeek = filterByWhere(listAllTasksRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false }, { todayY: ymdInTimeZone(new Date(), tz) });
   const eventsWeek = filterByWhere(listAllEventsRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false }, { todayY: ymdInTimeZone(new Date(), tz) });
-  const weekItems = [...todosWeek, ...eventsWeek];
+  const weekItems = [...tasksWeek, ...eventsWeek];
   const compact = (t) => ({ id: t.id, title: t.title, scheduledFor: t.scheduledFor });
   return { week: { from: fromYmd, to: toYmd, items: weekItems.map(compact) } };
 }
@@ -213,26 +213,26 @@ export function buildFocusedContext(where = {}, { timezone = DEFAULT_TZ } = {}) 
   const todayY = ymdInTimeZone(new Date(), tz);
   const w = where || {};
   const kindsHint = (() => {
-    // where.kind: 'todo'|'event' or array 
+    // where.kind: 'task'|'event' or array 
     if (typeof w.kind === 'string') return [w.kind.toLowerCase()];
     if (Array.isArray(w.kind)) return w.kind.map((k) => String(k).toLowerCase());
     return null;
   })();
-  const includeTodo = !kindsHint || kindsHint.includes('todo');
+  const includeTask = !kindsHint || kindsHint.includes('task');
   const includeEvent = !kindsHint || kindsHint.includes('event');
 
-  const todos = includeTodo ? filterByWhere(listAllTodosRaw(), w, { todayY }).slice(0, 50) : [];
+  const tasks = includeTask ? filterByWhere(listAllTasksRaw(), w, { todayY }).slice(0, 50) : [];
   const events = includeEvent ? filterByWhere(listAllEventsRaw(), w, { todayY }).slice(0, 50) : [];
 
   // Build focused candidates and title indexes
-  const focusedCandidates = buildFocusedCandidates(w, todos, events);
-  const { todoIndex, eventIndex } = buildTitleIndexes(todos, events);
-  const { idToKind, idToTitle } = buildIdIndexes(todos, events);
+  const focusedCandidates = buildFocusedCandidates(w, tasks, events);
+  const { taskIndex, eventIndex } = buildTitleIndexes(tasks, events);
+  const { idToKind, idToTitle } = buildIdIndexes(tasks, events);
 
   return {
     where: w,
     // Enrich records so the Ops agent can make better decisions
-    todos: todos.map(t => ({
+    tasks: tasks.map(t => ({
       id: t.id,
       title: t.title,
       notes: t.notes ?? '',
@@ -262,7 +262,7 @@ export function buildFocusedContext(where = {}, { timezone = DEFAULT_TZ } = {}) 
       candidates: focusedCandidates
     },
     indexes: {
-      todo_by_title_ci: todoIndex,
+      task_by_title_ci: taskIndex,
       event_by_title_ci: eventIndex,
       id_to_kind: idToKind,
       id_to_title: idToTitle
@@ -289,7 +289,7 @@ export function buildQAContext({ timezone = DEFAULT_TZ } = {}) {
   const perTypeToday = Math.max(1, Math.floor(MAX_TODAY / 3));
 
   // Today (detailed)
-  const todosToday = filterByWhere(listAllTodosRaw(), { scheduled_range: { from: today, to: today } }, { todayY: today })
+  const tasksToday = filterByWhere(listAllTasksRaw(), { scheduled_range: { from: today, to: today } }, { todayY: today })
     .slice(0, perTypeToday)
     .map(t => ({
       id: t.id,
@@ -317,7 +317,7 @@ export function buildQAContext({ timezone = DEFAULT_TZ } = {}) {
     }));
 
   // Week summary (titles only)
-  const todosWeek = filterByWhere(listAllTodosRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false }, { todayY: today });
+  const tasksWeek = filterByWhere(listAllTasksRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false }, { todayY: today });
   const eventsWeek = filterByWhere(listAllEventsRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false }, { todayY: today });
   const pickTitles = (arr, n) => arr.slice(0, n).map(x => ({ id: x.id, title: x.title, scheduledFor: x.scheduledFor ?? null }));
   const perTypeWeek = Math.max(1, Math.floor(MAX_WEEK_TITLES / 3));
@@ -326,27 +326,27 @@ export function buildQAContext({ timezone = DEFAULT_TZ } = {}) {
     timezone: tz,
     todayYmd: today,
     today: {
-      todos: todosToday,
+      tasks: tasksToday,
       events: eventsToday
     },
     week: {
       fromYmd,
       toYmd,
       counts: {
-        todos: todosWeek.length,
+        tasks: tasksWeek.length,
         events: eventsWeek.length
       },
       titles: {
-        todos: pickTitles(todosWeek, perTypeWeek),
+        tasks: pickTitles(tasksWeek, perTypeWeek),
         events: pickTitles(eventsWeek, perTypeWeek)
       },
       indexes: {
         id_to_kind: Object.fromEntries([
-          ...todosWeek.map(t => [t.id, 'todo']),
+          ...tasksWeek.map(t => [t.id, 'task']),
           ...eventsWeek.map(e => [e.id, 'event'])
         ]),
         id_to_title: Object.fromEntries([
-          ...todosWeek.map(t => [t.id, t.title || '']),
+          ...tasksWeek.map(t => [t.id, t.title || '']),
           ...eventsWeek.map(e => [e.id, e.title || ''])
         ])
       }

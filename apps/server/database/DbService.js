@@ -11,6 +11,14 @@ export class DbService {
 
   openIfNeeded() {
     if (this.db) return;
+    // Allow tests or callers to set APP_DB_PATH after import time.
+    // If the database has not been opened yet, adopt the latest env path.
+    try {
+      const envPath = process.env.APP_DB_PATH;
+      if (envPath && String(envPath) !== String(this.dbPath)) {
+        this.dbPath = String(envPath);
+      }
+    } catch {}
     const dataDir = path.dirname(this.dbPath);
     try { fs.mkdirSync(dataDir, { recursive: true }); } catch {}
     this.db = new Database(this.dbPath);
@@ -19,6 +27,17 @@ export class DbService {
   }
 
   bootstrapSchema(schemaSql) {
+    // If APP_DB_PATH changed since initial open, reopen on the new path for isolation (tests)
+    try {
+      const envPath = process.env.APP_DB_PATH;
+      if (envPath && String(envPath) !== String(this.dbPath)) {
+        if (this.db) {
+          try { this.db.close(); } catch {}
+          this.db = null;
+        }
+        this.dbPath = String(envPath);
+      }
+    } catch {}
     this.openIfNeeded();
     this.db.exec(schemaSql);
   }
@@ -54,8 +73,8 @@ export class DbService {
       .run({ ts, action, entity, entity_id: entityId, payload: typeof payload === 'string' ? payload : (payload ? JSON.stringify(payload) : null) });
   }
 
-  // Minimal Todos subset to validate wiring later (Todos now use status + skipped_dates)
-  createTodo({ title, notes = '', scheduledFor = null, timeOfDay = null, recurrence = { type: 'none' }, status = 'pending', context = 'personal' }) {
+  // Tasks
+  createTask({ title, notes = '', scheduledFor = null, timeOfDay = null, recurrence = { type: 'none' }, status = 'pending', context = 'personal' }) {
     this.openIfNeeded();
     const tz = process.env.TZ_NAME || 'America/New_York';
     const isRepeating = !!(recurrence && recurrence.type && recurrence.type !== 'none');
@@ -67,7 +86,7 @@ export class DbService {
     }
     const now = new Date().toISOString();
     const stmt = this.db.prepare(`
-      INSERT INTO todos(title, notes, scheduled_for, time_of_day, status, recurrence, completed_dates, skipped_dates, context, created_at, updated_at)
+      INSERT INTO tasks(title, notes, scheduled_for, time_of_day, status, recurrence, completed_dates, skipped_dates, context, created_at, updated_at)
       VALUES (@title, @notes, @scheduled_for, @time_of_day, @status, @recurrence, NULL, NULL, @context, @created_at, @updated_at)
     `);
     const info = stmt.run({
@@ -81,19 +100,19 @@ export class DbService {
       created_at: now,
       updated_at: now,
     });
-    return this.getTodoById(info.lastInsertRowid);
+    return this.getTaskById(info.lastInsertRowid);
   }
 
-  getTodoById(id) {
+  getTaskById(id) {
     this.openIfNeeded();
-    const row = this.db.prepare('SELECT * FROM todos WHERE id = ?').get(id);
+    const row = this.db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
     if (!row) return null;
-    return this._mapTodo(row);
+    return this._mapTask(row);
   }
 
-  updateTodo(id, patch) {
+  updateTask(id, patch) {
     this.openIfNeeded();
-    const t = this.getTodoById(id);
+    const t = this.getTaskById(id);
     if (!t) throw new Error('not_found');
     // Filter out undefined values from patch to avoid overwriting existing data
     const filteredPatch = Object.fromEntries(
@@ -113,7 +132,7 @@ export class DbService {
       try { merged.status = patch.completed ? 'completed' : 'pending'; } catch {}
     }
     const now = new Date().toISOString();
-    this.db.prepare(`UPDATE todos SET title=@title, notes=@notes, scheduled_for=@scheduled_for, time_of_day=@time_of_day, status=@status, recurrence=@recurrence, context=@context, updated_at=@updated_at WHERE id=@id`).run({
+    this.db.prepare(`UPDATE tasks SET title=@title, notes=@notes, scheduled_for=@scheduled_for, time_of_day=@time_of_day, status=@status, recurrence=@recurrence, context=@context, updated_at=@updated_at WHERE id=@id`).run({
       id,
       title: merged.title,
       notes: merged.notes,
@@ -124,7 +143,7 @@ export class DbService {
       context: String(merged.context || 'personal'),
       updated_at: now,
     });
-    return this.getTodoById(id);
+    return this.getTaskById(id);
   }
 
   // Events
@@ -234,12 +253,12 @@ export class DbService {
     return items;
   }
 
-  deleteTodo(id) {
+  deleteTask(id) {
     this.openIfNeeded();
-    this.db.prepare('DELETE FROM todos WHERE id = ?').run(id);
+    this.db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
   }
 
-  listTodos({ from = null, to = null, status = null, context = null } = {}) {
+  listTasks({ from = null, to = null, status = null, context = null } = {}) {
     this.openIfNeeded();
     const cond = ['scheduled_for IS NOT NULL'];
     const params = {};
@@ -247,33 +266,33 @@ export class DbService {
     if (to) { cond.push("scheduled_for < date(@to, '+1 day')"); params.to = to; }
     if (status) { cond.push('status = @status'); params.status = String(status); }
     if (context) { cond.push('context = @context'); params.context = String(context); }
-    const sql = `SELECT * FROM todos WHERE ${cond.join(' AND ')} ORDER BY scheduled_for ASC, time_of_day ASC, id ASC`;
+    const sql = `SELECT * FROM tasks WHERE ${cond.join(' AND ')} ORDER BY scheduled_for ASC, time_of_day ASC, id ASC`;
     const rows = this.db.prepare(sql).all(params);
-    return rows.map(r => this._mapTodo(r));
+    return rows.map(r => this._mapTask(r));
   }
 
-  searchTodos({ q, status = null, context = null }) {
+  searchTasks({ q, status = null, context = null }) {
     this.openIfNeeded();
     if (!q || String(q).length < 2) {
-      const sql = 'SELECT * FROM todos ORDER BY id ASC';
+      const sql = 'SELECT * FROM tasks ORDER BY id ASC';
       const rows = this.db.prepare(sql).all();
-      let items = rows.map(r => this._mapTodo(r));
+      let items = rows.map(r => this._mapTask(r));
       if (status) items = items.filter(t => String(t.status) === String(status));
       if (context) items = items.filter(t => String(t.context) === String(context));
       return items;
     }
-    const base = `SELECT t.* FROM todos t JOIN todos_fts f ON f.rowid = t.id WHERE todos_fts MATCH @q`;
+    const base = `SELECT t.* FROM tasks t JOIN tasks_fts f ON f.rowid = t.id WHERE tasks_fts MATCH @q`;
     const rows = this.db.prepare(base).all({ q: String(q) });
-    let items = rows.map(r => this._mapTodo(r));
+    let items = rows.map(r => this._mapTask(r));
     if (status) items = items.filter(t => String(t.status) === String(status));
     if (context) items = items.filter(t => String(t.context) === String(context));
     return items;
   }
 
-  // New: set per-occurrence status for repeating todos
-  setTodoOccurrenceStatus({ id, occurrenceDate, status }) {
+  // Set per-occurrence status for repeating tasks
+  setTaskOccurrenceStatus({ id, occurrenceDate, status }) {
     this.openIfNeeded();
-    const t = this.getTodoById(id);
+    const t = this.getTaskById(id);
     if (!t) throw new Error('not_found');
     const type = t.recurrence && t.recurrence.type;
     if (!type || type === 'none') throw new Error('not_repeating');
@@ -291,28 +310,28 @@ export class DbService {
       rm(comp); rm(skip);
     }
     const now = new Date().toISOString();
-    this.db.prepare('UPDATE todos SET completed_dates=@completed_dates, skipped_dates=@skipped_dates, updated_at=@updated_at WHERE id=@id').run({ id, completed_dates: JSON.stringify(comp), skipped_dates: JSON.stringify(skip), updated_at: now });
-    return this.getTodoById(id);
+    this.db.prepare('UPDATE tasks SET completed_dates=@completed_dates, skipped_dates=@skipped_dates, updated_at=@updated_at WHERE id=@id').run({ id, completed_dates: JSON.stringify(comp), skipped_dates: JSON.stringify(skip), updated_at: now });
+    return this.getTaskById(id);
   }
 
   // Back-compat wrapper: behave like old toggle with boolean completed
-  toggleTodoOccurrence({ id, occurrenceDate, completed }) {
+  toggleTaskOccurrence({ id, occurrenceDate, completed }) {
     const status = (completed === undefined) ? 'completed' : (completed ? 'completed' : 'pending');
-    return this.setTodoOccurrenceStatus({ id, occurrenceDate, status });
+    return this.setTaskOccurrenceStatus({ id, occurrenceDate, status });
   }
 
   // Helpers
-  _mapTodo(r) {
+  _mapTask(r) {
     return {
       id: r.id,
       title: r.title,
       notes: r.notes,
       scheduledFor: r.scheduled_for,
       timeOfDay: r.time_of_day,
-  status: String(r.status || 'pending'),
+      status: String(r.status || 'pending'),
       recurrence: (() => { try { return JSON.parse(r.recurrence || '{"type":"none"}'); } catch { return { type: 'none' }; } })(),
-  completedDates: (() => { try { return r.completed_dates ? JSON.parse(r.completed_dates) : null; } catch { return null; } })(),
-  skippedDates: (() => { try { return r.skipped_dates ? JSON.parse(r.skipped_dates) : null; } catch { return null; } })(),
+      completedDates: (() => { try { return r.completed_dates ? JSON.parse(r.completed_dates) : null; } catch { return null; } })(),
+      skippedDates: (() => { try { return r.skipped_dates ? JSON.parse(r.skipped_dates) : null; } catch { return null; } })(),
       context: r.context,
       // Back-compat boolean derived from status
       completed: String(r.status || 'pending') === 'completed',
@@ -371,9 +390,9 @@ export class DbService {
     if (!row) return null;
     const goal = this._mapGoal(row);
     if (includeItems) {
-      const todos = this.db.prepare('SELECT t.* FROM goal_todo_items g JOIN todos t ON t.id=g.todo_id WHERE g.goal_id=?').all(id).map((r) => this._mapTodo(r));
+      const tasks = this.db.prepare('SELECT t.* FROM goal_task_items g JOIN tasks t ON t.id=g.task_id WHERE g.goal_id=?').all(id).map((r) => this._mapTask(r));
       const events = this.db.prepare('SELECT e.* FROM goal_event_items g JOIN events e ON e.id=g.event_id WHERE g.goal_id=?').all(id).map((r) => this._mapEvent(r));
-      goal.items = { todos, events };
+      goal.items = { tasks, events };
     }
     if (includeChildren) {
       const children = this.db.prepare('SELECT child_goal_id as id FROM goal_hierarchy WHERE parent_goal_id=?').all(id).map(r => r.id);
@@ -415,15 +434,15 @@ export class DbService {
     this.db.prepare('DELETE FROM goals WHERE id = ?').run(id);
   }
 
-  addGoalTodoItems(goalId, todoIds) {
+  addGoalTaskItems(goalId, taskIds) {
     this.openIfNeeded();
-    const stmt = this.db.prepare('INSERT OR IGNORE INTO goal_todo_items (goal_id, todo_id) VALUES (@g,@t)');
+    const stmt = this.db.prepare('INSERT OR IGNORE INTO goal_task_items (goal_id, task_id) VALUES (@g,@t)');
     const tx = this.db.transaction((ids) => { for (const tid of ids) stmt.run({ g: goalId, t: tid }); });
-    tx(todoIds);
+    tx(taskIds);
   }
-  removeGoalTodoItem(goalId, todoId) {
+  removeGoalTaskItem(goalId, taskId) {
     this.openIfNeeded();
-    this.db.prepare('DELETE FROM goal_todo_items WHERE goal_id=@g AND todo_id=@t').run({ g: goalId, t: todoId });
+    this.db.prepare('DELETE FROM goal_task_items WHERE goal_id=@g AND task_id=@t').run({ g: goalId, t: taskId });
   }
   addGoalEventItems(goalId, eventIds) {
     this.openIfNeeded();

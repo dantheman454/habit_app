@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-// Full reset and seed: removes existing DB files and seeds only todos and events
-// - 30 todos
+// Full reset and seed: removes existing DB files and seeds only tasks and events
+// - 30 tasks
 // - 15 events
 // All scheduled within the next two weeks (including today)
 
@@ -60,7 +60,7 @@ function randomTitle() {
   return `${randomChoice(verbs)} ${randomChoice(objs)}`;
 }
 
-function randomTodoTimeOrNull() {
+function randomTaskTimeOrNull() {
   const opts = [null, '08:00', '10:00', '12:00', '15:00', '18:00'];
   return randomChoice(opts);
 }
@@ -83,10 +83,10 @@ function bootstrapSchema(db) {
   db.exec(sql);
 }
 
-function seedTodos(db, count) {
+function seedTasks(db, count) {
   const nowIso = new Date().toISOString();
   const insert = db.prepare(`
-  INSERT INTO todos(title, notes, scheduled_for, time_of_day, status, recurrence, completed_dates, skipped_dates, context, created_at, updated_at)
+  INSERT INTO tasks(title, notes, scheduled_for, time_of_day, status, recurrence, completed_dates, skipped_dates, context, created_at, updated_at)
   VALUES (@title, @notes, @scheduled_for, @time_of_day, @status, @recurrence, @completed_dates, @skipped_dates, @context, @created_at, @updated_at)
   `);
   const tx = db.transaction(() => {
@@ -97,7 +97,7 @@ function seedTodos(db, count) {
         title: randomTitle(),
         notes: '',
         scheduled_for: scheduledFor,
-        time_of_day: randomTodoTimeOrNull(),
+        time_of_day: randomTaskTimeOrNull(),
         status: 'pending',
         recurrence: JSON.stringify(rec),
         completed_dates: null,
@@ -110,7 +110,7 @@ function seedTodos(db, count) {
     }
   });
   tx();
-  return db.prepare('SELECT COUNT(*) as c FROM todos').get().c;
+  return db.prepare('SELECT COUNT(*) as c FROM tasks').get().c;
 }
 
 function randomEventWindow() {
@@ -172,11 +172,11 @@ function main() {
   try { db.pragma('journal_mode = WAL'); } catch {}
   // 2) rebuild schema
   bootstrapSchema(db);
-  // 3) seed todos and events only
-  const todoCount = seedTodos(db, 30);
+  // 3) seed tasks and events only
+  const taskCount = seedTasks(db, 30);
   const eventCount = seedEvents(db, 15);
   db.close();
-  console.log(`Seed complete: ${todoCount} todos, ${eventCount} events -> ${dbPath}`);
+  console.log(`Seed complete: ${taskCount} tasks, ${eventCount} events -> ${dbPath}`);
 }
 
 try { main(); }

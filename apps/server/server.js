@@ -11,7 +11,7 @@ import db from './database/DbService.js';
 import app, { setOperationProcessor } from './app.js';
 import { ymdInTimeZone, weekRangeFromToday } from './utils/date.js';
 import { isYmdString, isValidTimeOfDay, isValidRecurrence } from './utils/recurrence.js';
-import { filterTodosByWhere as filterTodosByWhereUtil, filterItemsByWhere as filterItemsByWhereUtil, getAggregatesFromDb as getAggregatesFromDbUtil } from './utils/filters.js';
+import { filterTasksByWhere as filterTasksByWhereUtil, filterItemsByWhere as filterItemsByWhereUtil, getAggregatesFromDb as getAggregatesFromDbUtil } from './utils/filters.js';
 import { logIO, mkCorrelationId } from './llm/logging.js';
 import { batchRecorder } from './utils/batch_recorder.js';
 
@@ -62,13 +62,13 @@ const TIMEZONE = process.env.TZ_NAME || 'America/New_York';
 // weekRangeFromToday is provided by utils/date.js
 
 // DB-backed helpers
-function loadAllTodos() {
-  try { return db.listTodos({ from: null, to: null }); } catch { return []; }
+function loadAllTasks() {
+  try { return db.listTasks({ from: null, to: null }); } catch { return []; }
 }
 
-function listAllTodosRaw() {
+function listAllTasksRaw() {
   // Use FTS fallback path to get all items deterministically
-  try { return db.searchTodos({ q: ' ' }); } catch { return []; }
+  try { return db.searchTasks({ q: ' ' }); } catch { return []; }
 }
 
 function listAllEventsRaw() {
@@ -79,20 +79,20 @@ function listAllHabitsRaw() {
   try { return db.searchHabits({ q: ' ' }); } catch { return []; }
 }
 
-function filterTodosByWhere(where = {}) { return filterTodosByWhereUtil(where, { listAllTodosRaw }); }
+function filterTasksByWhere(where = {}) { return filterTasksByWhereUtil(where, { listAllTasksRaw }); }
 
 function filterItemsByWhere(items, where = {}) { return filterItemsByWhereUtil(items, where); }
 
 function getAggregatesFromDb() {
-  return getAggregatesFromDbUtil({ listAllTodosRaw });
+  return getAggregatesFromDbUtil({ listAllTasksRaw });
 }
 
 function buildRouterSnapshots() {
   const { fromYmd, toYmd } = weekRangeFromToday(TIMEZONE);
-  const todosWeek = filterTodosByWhereUtil({ scheduled_range: { from: fromYmd, to: toYmd }, status: 'pending' }, { listAllTodosRaw });
+  const tasksWeek = filterTasksByWhereUtil({ scheduled_range: { from: fromYmd, to: toYmd }, status: 'pending' }, { listAllTasksRaw });
   const eventsWeek = filterItemsByWhereUtil(listAllEventsRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false });
   const habitsWeek = filterItemsByWhereUtil(listAllHabitsRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false });
-  const weekItems = [...todosWeek, ...eventsWeek, ...habitsWeek];
+  const weekItems = [...tasksWeek, ...eventsWeek, ...habitsWeek];
   const compact = (t) => ({ id: t.id, title: t.title, scheduledFor: t.scheduledFor });
   return { week: { from: fromYmd, to: toYmd, items: weekItems.map(compact) } };
 }
@@ -108,11 +108,11 @@ try {
 
 // --- Normalization helpers (forward-compatible defaults) ---
 
-function createTodoDb({ title, notes = '', scheduledFor = null, timeOfDay = null, recurrence = undefined, context = 'personal' }) {
-  return db.createTodo({ title, notes, scheduledFor, timeOfDay, recurrence: recurrence || { type: 'none' }, completed: false, context });
+function createTaskDb({ title, notes = '', scheduledFor = null, timeOfDay = null, recurrence = undefined, context = 'personal' }) {
+  return db.createTask({ title, notes, scheduledFor, timeOfDay, recurrence: recurrence || { type: 'none' }, status: 'pending', context });
 }
 
-function findTodoById(id) { return db.getTodoById(parseInt(id, 10)); }
+function findTaskById(id) { return db.getTaskById(parseInt(id, 10)); }
 
 // moved to utils/date.js
 
@@ -202,8 +202,8 @@ app.post('/api/mcp/tools/call', async (req, res) => {
     let before = null;
     if (op.id && (op.action === 'update' || op.action === 'delete' || op.action === 'set_status' || op.action === 'complete_occurrence')) {
       try {
-        if (op.kind === 'todo') {
-          before = await db.getTodoById(op.id);
+        if (op.kind === 'task') {
+          before = await db.getTaskById(op.id);
         } else if (op.kind === 'event') {
           before = await db.getEventById(op.id);
         } else if (op.kind === 'habit') {
@@ -226,8 +226,8 @@ app.post('/api/mcp/tools/call', async (req, res) => {
           after = result.results[0].created || result.results[0].updated;
         } else if (op.id) {
           // For update/delete, fetch current state
-          if (op.kind === 'todo') {
-            after = op.action === 'delete' ? null : await db.getTodoById(op.id);
+          if (op.kind === 'task') {
+            after = op.action === 'delete' ? null : await db.getTaskById(op.id);
           } else if (op.kind === 'event') {
             after = op.action === 'delete' ? null : await db.getEventById(op.id);
           } else if (op.kind === 'habit') {
@@ -307,7 +307,7 @@ app.post('/api/assistant/undo_last', async (req, res) => {
           inverseOp.timeOfDay = before.timeOfDay;
           inverseOp.recurrence = before.recurrence;
           inverseOp.context = before.context;
-          if (op.kind === 'todo') inverseOp.status = before.status;
+          if (op.kind === 'task') inverseOp.status = before.status;
           inverses.push(inverseOp);
         }
       } else if (op.action === 'set_status' || op.action === 'set_occurrence_status') {
@@ -354,7 +354,7 @@ app.post('/api/assistant/undo_last', async (req, res) => {
 
 // Helper functions for undo
 function _operationToToolName(op) {
-  const kind = op.kind || 'todo';
+  const kind = op.kind || 'task';
   const action = op.action || 'create';
   
   switch (action) {
@@ -403,22 +403,6 @@ if (process.env.ENABLE_DEBUG_ROUTES === 'true') {
     }
   });
 }
-
-// --- CRUD Endpoints --- (todos moved to routes/todos.js)
-
-// Events (mirror Todos minimal wiring)
-// Events routes moved to routes/events.js
-
-// Habits routes moved to routes/habits.js
-// Events routes moved to routes/events.js
-
-// Unified search route moved to routes/search.js
-
-// Unified schedule route moved to routes/schedule.js
-
-// Goals routes moved to routes/goals.js
-
-// Todos routes moved to routes/todos.js
 
 // --- LLM proposal-and-verify (Ollama) ---
 // Model selection now uses `getModels()` from `apps/server/llm/clients.js` (convo/code).
@@ -475,13 +459,13 @@ function inferOperationShape(o) {
   if (op.kind && op.action) {
     const kind = String(op.kind).toLowerCase();
     const action = String(op.action).toLowerCase();
-    if (kind === 'todo') {
+    if (kind === 'task') {
       if (action === 'create') op.op = 'create';
       else if (action === 'update') op.op = 'update';
       else if (action === 'delete') op.op = 'delete';
   else if (action === 'set_status') op.op = 'set_status';
     } else if (kind === 'event') {
-      // For now, map event ops to todo pipeline placeholders (server uses todo paths); extend later
+      // Map event operations directly for execution; extend as needed
       if (action === 'create') op.op = 'create';
       else if (action === 'update') op.op = 'update';
       else if (action === 'delete') op.op = 'delete';
@@ -637,14 +621,14 @@ function buildSchemaV2Excerpt() {
   // Repurposed for V3 reminder text (no bulk operations)
   return [
     'Schema v3:',
-  '- Wrapper: { kind: "todo"|"event"|"goal", action: string, ...payload }',
-  '- todo actions: create|update|delete|set_status',
+  '- Wrapper: { kind: "task"|"event"|"goal", action: string, ...payload }',
+  '- task actions: create|update|delete|set_status',
     '- event actions: create|update|delete|complete|complete_occurrence',
     '- goal actions: create|update|delete|add_items|remove_item|add_child|remove_child',
     'Rules:',
-  '- For todo/event create/update, include a recurrence object (use {"type":"none"} for non-repeating).',
+  '- For task/event create/update, include a recurrence object (use {"type":"none"} for non-repeating).',
     '- For repeating tasks/events (recurrence.type != none), an anchor scheduledFor is REQUIRED.',
-  '- For todos: use set_status with {id, status:"pending|completed|skipped"} (and optional occurrenceDate for repeating). Do NOT use complete/complete_occurrence for todos.',
+  '- For tasks: use set_status with {id, status:"pending|completed|skipped"} (and optional occurrenceDate for repeating). Do NOT use complete/complete_occurrence for tasks.',
   '- For repeating events/habits: do not use master complete; use complete_occurrence with occurrenceDate.',
     '- No bulk operations; emit independent ops, ≤20 per apply.'
   ].join('\n');
@@ -656,7 +640,7 @@ function buildRepairPrompt({ instruction, originalOps, errors, transcript }) {
   const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
   const payload = { originalOps, errors };
   return (
-    'You proposed operations for a todo app, but some failed validation. Fix them.\n' +
+    'You proposed operations for a tasks/events app, but some failed validation. Fix them.\n' +
     'Return JSON only with the corrected "operations" array. Do not include explanations.\n\n' +
     `Transcript (last 3):\n${convo}\n` +
     `Original instruction: ${instruction}\n` +
@@ -669,24 +653,23 @@ function buildRepairPrompt({ instruction, originalOps, errors, transcript }) {
 
 
 
-function buildProposalPrompt({ instruction, todosSnapshot, transcript }) {
+function buildProposalPrompt({ instruction, tasksSnapshot, transcript }) {
   const today = new Date();
   const todayYmd = ymdInTimeZone(today, TIMEZONE);
-  const system = `You are an assistant for a todo app. Output ONLY a single JSON object with key "operations" as an array. No prose.\n` +
-    `Each operation MUST include fields: kind (todo|event|goal) and action.\n` +
-    `todo actions: create|update|delete|set_status.\n` +
+  const system = `You are an assistant for a tasks/events app. Output ONLY a single JSON object with key "operations" as an array. No prose.\n` +
+    `Each operation MUST include fields: kind (task|event|goal) and action.\n` +
+    `task actions: create|update|delete|set_status.\n` +
     `event actions: create|update|delete|complete|complete_occurrence.\n` +
     `goal actions: create|update|delete|add_items|remove_item|add_child|remove_child.\n` +
-    `For todo/event create/update include recurrence (use {"type":"none"} for non-repeating). If recurrence.type != none, scheduledFor is REQUIRED.\n` +
-    `For todos: use set_status with {id, status:"pending|completed|skipped"} and optional occurrenceDate for repeating.\n` +
+    `For task/event create/update include recurrence (use {"type":"none"} for non-repeating). If recurrence.type != none, scheduledFor is REQUIRED.\n` +
+    `For tasks: use set_status with {id, status:"pending|completed|skipped"} and optional occurrenceDate for repeating.\n` +
     `For events: use complete or complete_occurrence (with occurrenceDate).\n` +
     `No bulk operations. Emit independent operations; limit to ≤20 per apply.\n` +
-    `Today's date is ${todayYmd}. Do NOT invent invalid IDs. Prefer fewer changes over hallucination.\n` +
-    `You may reason internally, but the final output MUST be a single JSON object exactly as specified. Do not include your reasoning or any prose.`;
+    `Today's date is ${todayYmd}. Do NOT invent invalid IDs. Prefer fewer changes over hallucination.`;
   const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
   const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
-  const context = JSON.stringify({ todos: todosSnapshot }, null, 2);
-  const user = `Conversation (last 3 turns):\n${convo}\n\nTimezone: ${TIMEZONE}\nInstruction:\n${instruction}\n\nContext:\n${context}\n\nRespond with JSON ONLY that matches this exact example format:\n{\n  "operations": [\n    {"kind":"todo","action":"create","title":"<contextually relevant title>","scheduledFor":"${todayYmd}","recurrence":{"type":"none"}},\n    {"kind":"todo","action":"set_status","id":123,"status":"completed"}\n  ]\n}`;
+  const context = JSON.stringify({ tasks: tasksSnapshot }, null, 2);
+  const user = `Conversation (last 3 turns):\n${convo}\n\nTimezone: ${TIMEZONE}\nInstruction:\n${instruction}\n\nContext:\n${context}\n\nRespond with JSON ONLY that matches this exact example format:\n{\n  "operations": [\n    {"kind":"task","action":"create","title":"<contextually relevant title>","scheduledFor":"${todayYmd}","recurrence":{"type":"none"}},\n    {"kind":"task","action":"set_status","id":123,"status":"completed"}\n  ]\n}`;
   return `${system}\n\n${user}`;
 }
 
@@ -712,7 +695,7 @@ function buildConversationalSummaryPrompt({ instruction, operations, todosSnapsh
   }).join('\n');
   const last3 = Array.isArray(transcript) ? transcript.slice(-3) : [];
   const convo = last3.map((t) => `- ${t.role}: ${t.text}`).join('\n');
-  const system = `You are a helpful assistant for a todo app. Keep answers concise and clear. Prefer 1–3 short sentences; allow a short paragraph when needed. No markdown, no lists, no JSON.`;
+  const system = `You are a helpful assistant for a tasks/events app. Keep answers concise and clear. Prefer 1–3 short sentences; allow a short paragraph when needed. No markdown, no lists, no JSON.`;
   const context = `Conversation (last 3 turns):\n${convo}\n\nToday: ${todayYmd} (${TIMEZONE})\nProposed operations (count: ${operations.length}):\n${compactOps}`;
   const user = `User instruction:\n${instruction}`;
   const task = `Summarize the plan in plain English grounded in the proposed operations above. If there are no valid operations, briefly explain and suggest what to clarify.`;
@@ -748,11 +731,11 @@ function buildDeterministicSummaryText(operations) {
 async function runProposalAndRepair({ instruction, transcript, focusedWhere, mode = 'post', onValidating, onOps, onRepairing, correlationId }) {
   // Snapshot selection
   const aggregates = getAggregatesFromDb();
-  const topK = focusedWhere ? filterTodosByWhereUtil(focusedWhere, { listAllTodosRaw }).slice(0, 50) : listAllTodosRaw().slice(0, 40);
+  const topK = focusedWhere ? filterTasksByWhereUtil(focusedWhere, { listAllTasksRaw }).slice(0, 50) : listAllTasksRaw().slice(0, 40);
   const snapshot = focusedWhere ? { focused: topK, aggregates } : { topK, aggregates };
 
   // Propose
-  const prompt1 = buildProposalPrompt({ instruction: instruction.trim(), todosSnapshot: snapshot, transcript });
+  const prompt1 = buildProposalPrompt({ instruction: instruction.trim(), transcript, tasksSnapshot: snapshot });
   const raw1 = await runOllamaForJsonPreferred({ userContent: prompt1 });
   try { const modelName = (MODELS && MODELS.code) ? MODELS.code : (process.env.OLLAMA_MODEL || null); logIO('proposal', { model: modelName, prompt: prompt1, output: raw1, meta: { correlationId, mode } }); } catch {}
   let parsed1 = parseJsonLenient(raw1);

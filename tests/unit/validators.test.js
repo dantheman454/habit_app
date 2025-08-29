@@ -3,17 +3,17 @@ import assert from 'node:assert';
 import { OperationValidators } from '../../apps/server/operations/validators.js';
 
 describe('OperationValidators', () => {
-  describe('todoCreate', () => {
-    test('should validate valid todo creation', () => {
+  describe('taskCreate', () => {
+    test('should validate valid task creation', () => {
       const op = {
-        title: 'Test Todo',
+        title: 'Test Task',
         notes: 'Test notes',
         scheduledFor: '2025-08-18',
         timeOfDay: '14:30',
         recurrence: { type: 'none' }
       };
       
-      const result = OperationValidators.todoCreate(op);
+      const result = OperationValidators.taskCreate(op);
       assert.strictEqual(result.valid, true);
       assert.strictEqual(result.errors.length, 0);
     });
@@ -23,7 +23,7 @@ describe('OperationValidators', () => {
         notes: 'Test notes'
       };
       
-      const result = OperationValidators.todoCreate(op);
+      const result = OperationValidators.taskCreate(op);
       assert.strictEqual(result.valid, false);
       assert(result.errors.some(e => e.includes('Title is required')));
     });
@@ -33,7 +33,7 @@ describe('OperationValidators', () => {
         title: '   '
       };
       
-      const result = OperationValidators.todoCreate(op);
+      const result = OperationValidators.taskCreate(op);
       assert.strictEqual(result.valid, false);
       assert(result.errors.some(e => e.includes('Title is required')));
     });
@@ -43,52 +43,52 @@ describe('OperationValidators', () => {
         title: 'a'.repeat(256)
       };
       
-      const result = OperationValidators.todoCreate(op);
+      const result = OperationValidators.taskCreate(op);
       assert.strictEqual(result.valid, false);
       assert(result.errors.some(e => e.includes('255 characters')));
     });
     
     test('should reject invalid date format', () => {
       const op = {
-        title: 'Test Todo',
+        title: 'Test Task',
         scheduledFor: 'invalid-date'
       };
       
-      const result = OperationValidators.todoCreate(op);
+      const result = OperationValidators.taskCreate(op);
       assert.strictEqual(result.valid, false);
       assert(result.errors.some(e => e.includes('valid date')));
     });
     
     test('should reject invalid time format', () => {
       const op = {
-        title: 'Test Todo',
+        title: 'Test Task',
         timeOfDay: '25:00'
       };
       
-      const result = OperationValidators.todoCreate(op);
+      const result = OperationValidators.taskCreate(op);
       assert.strictEqual(result.valid, false);
       assert(result.errors.some(e => e.includes('valid time')));
     });
   });
   
-  describe('todoUpdate', () => {
-    test('should validate valid todo update', () => {
+  describe('taskUpdate', () => {
+    test('should validate valid task update', () => {
       const op = {
         id: 1,
-        title: 'Updated Todo'
+        title: 'Updated Task'
       };
       
-      const result = OperationValidators.todoUpdate(op);
+      const result = OperationValidators.taskUpdate(op);
       assert.strictEqual(result.valid, true);
       assert.strictEqual(result.errors.length, 0);
     });
     
     test('should reject missing ID', () => {
       const op = {
-        title: 'Updated Todo'
+        title: 'Updated Task'
       };
       
-      const result = OperationValidators.todoUpdate(op);
+      const result = OperationValidators.taskUpdate(op);
       assert.strictEqual(result.valid, false);
       assert(result.errors.some(e => e.includes('Valid ID is required')));
     });
@@ -96,20 +96,20 @@ describe('OperationValidators', () => {
     test('should reject invalid ID', () => {
       const op = {
         id: 0,
-        title: 'Updated Todo'
+        title: 'Updated Task'
       };
       
-      const result = OperationValidators.todoUpdate(op);
+      const result = OperationValidators.taskUpdate(op);
       assert.strictEqual(result.valid, false);
       assert(result.errors.some(e => e.includes('Valid ID is required')));
     });
   });
   
-  describe('todoDelete', () => {
-    test('should validate valid todo delete', () => {
+  describe('taskDelete', () => {
+    test('should validate valid task delete', () => {
       const op = { id: 1 };
       
-      const result = OperationValidators.todoDelete(op);
+      const result = OperationValidators.taskDelete(op);
       assert.strictEqual(result.valid, true);
       assert.strictEqual(result.errors.length, 0);
     });
@@ -117,7 +117,7 @@ describe('OperationValidators', () => {
     test('should reject missing ID', () => {
       const op = {};
       
-      const result = OperationValidators.todoDelete(op);
+      const result = OperationValidators.taskDelete(op);
       assert.strictEqual(result.valid, false);
       assert(result.errors.some(e => e.includes('Valid ID is required')));
     });

@@ -7,7 +7,7 @@ import { isYmdString, isValidTimeOfDay, isValidRecurrence, expandOccurrences } f
 const router = Router();
 const ajv = new Ajv({ allErrors: true });
 
-const todoCreateSchema = {
+const taskCreateSchema = {
   type: 'object',
   properties: {
     title: { type: 'string', minLength: 1, maxLength: 255 },
@@ -28,18 +28,18 @@ const todoCreateSchema = {
   required: ['title','recurrence'],
   additionalProperties: true
 };
-const validateTodoCreate = ajv.compile(todoCreateSchema);
+const validateTaskCreate = ajv.compile(taskCreateSchema);
 
-function createTodoDb({ title, notes = '', scheduledFor = null, timeOfDay = null, recurrence = undefined, context = 'personal' }) {
-  return db.createTodo({ title, notes, scheduledFor, timeOfDay, recurrence: recurrence || { type: 'none' }, completed: false, context });
+function createTaskDb({ title, notes = '', scheduledFor = null, timeOfDay = null, recurrence = undefined, context = 'personal' }) {
+  return db.createTask({ title, notes, scheduledFor, timeOfDay, recurrence: recurrence || { type: 'none' }, status: 'pending', context });
 }
 
-function findTodoById(id) { return db.getTodoById(parseInt(id, 10)); }
+function findTaskById(id) { return db.getTaskById(parseInt(id, 10)); }
 
 const TIMEZONE = process.env.TZ_NAME || 'America/New_York';
 
-router.post('/api/todos', (req, res) => {
-  const ok = validateTodoCreate(req.body || {});
+router.post('/api/tasks', (req, res) => {
+  const ok = validateTaskCreate(req.body || {});
   if (!ok) return res.status(400).json({ error: 'invalid_body' });
   const { title, notes, scheduledFor, timeOfDay, recurrence, context } = req.body || {};
   if (typeof title !== 'string' || title.trim() === '') {
@@ -69,11 +69,11 @@ router.post('/api/todos', (req, res) => {
     return res.status(400).json({ error: 'invalid_context' });
   }
 
-  const todo = createTodoDb({ title: title.trim(), notes: notes || '', scheduledFor: scheduledFor ?? null, timeOfDay: (timeOfDay === '' ? null : timeOfDay) ?? null, recurrence: recurrence, context: context || 'personal' });
-  res.json({ todo });
+  const task = createTaskDb({ title: title.trim(), notes: notes || '', scheduledFor: scheduledFor ?? null, timeOfDay: (timeOfDay === '' ? null : timeOfDay) ?? null, recurrence: recurrence, context: context || 'personal' });
+  res.json({ task });
 });
 
-router.get('/api/todos', (req, res) => {
+router.get('/api/tasks', (req, res) => {
   const { from, to, completed, status, context } = req.query;
   if (from !== undefined && !isYmdString(from)) return res.status(400).json({ error: 'invalid_from' });
   if (to !== undefined && !isYmdString(to)) return res.status(400).json({ error: 'invalid_to' });
@@ -89,7 +89,7 @@ router.get('/api/todos', (req, res) => {
   const fromDate = from ? parseYMD(from) : null;
   const toDate = to ? parseYMD(to) : null;
 
-  let items = db.listTodos({ from: null, to: null, status: status || null }).filter(t => t.scheduledFor !== null);
+  let items = db.listTasks({ from: null, to: null, status: status || null }).filter(t => t.scheduledFor !== null);
   if (completedBool !== undefined) items = items.filter(t => t.completed === completedBool);
   if (context !== undefined) items = items.filter(t => String(t.context) === String(context));
 
@@ -108,7 +108,7 @@ router.get('/api/todos', (req, res) => {
         return true;
       });
     }
-    return res.json({ todos: items });
+    return res.json({ tasks: items });
   }
 
   const expanded = [];
@@ -132,12 +132,12 @@ router.get('/api/todos', (req, res) => {
       (status === undefined || (typeof x.status === 'string' && x.status === status)) &&
       (context === undefined || (typeof x.context === 'string' && x.context === context))
     ));
-    return res.json({ todos: filtered });
+    return res.json({ tasks: filtered });
   }
-  res.json({ todos: expanded });
+  res.json({ tasks: expanded });
 });
 
-router.get('/api/todos/search', (req, res) => {
+router.get('/api/tasks/search', (req, res) => {
   const qRaw = String(req.query.query || '');
   const q = qRaw.trim();
   if (q.length === 0) return res.status(400).json({ error: 'invalid_query' });
@@ -146,7 +146,7 @@ router.get('/api/todos/search', (req, res) => {
   const context = (req.query.context === undefined) ? undefined : String(req.query.context);
   if (context !== undefined && !['school','personal','work'].includes(context)) return res.status(400).json({ error: 'invalid_context' });
   try {
-    let items = db.searchTodos({ q, status, context });
+    let items = db.searchTasks({ q, status, context });
     if (q.length < 2) {
       const ql = q.toLowerCase();
       items = items.filter(t => String(t.title || '').toLowerCase().includes(ql) || String(t.notes || '').toLowerCase().includes(ql));
@@ -161,24 +161,24 @@ router.get('/api/todos/search', (req, res) => {
     items = items.map(t => ({ t, s: score(t) }))
       .sort((a, b) => b.s - a.s || String(a.t.scheduledFor || '').localeCompare(String(b.t.scheduledFor || '')) || (a.t.id - b.t.id))
       .map(x => x.t);
-    return res.json({ todos: items });
+    return res.json({ tasks: items });
   } catch (e) {
     return res.status(500).json({ error: 'search_failed' });
   }
 });
 
-router.get('/api/todos/:id', (req, res) => {
+router.get('/api/tasks/:id', (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
-  const t = findTodoById(id);
+  const t = findTaskById(id);
   if (!t) return res.status(404).json({ error: 'not_found' });
-  res.json({ todo: t });
+  res.json({ task: t });
 });
 
-router.patch('/api/todos/:id', (req, res) => {
+router.patch('/api/tasks/:id', (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
-  const t = findTodoById(id);
+  const t = findTaskById(id);
   if (!t) return res.status(404).json({ error: 'not_found' });
   const body = req.body || {};
   if (body.title !== undefined) {
@@ -216,16 +216,16 @@ router.patch('/api/todos/:id', (req, res) => {
     if (!['school','personal','work'].includes(String(body.context))) return res.status(400).json({ error: 'invalid_context' });
     t.context = String(body.context);
   }
-  try { const updated = db.updateTodo(id, t); res.json({ todo: updated }); } catch { res.json({ todo: t }); }
+  try { const updated = db.updateTask(id, t); res.json({ task: updated }); } catch { res.json({ task: t }); }
 });
 
-router.patch('/api/todos/:id/occurrence', (req, res) => {
+router.patch('/api/tasks/:id/occurrence', (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
   const occurrenceDate = String(req.body?.occurrenceDate || '');
   if (!isYmdString(occurrenceDate)) return res.status(400).json({ error: 'invalid_occurrenceDate' });
-  const todo = findTodoById(id);
-  if (!todo) return res.status(404).json({ error: 'not_found' });
+  const task = findTaskById(id);
+  if (!task) return res.status(404).json({ error: 'not_found' });
   let status = req.body?.status;
   if (status === undefined) {
     if (typeof req.body?.completed === 'boolean') {
@@ -235,15 +235,15 @@ router.patch('/api/todos/:id/occurrence', (req, res) => {
   status = String(status || '');
   if (!['pending','completed','skipped'].includes(status)) return res.status(400).json({ error: 'invalid_status' });
   try {
-    const updated = db.setTodoOccurrenceStatus({ id, occurrenceDate, status });
-    return res.json({ todo: updated });
+    const updated = db.setTaskOccurrenceStatus({ id, occurrenceDate, status });
+    return res.json({ task: updated });
   } catch (e) { return res.status(500).json({ error: 'update_failed' }); }
 });
 
-router.delete('/api/todos/:id', (req, res) => {
+router.delete('/api/tasks/:id', (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
-  db.deleteTodo(id);
+  db.deleteTask(id);
   res.json({ ok: true });
 });
 

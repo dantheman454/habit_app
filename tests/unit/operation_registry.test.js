@@ -10,7 +10,7 @@ describe('OperationRegistry', () => {
 
   beforeEach(() => {
     mockDbService = {
-      todos: {},
+      tasks: {},
       events: {},
       habits: {}
     };
@@ -31,22 +31,22 @@ describe('OperationRegistry', () => {
   });
 
   test('should provide operation schemas', () => {
-    const todoCreateSchema = registry.getOperationSchema('todo_create');
+    const taskCreateSchema = registry.getOperationSchema('task_create');
     
-    assert(todoCreateSchema);
-    assert.strictEqual(todoCreateSchema.type, 'object');
-    assert(todoCreateSchema.properties.title);
-    assert.strictEqual(todoCreateSchema.properties.title.type, 'string');
-    assert(todoCreateSchema.required.includes('title'));
+    assert(taskCreateSchema);
+    assert.strictEqual(taskCreateSchema.type, 'object');
+    assert(taskCreateSchema.properties.title);
+    assert.strictEqual(taskCreateSchema.properties.title.type, 'string');
+    assert(taskCreateSchema.required.includes('title'));
   });
 
   test('should provide operation documentation', () => {
-    const todoCreateDoc = registry.getOperationDocumentation('todo_create');
+    const taskCreateDoc = registry.getOperationDocumentation('task_create');
     
-    assert(todoCreateDoc);
-    assert.strictEqual(todoCreateDoc.description, 'Create a new todo item');
-    assert(Array.isArray(todoCreateDoc.examples));
-    assert(todoCreateDoc.examples.length > 0);
+    assert(taskCreateDoc);
+    assert.strictEqual(taskCreateDoc.description, 'Create a new task item');
+    assert(Array.isArray(taskCreateDoc.examples));
+    assert(taskCreateDoc.examples.length > 0);
   });
 
   test('should return null for unknown operation types', () => {

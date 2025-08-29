@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 
 class FabActions extends StatelessWidget {
-  final VoidCallback onCreateTodo;
+  final VoidCallback onCreateTask;
   final VoidCallback onCreateEvent;
   final String? currentDate; // For smart defaults
 
   const FabActions({
     super.key,
-    required this.onCreateTodo,
+    required this.onCreateTask,
     required this.onCreateEvent,
     this.currentDate,
   });
@@ -16,15 +16,15 @@ class FabActions extends StatelessWidget {
   Widget build(BuildContext context) {
     return PopupMenuButton<String>(
       onSelected: (v) {
-        if (v == 'todo') {
-          onCreateTodo();
+        if (v == 'task') {
+          onCreateTask();
         } else if (v == 'event') {
           onCreateEvent();
         }
       },
       itemBuilder: (c) => [
         PopupMenuItem<String>(
-          value: 'todo',
+          value: 'task',
           child: Row(
             children: [
               const Icon(Icons.task, size: 18),

@@ -14,9 +14,9 @@ export class HabitusMCPServer {
   }
 
   setupDefaultTools() {
-    this.tools.set('create_todo', {
-      name: 'create_todo',
-      description: 'Create a new todo item',
+    this.tools.set('create_task', {
+      name: 'create_task',
+      description: 'Create a new task item',
       inputSchema: {
         type: 'object',
         properties: {
@@ -31,9 +31,9 @@ export class HabitusMCPServer {
       }
     });
 
-    this.tools.set('update_todo', {
-      name: 'update_todo',
-      description: 'Update an existing todo item',
+    this.tools.set('update_task', {
+      name: 'update_task',
+      description: 'Update an existing task item',
       inputSchema: {
         type: 'object',
         properties: {
@@ -49,9 +49,9 @@ export class HabitusMCPServer {
       }
     });
 
-    this.tools.set('delete_todo', {
-      name: 'delete_todo',
-      description: 'Delete a todo item',
+    this.tools.set('delete_task', {
+      name: 'delete_task',
+      description: 'Delete a task item',
       inputSchema: {
         type: 'object',
         properties: {
@@ -61,9 +61,9 @@ export class HabitusMCPServer {
       }
     });
 
-    this.tools.set('set_todo_status', {
-      name: 'set_todo_status',
-      description: 'Set the status of a todo item',
+    this.tools.set('set_task_status', {
+      name: 'set_task_status',
+      description: 'Set the status of a task item',
       inputSchema: {
         type: 'object',
         properties: {
@@ -75,9 +75,9 @@ export class HabitusMCPServer {
       }
     });
 
-    this.tools.set('complete_todo_occurrence', {
-      name: 'complete_todo_occurrence',
-      description: 'Mark a specific occurrence of a recurring todo as completed',
+    this.tools.set('complete_task_occurrence', {
+      name: 'complete_task_occurrence',
+      description: 'Mark a specific occurrence of a recurring task as completed',
       inputSchema: {
         type: 'object',
         properties: {
@@ -242,26 +242,26 @@ export class HabitusMCPServer {
 
   convertToolCallToOperation(name, args) {
     // Suffix-aware mappings for better alignment with operation types
-    const mSetStatus = name.match(/^set_(todo|event|habit)_status$/);
+    const mSetStatus = name.match(/^set_(task|event|habit)_status$/);
     if (mSetStatus) {
       return { kind: mSetStatus[1], action: 'set_status', ...args };
     }
-    const mSetOccurrenceStatus = name.match(/^set_(todo|habit)_occurrence_status$/);
+    const mSetOccurrenceStatus = name.match(/^set_(task|habit)_occurrence_status$/);
     if (mSetOccurrenceStatus) {
       return { kind: mSetOccurrenceStatus[1], action: 'set_occurrence_status', ...args };
     }
-    const mCompleteOcc = name.match(/^complete_(todo|habit)_occurrence$/);
+    const mCompleteOcc = name.match(/^complete_(task|habit)_occurrence$/);
     if (mCompleteOcc) {
       return { kind: mCompleteOcc[1], action: 'complete_occurrence', ...args };
     }
-    const mCrud = name.match(/^(create|update|delete)_(todo|event|habit)$/);
+    const mCrud = name.match(/^(create|update|delete)_(task|event|habit)$/);
     if (mCrud) {
       return { kind: mCrud[2], action: mCrud[1], ...args };
     }
     // Fallback to naive first-two-tokens mapping
     const parts = String(name).split('_');
     const action = parts[0] || 'create';
-    const kind = parts[1] || 'todo';
+    const kind = parts[1] || 'task';
     return { kind, action, ...args };
   }
 
@@ -285,24 +285,22 @@ export class HabitusMCPServer {
               mimeType: 'text/markdown',
               text: `# Habitus Operations Documentation
 
-This document describes all available operations in the Habitus system.
+## Task Operations
 
-## Todo Operations
+### create_task
+Create a new task item with the specified properties.
 
-### create_todo
-Creates a new todo item with the specified properties.
+### update_task
+Update an existing task item by ID.
 
-### update_todo
-Updates an existing todo item by ID.
+### delete_task
+Delete a task item by ID.
 
-### delete_todo
-Deletes a todo item by ID.
+### set_task_status
+Set the status of a task item (pending, completed, skipped). For repeating tasks, use occurrenceDate to set status for a specific occurrence.
 
-### set_todo_status
-Sets the status of a todo item (pending, completed, skipped). For repeating todos, use occurrenceDate to set status for a specific occurrence.
-
-### complete_todo_occurrence
-Marks a specific occurrence of a recurring todo as completed.
+### complete_task_occurrence
+Mark a specific occurrence of a recurring task as completed.
 
 ## Event Operations
 
@@ -315,7 +313,7 @@ Manage calendar events with start/end times, location, and recurrence. Event com
 Manage habits with scheduling, time of day, and recurrence (must be repeating).
 
 ### set_habit_occurrence_status
-Sets the status of a specific occurrence of a recurring habit (pending, completed, skipped).
+Set the status of a specific occurrence of a recurring habit (pending, completed, skipped).
 `
             }
           ]

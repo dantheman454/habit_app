@@ -83,7 +83,7 @@ async function applyOperationsMCP(operations, correlationId = null) {
 }
 
 function operationToToolName(op) {
-  const kind = op.kind || 'todo';
+  const kind = op.kind || 'task';
   const action = op.action || op.op || 'create';
   
   switch (action) {
@@ -113,19 +113,19 @@ async function main() {
   assert.equal(health.status, 200);
   assert.equal(health.body.ok, true);
 
-  // Create a todo (MCP apply)
+  // Create a task (MCP apply)
   const apply2 = await applyOperationsMCP([
-    { kind: 'todo', action: 'create', title: 'Smoke', scheduledFor: null, recurrence: { type: 'none' } }
+    { kind: 'task', action: 'create', title: 'Smoke', scheduledFor: null, recurrence: { type: 'none' } }
   ]);
   assert.ok(Array.isArray(apply2.results));
-  const createdTodoId = (() => {
-    try { const r = apply2.results.find(x => x && x.todo && x.ok); return r?.todo?.id ?? null; } catch { return null; }
+  const createdTaskId = (() => {
+    try { const r = apply2.results.find(x => x && x.task && x.ok); return r?.task?.id ?? null; } catch { return null; }
   })();
 
   // Search should return >= 1 for 'smoke' (case-insens)
-  const search = await request('GET', '/api/todos/search?query=smoke');
+  const search = await request('GET', '/api/tasks/search?query=smoke');
   assert.equal(search.status, 200);
-  assert.ok(Array.isArray(search.body.todos));
+  assert.ok(Array.isArray(search.body.tasks));
 
   // Events list works
   const events = await request('GET', '/api/events');
@@ -142,21 +142,21 @@ async function main() {
   // No event completion
   const evDelete = await applyOperationsMCP([{ kind: 'event', action: 'delete', id: evId }]);
 
-  // Create a repeating todo and toggle an occurrence
-  const repCreate = await applyOperationsMCP([{ kind: 'todo', action: 'create', title: 'Repeat', scheduledFor: ymd(), recurrence: { type: 'weekly' } }]);
-  const repId = (() => { try { return repCreate.results.find(x => x.todo).todo.id; } catch { return null; } })();
+  // Create a repeating task and toggle an occurrence
+  const repCreate = await applyOperationsMCP([{ kind: 'task', action: 'create', title: 'Repeat', scheduledFor: ymd(), recurrence: { type: 'weekly' } }]);
+  const repId = (() => { try { return repCreate.results.find(x => x.task).task.id; } catch { return null; } })();
   assert.ok(Number.isFinite(repId));
   // old boolean path still maps correctly
-  const occ = await request('PATCH', `/api/todos/${repId}/occurrence`, { occurrenceDate: ymd(), completed: true });
+  const occ = await request('PATCH', `/api/tasks/${repId}/occurrence`, { occurrenceDate: ymd(), completed: true });
   assert.equal(occ.status, 200);
 
   // new status path: switch the same occurrence to skipped
-  const occSkip = await request('PATCH', `/api/todos/${repId}/occurrence`, { occurrenceDate: ymd(), status: 'skipped' });
+  const occSkip = await request('PATCH', `/api/tasks/${repId}/occurrence`, { occurrenceDate: ymd(), status: 'skipped' });
   assert.equal(occSkip.status, 200);
   // master set_status via MCP op
-  const masterPending = await applyOperationsMCP([{ kind: 'todo', action: 'set_status', id: repId, status: 'pending' }]);
+  const masterPending = await applyOperationsMCP([{ kind: 'task', action: 'set_status', id: repId, status: 'pending' }]);
 
-  // Goals: create A and B, add B as child of A, attach todo if present
+  // Goals: create A and B, add B as child of A, attach task if present
   const goalA = await request('POST', '/api/goals', { title: 'Goal A' });
   const goalB = await request('POST', '/api/goals', { title: 'Goal B' });
   assert.equal(goalA.status, 200); assert.equal(goalB.status, 200);
@@ -166,10 +166,10 @@ async function main() {
   const goalGet = await request('GET', `/api/goals/${aId}?includeChildren=true`);
   assert.equal(goalGet.status, 200);
   assert.ok(Array.isArray(goalGet.body.goal.children));
-  if (Number.isFinite(createdTodoId)) {
-    const addItems = await request('POST', `/api/goals/${aId}/items`, { todos: [createdTodoId] });
+  if (Number.isFinite(createdTaskId)) {
+    const addItems = await request('POST', `/api/goals/${aId}/items`, { tasks: [createdTaskId] });
     assert.equal(addItems.status, 200);
-    const remItem = await request('DELETE', `/api/goals/${aId}/items/todo/${createdTodoId}`);
+    const remItem = await request('DELETE', `/api/goals/${aId}/items/task/${createdTaskId}`);
     assert.equal(remItem.status, 200);
   }
   const remChild = await request('DELETE', `/api/goals/${aId}/children/${bId}`);
@@ -177,14 +177,14 @@ async function main() {
 
   // Idempotency replay: same payload and Idempotency-Key
   const idemKey = 'test-key-1';
-  const idemPayload = [{ kind: 'todo', action: 'create', title: 'Idem Task', scheduledFor: null, recurrence: { type: 'none' } }];
+  const idemPayload = [{ kind: 'task', action: 'create', title: 'Idem Task', scheduledFor: null, recurrence: { type: 'none' } }];
   const first = await applyOperationsMCP(idemPayload, idemKey);
   const second = await applyOperationsMCP(idemPayload, idemKey);
   // Ensure indexing has been applied before asserting search results
-  const idemSearch = await request('GET', '/api/todos/search?query=idem');
+  const idemSearch = await request('GET', '/api/tasks/search?query=idem');
   assert.equal(idemSearch.status, 200);
-  const idemCount = idemSearch.body.todos.filter(t => String(t.title || '').toLowerCase().includes('idem task')).length;
-  assert.ok(idemCount >= 1, 'Expected at least one todo with title containing "Idem Task"');
+  const idemCount = idemSearch.body.tasks.filter(t => String(t.title || '').toLowerCase().includes('idem task')).length;
+  assert.ok(idemCount >= 1, 'Expected at least one task with title containing "Idem Task"');
 
   // Bulk ops should be rejected in MCP (tool doesn't exist)
   const bulkResult = await callMCPTool('bulk_update', { where: {}, set: { title: 'x' } });
@@ -194,15 +194,15 @@ async function main() {
   assert.equal(bulkResult.results[0].error, 'unknown_operation_type');
 
   // Too many operations (cap = 20) - MCP doesn't have this limit, but we can test it
-  const tooMany = Array.from({ length: 21 }, (_, i) => ({ kind: 'todo', action: 'create', title: `X${i}`, recurrence: { type: 'none' } }));
+  const tooMany = Array.from({ length: 21 }, (_, i) => ({ kind: 'task', action: 'create', title: `X${i}`, recurrence: { type: 'none' } }));
   // MCP processes operations individually, so this should work
   const capResult = await applyOperationsMCP(tooMany);
   assert.ok(Array.isArray(capResult.results));
 
-  // Unified schedule basic sanity (todos+events)
+  // Unified schedule basic sanity (tasks+events)
   const today = ymd();
-  // Create a one-off todo and event for today
-  await applyOperationsMCP([{ kind: 'todo', action: 'create', title: 'Sched T', scheduledFor: today, recurrence: { type: 'none' } }]);
+  // Create a one-off task and event for today
+  await applyOperationsMCP([{ kind: 'task', action: 'create', title: 'Sched T', scheduledFor: today, recurrence: { type: 'none' } }]);
   await applyOperationsMCP([{ kind: 'event', action: 'create', title: 'Sched E', scheduledFor: today, startTime: '08:00', endTime: '09:00', recurrence: { type: 'none' } }]);
 
   // Assistant endpoints

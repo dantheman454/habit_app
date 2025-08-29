@@ -3,9 +3,9 @@ export class OperationExecutors {
     this.db = dbService;
   }
   
-  async todoCreate(op) {
+  async taskCreate(op) {
     try {
-      const todo = await this.db.createTodo({
+      const task = await this.db.createTask({
         title: op.title,
         notes: String(op.notes || ''),
         scheduledFor: op.scheduledFor || null,
@@ -15,16 +15,13 @@ export class OperationExecutors {
         context: op.context
       });
       
-      return {
-        todo,
-        created: true
-      };
+      return { task, created: true };
     } catch (error) {
-      throw new Error(`Failed to create todo: ${error.message}`);
+      throw new Error(`Failed to create task: ${error.message}`);
     }
   }
   
-  async todoUpdate(op) {
+  async taskUpdate(op) {
     try {
       const updateData = {};
       
@@ -34,52 +31,46 @@ export class OperationExecutors {
       if (op.timeOfDay !== undefined) updateData.timeOfDay = op.timeOfDay;
       if (op.recurrence !== undefined) updateData.recurrence = op.recurrence;
       
-      const todo = await this.db.updateTodo(op.id, updateData);
+      const task = await this.db.updateTask(op.id, updateData);
       
-      if (!todo) {
-        throw new Error(`Todo with ID ${op.id} not found`);
+      if (!task) {
+        throw new Error(`Task with ID ${op.id} not found`);
       }
       
-      return {
-        todo,
-        updated: true
-      };
+      return { task, updated: true };
     } catch (error) {
-      throw new Error(`Failed to update todo: ${error.message}`);
+      throw new Error(`Failed to update task: ${error.message}`);
     }
   }
   
-  async todoDelete(op) {
+  async taskDelete(op) {
     try {
-      // Check if todo exists before deleting
-      const todo = await this.db.getTodoById(op.id);
-      if (!todo) {
-        throw new Error(`Todo with ID ${op.id} not found`);
+      // Check if task exists before deleting
+      const task = await this.db.getTaskById(op.id);
+      if (!task) {
+        throw new Error(`Task with ID ${op.id} not found`);
       }
       
-      await this.db.deleteTodo(op.id);
-      
-      return {
-        deleted: true
-      };
+      await this.db.deleteTask(op.id);
+      return { deleted: true };
     } catch (error) {
-      throw new Error(`Failed to delete todo: ${error.message}`);
+      throw new Error(`Failed to delete task: ${error.message}`);
     }
   }
 
-  async todoSetStatus(op) {
+  async taskSetStatus(op) {
     try {
       const occurrenceDate = op.occurrenceDate;
       const status = String(op.status);
       if (occurrenceDate) {
-        const updated = await this.db.setTodoOccurrenceStatus({ id: op.id, occurrenceDate, status });
-        return { todo: updated, updated: true };
+        const updated = await this.db.setTaskOccurrenceStatus({ id: op.id, occurrenceDate, status });
+        return { task: updated, updated: true };
       }
-      const todo = await this.db.updateTodo(op.id, { status });
-      if (!todo) throw new Error(`Todo with ID ${op.id} not found`);
-      return { todo, updated: true };
+      const task = await this.db.updateTask(op.id, { status });
+      if (!task) throw new Error(`Task with ID ${op.id} not found`);
+      return { task, updated: true };
     } catch (error) {
-      throw new Error(`Failed to set todo status: ${error.message}`);
+      throw new Error(`Failed to set task status: ${error.message}`);
     }
   }
   

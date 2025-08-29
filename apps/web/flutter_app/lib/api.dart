@@ -22,11 +22,11 @@ final Dio api = Dio(BaseOptions(baseUrl: _computeApiBase()));
 Future<List<dynamic>> fetchScheduled({
   required String from,
   required String to,
-  String? status, // 'pending' | 'completed' | 'skipped' (todos only)
+  String? status, // 'pending' | 'completed' | 'skipped' (tasks only)
   String? context, // 'school' | 'personal' | 'work' | null for 'all'
 }) async {
   final res = await api.get(
-    '/api/todos',
+    '/api/tasks',
     queryParameters: {
       'from': from,
       'to': to,
@@ -34,32 +34,31 @@ Future<List<dynamic>> fetchScheduled({
       if (context != null) 'context': context,
     },
   );
-  return (res.data['todos'] as List<dynamic>);
+  return (res.data['tasks'] as List<dynamic>);
 }
 
 Future<List<dynamic>> fetchScheduledAllTime({
-  String? status, // todos only
+  String? status, // tasks only
   String? context, // 'school' | 'personal' | 'work' | null for 'all'
 }) async {
   final res = await api.get(
-    '/api/todos',
+    '/api/tasks',
     queryParameters: {
       if (status != null) 'status': status,
       if (context != null) 'context': context,
     },
   );
-  return (res.data['todos'] as List<dynamic>);
+  return (res.data['tasks'] as List<dynamic>);
 }
 
-
-Future<List<dynamic>> searchTodos(
+Future<List<dynamic>> searchTasks(
   String q, {
-  String? status, // todos only
+  String? status, // tasks only
   String? context, // 'school' | 'personal' | 'work' | null for 'all'
   CancelToken? cancelToken,
 }) async {
   final res = await api.get(
-    '/api/todos/search',
+    '/api/tasks/search',
     queryParameters: {
       'query': q,
       if (status != null) 'status': status,
@@ -67,15 +66,15 @@ Future<List<dynamic>> searchTodos(
     },
     cancelToken: cancelToken,
   );
-  return (res.data['todos'] as List<dynamic>);
+  return (res.data['tasks'] as List<dynamic>);
 }
 
-// Unified search (server-side merge of todos + events; habits optional later)
+// Unified search (server-side merge of tasks + events; habits optional later)
 Future<List<dynamic>> searchUnified(
   String q, {
-  String scope = 'all', // 'todo' | 'event' | 'habit' | 'all'
+  String scope = 'all', // 'task' | 'event' | 'habit' | 'all'
   bool? completed, // applies to events/habits only
-  String? statusTodo, // applies to todos only
+  String? statusTask, // applies to tasks only
   String? context, // 'school' | 'personal' | 'work' | null for 'all'
   CancelToken? cancelToken,
   int? limit,
@@ -86,7 +85,7 @@ Future<List<dynamic>> searchUnified(
       'q': q,
       if (scope.isNotEmpty) 'scope': scope,
       if (completed != null) 'completed': completed.toString(),
-      if (statusTodo != null) 'status_todo': statusTodo,
+      if (statusTask != null) 'status_task': statusTask,
       if (context != null) 'context': context,
       if (limit != null) 'limit': limit,
     },
@@ -95,33 +94,33 @@ Future<List<dynamic>> searchUnified(
   return (res.data['items'] as List<dynamic>);
 }
 
-Future<Map<String, dynamic>> createTodo(Map<String, dynamic> data) async {
-  final res = await api.post('/api/todos', data: data);
-  return Map<String, dynamic>.from(res.data['todo']);
+Future<Map<String, dynamic>> createTask(Map<String, dynamic> data) async {
+  final res = await api.post('/api/tasks', data: data);
+  return Map<String, dynamic>.from(res.data['task']);
 }
 
-Future<Map<String, dynamic>> updateTodo(
+Future<Map<String, dynamic>> updateTask(
   int id,
   Map<String, dynamic> patch,
 ) async {
-  final res = await api.patch('/api/todos/$id', data: patch);
-  return Map<String, dynamic>.from(res.data['todo']);
+  final res = await api.patch('/api/tasks/$id', data: patch);
+  return Map<String, dynamic>.from(res.data['task']);
 }
 
-Future<Map<String, dynamic>> setTodoOccurrenceStatus(
+Future<Map<String, dynamic>> setTaskOccurrenceStatus(
   int id,
   String occurrenceDate,
   String status, // 'pending' | 'completed' | 'skipped'
 ) async {
   final res = await api.patch(
-    '/api/todos/$id/occurrence',
+    '/api/tasks/$id/occurrence',
     data: {'occurrenceDate': occurrenceDate, 'status': status},
   );
-  return Map<String, dynamic>.from(res.data['todo']);
+  return Map<String, dynamic>.from(res.data['task']);
 }
 
-Future<void> deleteTodo(int id) async {
-  await api.delete('/api/todos/$id');
+Future<void> deleteTask(int id) async {
+  await api.delete('/api/tasks/$id');
 }
 
 Future<Map<String, dynamic>> assistantMessage(
@@ -207,7 +206,7 @@ Future<Map<String, dynamic>> assistantMessage(
     Map<String, dynamic>? result;
     final close = sse.startSse(
       uri: uri,
-  onEvent: (event, data) {
+      onEvent: (event, data) {
         try {
           final obj = jsonDecode(data) as Map<String, dynamic>;
           // Emit correlationId ASAP for any event that carries it
@@ -218,10 +217,10 @@ Future<Map<String, dynamic>> assistantMessage(
           if (event == 'clarify') {
             if (onClarify != null) {
               final q = (obj['question'] as String?) ?? '';
-        final optsRaw = obj['options'];
-        final opts = (optsRaw is List)
-          ? optsRaw.map((e) => Map<String, dynamic>.from(e)).toList()
-          : const <Map<String, dynamic>>[];
+              final optsRaw = obj['options'];
+              final opts = (optsRaw is List)
+                ? optsRaw.map((e) => Map<String, dynamic>.from(e)).toList()
+                : const <Map<String, dynamic>>[];
               if (q.isNotEmpty) onClarify(q, opts);
             }
           } else if (event == 'stage') {
@@ -323,10 +322,10 @@ Future<Map<String, dynamic>> assistantMessage(
         'options': {if (clientContext != null) 'client': clientContext},
       },
     );
-  final map = Map<String, dynamic>.from(res.data);
+    final map = Map<String, dynamic>.from(res.data);
     try {
       final cid = (map['correlationId'] as String?) ?? '';
-      if (cid.isNotEmpty && onTraceId != null) onTraceId(cid);
+      if (cid.isNotEmpty) onTraceId?.call(cid);
     } catch (_) {}
     return map;
   }
@@ -355,7 +354,7 @@ Future<Map<String, dynamic>?> getGoal(
   );
   return (res.data['goal'] as Map?) == null
       ? null
-  : Map<String, dynamic>.from(res.data['goal']);
+      : Map<String, dynamic>.from(res.data['goal']);
 }
 
 Future<Map<String, dynamic>> createGoal(Map<String, dynamic> data) async {
@@ -375,18 +374,18 @@ Future<void> deleteGoal(int id) async {
   await api.delete('/api/goals/$id');
 }
 
-Future<void> addGoalItems(int id, {List<int>? todos, List<int>? events}) async {
+Future<void> addGoalItems(int id, {List<int>? tasks, List<int>? events}) async {
   await api.post(
     '/api/goals/$id/items',
     data: {
-      if (todos != null) 'todos': todos,
+      if (tasks != null) 'tasks': tasks,
       if (events != null) 'events': events,
     },
   );
 }
 
-Future<void> removeGoalTodoItem(int goalId, int todoId) async {
-  await api.delete('/api/goals/$goalId/items/todo/$todoId');
+Future<void> removeGoalTaskItem(int goalId, int taskId) async {
+  await api.delete('/api/goals/$goalId/items/task/$taskId');
 }
 
 Future<void> removeGoalEventItem(int goalId, int eventId) async {
@@ -436,7 +435,6 @@ Future<Map<String, dynamic>> updateEvent(
 Future<void> deleteEvent(int id) async {
   await api.delete('/api/events/$id');
 }
-
 
 Future<List<dynamic>> searchEvents(
   String q, {
@@ -524,20 +522,20 @@ Future<List<dynamic>> searchHabits(
 
 Future<void> linkHabitItems(
   int habitId, {
-  List<int>? todos,
+  List<int>? tasks,
   List<int>? events,
 }) async {
   await api.post(
     '/api/habits/$habitId/items',
     data: {
-      if (todos != null) 'todos': todos,
+      if (tasks != null) 'tasks': tasks,
       if (events != null) 'events': events,
     },
   );
 }
 
-Future<void> unlinkHabitTodo(int habitId, int todoId) async {
-  await api.delete('/api/habits/$habitId/items/todo/$todoId');
+Future<void> unlinkHabitTask(int habitId, int taskId) async {
+  await api.delete('/api/habits/$habitId/items/task/$taskId');
 }
 
 Future<void> unlinkHabitEvent(int habitId, int eventId) async {
@@ -550,7 +548,7 @@ Future<List<dynamic>> fetchSchedule({
   required String to,
   List<String>? kinds,
   bool? completed, // events/habits only
-  String? statusTodo, // todos only
+  String? statusTask, // tasks only
   String? context, // 'school' | 'personal' | 'work' | null for 'all'
 }) async {
   final res = await api.get(
@@ -560,7 +558,7 @@ Future<List<dynamic>> fetchSchedule({
       'to': to,
       if (kinds != null && kinds.isNotEmpty) 'kinds': kinds.join(','),
       if (completed != null) 'completed': completed.toString(),
-      if (statusTodo != null) 'status_todo': statusTodo,
+      if (statusTask != null) 'status_task': statusTask,
       if (context != null) 'context': context,
     },
   );
@@ -689,9 +687,6 @@ Future<Map<String, dynamic>> dryRunOperationsMCP(
 }
 
 // Preview operations (client-side shim)
-// Builds a lightweight preview payload expected by the UI:
-// { affected: [ { op, before }, ... ] }
-// Attempts to fetch current entity state for update/delete/complete ops; falls back to null.
 Future<Map<String, dynamic>> previewOperations(
   List<Map<String, dynamic>> ops,
 ) async {
@@ -701,7 +696,7 @@ Future<Map<String, dynamic>> previewOperations(
     Map<String, dynamic>? before;
     try {
       final action = (op['action'] ?? op['op'] ?? '').toString();
-      final kind = (op['kind'] ?? 'todo').toString();
+      final kind = (op['kind'] ?? 'task').toString();
       final dynamic idRaw = op['id'];
       final bool needsBefore =
           action == 'update' || action == 'delete' || action == 'complete' || action == 'set_status' || action == 'complete_occurrence';
@@ -713,7 +708,7 @@ Future<Map<String, dynamic>> previewOperations(
           } else if (kind == 'habit') {
             before = await _getHabitById(id);
           } else {
-            before = await _getTodoById(id);
+            before = await _getTaskById(id);
           }
         }
       }
@@ -725,10 +720,10 @@ Future<Map<String, dynamic>> previewOperations(
 }
 
 // Helpers to fetch current entity state for preview
-Future<Map<String, dynamic>?> _getTodoById(int id) async {
+Future<Map<String, dynamic>?> _getTaskById(int id) async {
   try {
-    final res = await api.get('/api/todos/$id');
-    final m = (res.data['todo'] as Map?);
+    final res = await api.get('/api/tasks/$id');
+    final m = (res.data['task'] as Map?);
     return m == null ? null : Map<String, dynamic>.from(m);
   } catch (_) {
     return null;
@@ -756,7 +751,7 @@ Future<Map<String, dynamic>?> _getHabitById(int id) async {
 }
 
 String _operationToToolName(Map<String, dynamic> op) {
-  final kind = op['kind'] ?? 'todo';
+  final kind = op['kind'] ?? 'task';
   final action = op['action'] ?? op['op'] ?? 'create';
   
   switch (action) {

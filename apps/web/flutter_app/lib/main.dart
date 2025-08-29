@@ -6,7 +6,7 @@ import 'widgets/assistant_handle.dart';
 import 'views/day_view.dart';
 import 'views/week_view.dart';
 import 'views/month_view.dart';
-import 'widgets/todo_row.dart' as row;
+import 'widgets/task_row.dart' as row;
 
 
 import 'widgets/fab_actions.dart';
@@ -27,17 +27,17 @@ class TestHooks {
   static bool skipRefresh = false;
 }
 
-var createTodoFn = (Map<String, dynamic> data) async {
-  final res = await api.callMCPTool('create_todo', data);
+var createTaskFn = (Map<String, dynamic> data) async {
+  final res = await api.callMCPTool('create_task', data);
   try {
     final results = (res['results'] as List<dynamic>?);
     if (results != null && results.isNotEmpty) {
       final first = results.first as Map<String, dynamic>;
-      final todo = first['todo'];
-      if (todo is Map) return Map<String, dynamic>.from(todo);
+      final task = first['task'];
+      if (task is Map) return Map<String, dynamic>.from(task);
     }
   } catch (_) {}
-  throw Exception('create_todo_failed');
+  throw Exception('create_task_failed');
 };
 var createEventFn = api.createEvent;
 var createHabitFn = api.createHabit;
@@ -47,24 +47,24 @@ void main() {
 }
 
 // ----- Models -----
-class Todo {
+class Task {
   final int id;
   String title;
   String notes;
-  String? kind; // 'todo'|'event'|'habit' for unified schedule rows
+  String? kind; // 'task'|'event'|'habit' for unified schedule rows
   String? scheduledFor; // YYYY-MM-DD or null
   String? timeOfDay; // HH:MM or null
   String? endTime; // HH:MM or null (for events)
   String? priority; // low|medium|high
   bool completed;
-  String? status; // 'pending'|'completed'|'skipped' for todos
+  String? status; // 'pending'|'completed'|'skipped' for tasks
   Map<String, dynamic>? recurrence; // {type,...}
   int? masterId; // present on expanded occurrences
   String? context; // 'school'|'personal'|'work'
   final String createdAt;
   String updatedAt;
 
-  Todo({
+  Task({
     required this.id,
     required this.title,
     required this.notes,
@@ -77,12 +77,12 @@ class Todo {
     this.status,
     required this.recurrence,
     required this.masterId,
-    this.context,
+    required this.context,
     required this.createdAt,
     required this.updatedAt,
   });
 
-  factory Todo.fromJson(Map<String, dynamic> j) => Todo(
+  factory Task.fromJson(Map<String, dynamic> j) => Task(
     id: j['id'] as int,
     title: j['title'] as String? ?? '',
     notes: j['notes'] as String? ?? '',
@@ -104,7 +104,7 @@ class Todo {
 class LlmOperation {
   final String op; // create|update|delete|complete
   // V3 shape support
-  final String? kind; // todo|event|habit|goal
+  final String? kind; // task|event|habit|goal
   final String? action; // create|update|delete|complete|complete_occurrence
   final int? id;
   final String? title;
@@ -488,7 +488,7 @@ class _HomePageState extends State<HomePage> {
   int? _highlightedId;
 
   // Search filter state
-  String _searchScope = 'all'; // 'all', 'todo', 'event', 'habit'
+  String _searchScope = 'all'; // 'all', 'task', 'event', 'habit'
   String? _searchContext; // null for 'all', or 'personal', 'work', 'school'
   String _searchStatusTodo = 'pending'; // 'pending', 'completed', 'skipped'
   bool?
@@ -508,9 +508,9 @@ class _HomePageState extends State<HomePage> {
   String? selectedContext; // 'school', 'personal', 'work', null for 'all'
 
   // Data
-  List<Todo> scheduled = [];
-  List<Todo> scheduledAllTime = [];
-  List<Todo> searchResults = [];
+  List<Task> scheduled = [];
+  List<Task> scheduledAllTime = [];
+  List<Task> searchResults = [];
   // Habit stats for current range (by habit id)
   Map<int, Map<String, dynamic>> habitStatsById = {};
   // Goal badges mapping: key `${kind}:${masterOrId}` -> { goalId, title }
@@ -520,8 +520,8 @@ class _HomePageState extends State<HomePage> {
   int _habitFocusCol = 0; // 0..6
 
   // Unified schedule filters (chips)
-  // Default to show both todos and events; tabs can filter to specific types.
-  Set<String> _kindFilter = <String>{'todo', 'event'};
+  // Default to show both tasks and events; tabs can filter to specific types.
+  Set<String> _kindFilter = <String>{'task', 'event'};
 
   bool loading = false;
   String? message;
@@ -596,9 +596,9 @@ class _HomePageState extends State<HomePage> {
       if (saved == 'goals') {
         mainView = MainView.goals;
       } else {
-        // Default to tasks view with both todos and events
+        // Default to tasks view with both tasks and events
         mainView = MainView.tasks;
-        _kindFilter = <String>{'todo', 'event'};
+        _kindFilter = <String>{'task', 'event'};
       }
     } catch (_) {}
     if (!TestHooks.skipRefresh) {
@@ -710,7 +710,7 @@ class _HomePageState extends State<HomePage> {
             }
           : {'type': _qaSelectedRecurrence};
 
-      final created = await createTodoFn({
+      final created = await createTaskFn({
         'title': title,
         'notes': notes,
         'scheduledFor': scheduledFor,
@@ -728,7 +728,7 @@ class _HomePageState extends State<HomePage> {
       });
       if (!TestHooks.skipRefresh) {
         try {
-          scheduled.insert(0, Todo.fromJson(created));
+          scheduled.insert(0, Task.fromJson(created));
         } catch (_) {}
       }
       if (!TestHooks.skipRefresh) await _refreshAll();
@@ -1067,11 +1067,11 @@ class _HomePageState extends State<HomePage> {
     try {
       final r = rangeForView(anchor, view);
       // Day/Week/Month: use unified schedule for Tasks and Habits
-      List<Todo> sList;
+      List<Task> sList;
       if (view == ViewMode.day ||
           view == ViewMode.week ||
           view == ViewMode.month) {
-        // Select kinds strictly by tab: tasks (todo or event) or habits
+        // Select kinds strictly by tab: tasks (task or event) or habits
         final kinds = (mainView == MainView.habits)
             ? <String>['habit']
             : (_kindFilter.toList());
@@ -1080,11 +1080,11 @@ class _HomePageState extends State<HomePage> {
           to: r.to,
           kinds: kinds,
           completed: showCompleted ? null : false,
-          statusTodo: showCompleted ? null : 'pending',
+          statusTask: showCompleted ? null : 'pending',
           context: selectedContext,
         );
         sList = raw
-            .map((e) => Todo.fromJson(Map<String, dynamic>.from(e)))
+            .map((e) => Task.fromJson(Map<String, dynamic>.from(e)))
             .toList();
 
         // Load habit stats for the same range to display streak badges
@@ -1128,7 +1128,7 @@ class _HomePageState extends State<HomePage> {
           context: selectedContext,
         );
         sList = scheduledRaw
-            .map((e) => Todo.fromJson(e as Map<String, dynamic>))
+            .map((e) => Task.fromJson(e as Map<String, dynamic>))
             .toList();
       }
       final scheduledAllRaw = await api.fetchScheduledAllTime(
@@ -1136,35 +1136,35 @@ class _HomePageState extends State<HomePage> {
         context: selectedContext,
       );
       // Load events data when needed for "All" or "Events" views
-      List<Todo> eventsAllList = const <Todo>[];
+      List<Task> eventsAllList = const <Task>[];
       if (mainView == MainView.tasks &&
-          (_kindFilter.contains('event') || _kindFilter.contains('todo'))) {
+          (_kindFilter.contains('event') || _kindFilter.contains('task'))) {
         try {
           final evAllRaw = await api.listEvents(context: selectedContext);
           eventsAllList = evAllRaw
-              .map((e) => Todo.fromJson(Map<String, dynamic>.from(e)))
+              .map((e) => Task.fromJson(Map<String, dynamic>.from(e)))
               .toList();
         } catch (_) {}
       }
       final sAllList = scheduledAllRaw
-          .map((e) => Todo.fromJson(e as Map<String, dynamic>))
+          .map((e) => Task.fromJson(e as Map<String, dynamic>))
           .toList();
 
       // counts map was unused; remove to satisfy analyzer while preserving computed components
       setState(() {
         scheduled = sList;
-        // Combine todos and events for "All" view, or use specific list for filtered views
+        // Combine tasks and events for "All" view, or use specific list for filtered views
         if (mainView == MainView.tasks &&
-            _kindFilter.contains('todo') &&
+            _kindFilter.contains('task') &&
             _kindFilter.contains('event')) {
-          // "All" view: combine todos and events
+          // "All" view: combine tasks and events
           scheduledAllTime = [...sAllList, ...eventsAllList];
         } else if (mainView == MainView.tasks &&
             _kindFilter.contains('event')) {
           // "Events" view: events only
           scheduledAllTime = eventsAllList;
         } else {
-          // "Tasks" view or other: todos only
+          // "Tasks" view or other: tasks only
           scheduledAllTime = sAllList;
         }
         message = null;
@@ -1203,7 +1203,7 @@ class _HomePageState extends State<HomePage> {
   List<Map<String, dynamic>> _anchorTasksAsMaps() {
     final List<Map<String, dynamic>> list = [];
     for (final t in _currentList()) {
-      if ((t.kind == 'todo' || t.kind == null) && t.scheduledFor == anchor) {
+      if ((t.kind == 'task' || t.kind == null) && t.scheduledFor == anchor) {
         // Compute overdue only when viewing today's Day view
         bool isOverdue = false;
         try {
@@ -1245,22 +1245,23 @@ class _HomePageState extends State<HomePage> {
     try {
       final t = _currentList().firstWhere(
         (e) =>
-            (e.kind == 'todo' || e.kind == null) &&
+            (e.kind == 'task' || e.kind == null) &&
             (e.id == id || e.masterId == id),
         orElse: () => throw Exception('todo_not_found'),
       );
       if (t.masterId != null && t.scheduledFor != null) {
-        await api.callMCPTool('set_todo_status', {
+        await api.callMCPTool('set_task_status', {
           'id': t.masterId!,
           'status': status,
           'occurrenceDate': t.scheduledFor!,
         });
       } else {
-        await api.callMCPTool('set_todo_status', {
+        await api.callMCPTool('set_task_status', {
           'id': t.id,
           'status': status,
         });
       }
+      setState(() => _searchStatusTodo = status);
       await _refreshAll();
     } catch (_) {}
   }
@@ -1280,13 +1281,13 @@ class _HomePageState extends State<HomePage> {
         );
         if (detail == null) continue;
         final title = (detail['title'] as String?) ?? '';
-        // Todos
-        if (detail['items'] is Map && detail['items']['todos'] is List) {
-          for (final t in (detail['items']['todos'] as List)) {
+        // Tasks
+        if (detail['items'] is Map && detail['items']['tasks'] is List) {
+          for (final t in (detail['items']['tasks'] as List)) {
             final tm = Map<String, dynamic>.from(t);
             final id = tm['id'] as int?;
             if (id != null) {
-              map['todo:$id'] = {'goalId': gid, 'title': title};
+              map['task:$id'] = {'goalId': gid, 'title': title};
             }
           }
         }
@@ -1328,7 +1329,7 @@ class _HomePageState extends State<HomePage> {
         q,
         scope: _searchScope,
         completed: _searchCompleted ?? (showCompleted ? null : false),
-        statusTodo: _searchStatusTodo,
+        statusTask: _searchStatusTodo,
         context: _searchContext,
         cancelToken: _searchCancelToken,
         limit: 30,
@@ -1341,7 +1342,7 @@ class _HomePageState extends State<HomePage> {
             m['timeOfDay'] == null) {
           m['timeOfDay'] = m['startTime'];
         }
-        return Todo.fromJson(m);
+        return Task.fromJson(m);
       }).toList();
       setState(() {
         searchResults = items;
@@ -1491,9 +1492,9 @@ class _HomePageState extends State<HomePage> {
                                             () => _setSearchScope('all'),
                                           ),
                                           _buildFilterChip(
-                                            'Todos',
-                                            _searchScope == 'todo',
-                                            () => _setSearchScope('todo'),
+                                            'Tasks',
+                                            _searchScope == 'task',
+                                            () => _setSearchScope('task'),
                                           ),
                                           _buildFilterChip(
                                             'Events',
@@ -1535,9 +1536,9 @@ class _HomePageState extends State<HomePage> {
                                           ),
                                         ],
                                       ),
-                                      if (_searchScope == 'todo') ...[
+                                      if (_searchScope == 'task') ...[
                                         const SizedBox(height: 8),
-                                        // Todo status chips (only when scope is todo)
+                                        // Task status chips (only when scope is task)
                                         Wrap(
                                           spacing: 6,
                                           runSpacing: 6,
@@ -1623,10 +1624,10 @@ class _HomePageState extends State<HomePage> {
                                       builder: (ctx) {
                                         final theme = Theme.of(ctx);
                                         // Group results by date, then type
-                                        final Map<String, List<Todo>> byDate = {};
+                                        final Map<String, List<Task>> byDate = {};
                                         for (final t in results) {
                                           final k = (t.scheduledFor ?? 'unscheduled');
-                                          (byDate[k] ??= <Todo>[]).add(t);
+                                          (byDate[k] ??= <Task>[]).add(t);
                                         }
                                         final orderedDates = byDate.keys.toList()
                                           ..sort((a, b) => a.compareTo(b));
@@ -1647,7 +1648,7 @@ class _HomePageState extends State<HomePage> {
                                             switch (k) {
                                               case 'event':
                                                 return 0;
-                                              case 'todo':
+                                              case 'task':
                                               case null:
                                                 return 1;
                                               case 'habit':
@@ -1691,7 +1692,7 @@ class _HomePageState extends State<HomePage> {
                                                             runSpacing: 4,
                                                             children: [
                                                               _chip((t.scheduledFor ?? 'unscheduled')),
-                                                              _buildKindChip(t.kind ?? 'todo'),
+                                                              _buildKindChip(t.kind ?? 'task'),
                                                             ],
                                                           ),
                                                         ],
@@ -1792,7 +1793,7 @@ class _HomePageState extends State<HomePage> {
         icon = Icons.event;
         color = Colors.green;
         break;
-      case 'todo':
+      case 'task':
         icon = Icons.task;
         color = Colors.blue;
         break;
@@ -1830,7 +1831,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Future<void> _selectSearchResult(Todo t) async {
+  Future<void> _selectSearchResult(Task t) async {
     _removeSearchOverlay();
     _searchFocus.unfocus();
     searchCtrl.clear();
@@ -1846,19 +1847,19 @@ class _HomePageState extends State<HomePage> {
           mainView = MainView.tasks;
           // Ensure events are visible (add to filter if not present)
           if (!_kindFilter.contains('event')) {
-            _kindFilter = <String>{'todo', 'event'};
+            _kindFilter = <String>{'task', 'event'};
           }
         });
         await _refreshAll();
       }
     } else {
-      // treat default as todo
-      if (!(mainView == MainView.tasks && _kindFilter.contains('todo'))) {
+      // treat default as task
+      if (!(mainView == MainView.tasks && _kindFilter.contains('task'))) {
         setState(() {
           mainView = MainView.tasks;
-          // Ensure todos are visible (add to filter if not present)
-          if (!_kindFilter.contains('todo')) {
-            _kindFilter = <String>{'todo', 'event'};
+          // Ensure tasks are visible (add to filter if not present)
+          if (!_kindFilter.contains('task')) {
+            _kindFilter = <String>{'task', 'event'};
           }
         });
         await _refreshAll();
@@ -1879,7 +1880,7 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _toggleCompleted(Todo t) async {
+  Future<void> _toggleCompleted(Task t) async {
     try {
       if (t.kind == 'event') {
         // Event completion is not supported
@@ -1898,17 +1899,17 @@ class _HomePageState extends State<HomePage> {
           });
         }
       } else {
-        // todo: use status model
+        // task: use status model
         if (t.masterId != null && t.scheduledFor != null) {
           final next = (t.status == 'completed') ? 'pending' : 'completed';
-          await api.callMCPTool('set_todo_status', {
+          await api.callMCPTool('set_task_status', {
             'id': t.masterId!,
             'status': next,
             'occurrenceDate': t.scheduledFor!,
           });
         } else {
           final next = (t.status == 'completed') ? 'pending' : 'completed';
-          await api.callMCPTool('set_todo_status', {
+          await api.callMCPTool('set_task_status', {
             'id': t.id,
             'status': next,
           });
@@ -1920,19 +1921,19 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _toggleSkip(Todo t) async {
+  Future<void> _toggleSkip(Task t) async {
     try {
-      if (t.kind != 'todo') return;
+      if (t.kind != 'task') return;
       if (t.masterId != null && t.scheduledFor != null) {
         final next = (t.status == 'skipped') ? 'pending' : 'skipped';
-        await api.callMCPTool('set_todo_status', {
+        await api.callMCPTool('set_task_status', {
           'id': t.masterId!,
           'status': next,
           'occurrenceDate': t.scheduledFor!,
         });
       } else {
         final next = (t.status == 'skipped') ? 'pending' : 'skipped';
-        await api.callMCPTool('set_todo_status', {'id': t.id, 'status': next});
+        await api.callMCPTool('set_task_status', {'id': t.id, 'status': next});
       }
       await _refreshAll();
     } catch (e) {
@@ -1940,42 +1941,14 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _deleteTodo(Todo t) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (c) => AlertDialog(
-        title: Text('Delete ${t.kind ?? 'todo'}?'),
-        content: Text(t.title),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(c, true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true) {
-      return;
-    }
+  Future<void> _deleteTask(Task t) async {
+    // Keep method name for minimal change footprint but semantics are Task
     try {
-      if (t.kind == 'event') {
-        await api.deleteEvent(t.id);
-      } else if (t.kind == 'habit') {
-        await api.deleteHabit(t.id);
-      } else {
-        await api.callMCPTool('delete_todo', {'id': t.id});
-      }
-      await _refreshAll();
-    } catch (e) {
-      setState(() => message = 'Delete failed: $e');
-    }
+      await api.deleteTask(t.id);
+    } catch (_) {}
   }
 
-  Future<void> _editHabit(Todo t) async {
+  Future<void> _editHabit(Task t) async {
     final titleCtrl = TextEditingController(text: t.title);
     final notesCtrl = TextEditingController(text: t.notes);
     final dateCtrl = TextEditingController(text: t.scheduledFor ?? '');
@@ -2084,7 +2057,7 @@ class _HomePageState extends State<HomePage> {
                       ),
                     const SizedBox(height: 12),
                     const Text(
-                      'Link existing todos (optional)',
+                      'Link existing tasks (optional)',
                       style: TextStyle(fontWeight: FontWeight.w600),
                     ),
                     const SizedBox(height: 4),
@@ -2092,7 +2065,7 @@ class _HomePageState extends State<HomePage> {
                       controller: todoSearchCtrl,
                       decoration: const InputDecoration(
                         prefixIcon: Icon(Icons.search),
-                        hintText: 'Filter todos...',
+                        hintText: 'Filter tasks...',
                       ),
                       onChanged: (_) => setDlgState(() {}),
                     ),
@@ -2264,7 +2237,7 @@ class _HomePageState extends State<HomePage> {
       if (selectedTodoIds.isNotEmpty || selectedEventIds.isNotEmpty) {
         await api.linkHabitItems(
           t.id,
-          todos: selectedTodoIds.toList(),
+          tasks: selectedTodoIds.toList(),
           events: selectedEventIds.toList(),
         );
       }
@@ -2274,7 +2247,7 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _editTodo(Todo t) async {
+  Future<void> _editTask(Task t) async {
     final titleCtrl = TextEditingController(text: t.title);
     final notesCtrl = TextEditingController(text: t.notes);
     final dateCtrl = TextEditingController(text: t.scheduledFor ?? '');
@@ -2294,7 +2267,7 @@ class _HomePageState extends State<HomePage> {
       builder: (c) => StatefulBuilder(
         builder: (c, setDlgState) {
           return AlertDialog(
-            title: const Text('Edit todo'),
+            title: const Text('Edit task'),
             content: SizedBox(
               width: 420,
               child: Column(
@@ -2453,7 +2426,7 @@ class _HomePageState extends State<HomePage> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Set an anchor date (YYYY-MM-DD) for repeating todos.',
+              'Set an anchor date (YYYY-MM-DD) for repeating tasks.',
             ),
           ),
         );
@@ -2464,14 +2437,14 @@ class _HomePageState extends State<HomePage> {
       if (!patch.containsKey('recurrence')) {
         patch['recurrence'] = t.recurrence ?? {'type': 'none'};
       }
-      await api.updateTodo(t.id, patch);
+      await api.updateTask(t.id, patch);
       await _refreshAll();
     } catch (e) {
       setState(() => message = 'Edit failed: $e');
     }
   }
 
-  Future<void> _editEvent(Todo t) async {
+  Future<void> _editEvent(Task t) async {
     // For events, fetch the original event data to get endTime and location
     Map<String, dynamic>? originalEventData;
     if (t.kind == 'event') {
@@ -2479,7 +2452,7 @@ class _HomePageState extends State<HomePage> {
         final res = await api.api.get('/api/events/${t.id}');
         originalEventData = Map<String, dynamic>.from(res.data['event']);
       } catch (e) {
-        // If fetching fails, use the Todo data
+        // If fetching fails, use the Task data
         print('Failed to fetch original event data: $e');
       }
     }
@@ -2625,7 +2598,7 @@ class _HomePageState extends State<HomePage> {
     );
     if (ok == 'delete') {
       try {
-        await _deleteTodo(t);
+        await _deleteTask(t);
         await _refreshAll();
       } catch (e) {
         setState(() => message = 'Delete failed: $e');
@@ -2727,7 +2700,7 @@ class _HomePageState extends State<HomePage> {
               ? <String>['goal']
               : (_kindFilter.contains('event')
                     ? <String>['event']
-                    : <String>['todo']);
+                    : <String>['task']);
           return {
             'range': {'from': dr.from, 'to': dr.to},
             'kinds': kinds,
@@ -3001,8 +2974,8 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Map<String, List<Todo>> _groupByDate(List<Todo> items) {
-    final map = <String, List<Todo>>{};
+  Map<String, List<Task>> _groupByDate(List<Task> items) {
+    final map = <String, List<Task>>{};
     for (final t in items) {
       final k = t.scheduledFor ?? 'unscheduled';
       map.putIfAbsent(k, () => []).add(t);
@@ -3024,7 +2997,7 @@ class _HomePageState extends State<HomePage> {
     return sorted;
   }
 
-  List<Todo> _currentList() {
+  List<Task> _currentList() {
     // Always return all scheduled items without type filtering
     return scheduled;
   }
@@ -3511,7 +3484,7 @@ class _HomePageState extends State<HomePage> {
                                               right: 16,
                                               bottom: 16,
                                               child: FabActions(
-                                                onCreateTodo: () =>
+                                                onCreateTask: () =>
                                                     _showQuickAddTodo(),
                                                 onCreateEvent: () =>
                                                     _showQuickAddEvent(),
@@ -3891,7 +3864,7 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Widget _buildMonthGrid(Map<String, List<Todo>> groupedByDate) {
+  Widget _buildMonthGrid(Map<String, List<Task>> groupedByDate) {
     final a = parseYmd(anchor);
     final monthName = '${_getMonthName(a.month)} ${a.year}';
     final firstOfMonth = DateTime(a.year, a.month, 1);
@@ -4007,11 +3980,11 @@ class _HomePageState extends State<HomePage> {
 
   Widget _monthCell(
     DateTime d,
-    Map<String, List<Todo>> groupedByDate,
+    Map<String, List<Task>> groupedByDate,
     bool inMonth,
   ) {
     final ymdStr = ymd(d);
-    final items = (groupedByDate[ymdStr] ?? const <Todo>[]);
+    final items = (groupedByDate[ymdStr] ?? const <Task>[]);
     // sort by timeOfDay (nulls first)
     final sorted = items.toList()
       ..sort((a, b) {
@@ -4084,7 +4057,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _monthItemChip(Todo t) {
+  Widget _monthItemChip(Task t) {
     final time = t.timeOfDay;
     final label = (time == null || time.isEmpty) ? t.title : '$time ${t.title}';
 
@@ -4571,8 +4544,8 @@ class _HomePageState extends State<HomePage> {
                   const SizedBox(height: 12),
                   const Text('Items'),
                   const SizedBox(height: 6),
-                  ...(goal['items'] != null && goal['items']['todos'] is List
-                      ? (goal['items']['todos'] as List)
+                  ...(goal['items'] != null && goal['items']['tasks'] is List
+                      ? (goal['items']['tasks'] as List)
                             .map<Map<String, dynamic>>(
                               (e) => Map<String, dynamic>.from(e),
                             )
@@ -4590,7 +4563,7 @@ class _HomePageState extends State<HomePage> {
                                   IconButton(
                                     icon: const Icon(Icons.link_off, size: 16),
                                     onPressed: () async {
-                                      await api.removeGoalTodoItem(
+                                      await api.removeGoalTaskItem(
                                         id,
                                         t['id'] as int,
                                       );
@@ -4671,7 +4644,7 @@ class _HomePageState extends State<HomePage> {
                         child: TextField(
                           controller: addTodoCtrl,
                           decoration: const InputDecoration(
-                            labelText: 'Todo IDs',
+                            labelText: 'Task IDs',
                           ),
                         ),
                       ),
@@ -4688,7 +4661,7 @@ class _HomePageState extends State<HomePage> {
                       FilledButton(
                         onPressed: () async {
                           try {
-                            final todos = addTodoCtrl.text
+                            final tasks = addTodoCtrl.text
                                 .split(',')
                                 .map((s) => int.tryParse(s.trim()))
                                 .whereType<int>()
@@ -4700,7 +4673,7 @@ class _HomePageState extends State<HomePage> {
                                 .toList();
                             await api.addGoalItems(
                               id,
-                              todos: todos.isEmpty ? null : todos,
+                              tasks: tasks.isEmpty ? null : tasks,
                               events: events.isEmpty ? null : events,
                             );
                             if (!mounted) return;
@@ -4946,11 +4919,11 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildRow(Todo t) {
+  Widget _buildRow(Task t) {
     // Determine overdue: only when viewing today's Day view, timed tasks, not completed, and time < now
     bool isOverdue = false;
     try {
-      final bool isResolved = (t.kind == 'todo')
+      final bool isResolved = (t.kind == 'task')
           ? ((t.status == 'completed') || (t.status == 'skipped'))
           : t.completed;
       if (!isResolved && t.scheduledFor != null && t.timeOfDay != null) {
@@ -4968,17 +4941,17 @@ class _HomePageState extends State<HomePage> {
         }
       }
     } catch (_) {}
-    final like = row.TodoLike(
-      id: t.id,
-      title: t.title,
-      notes: t.notes,
-      kind: t.kind,
-      timeOfDay: t.timeOfDay,
-      status: t.status,
-      completed: (t.kind == 'todo') ? (t.status == 'completed') : t.completed,
-      overdue: isOverdue,
-      context: t.context,
-    );
+    final like = <String, dynamic>{
+      'id': t.id,
+      'title': t.title,
+      'notes': t.notes,
+      'kind': t.kind,
+      'timeOfDay': t.timeOfDay,
+      'status': t.status,
+      'completed': (t.kind == 'task') ? (t.status == 'completed') : t.completed,
+      'overdue': isOverdue,
+      'context': t.context,
+    };
     // Build a small extra badge for habits with streaks if stats available
     Widget? extraBadge;
     if (t.kind == 'habit') {
@@ -5006,8 +4979,8 @@ class _HomePageState extends State<HomePage> {
           ),
         ),
       );
-    } else if (t.kind == 'todo' || t.kind == 'event' || t.kind == null) {
-      final key = '${t.kind ?? 'todo'}:${t.masterId ?? t.id}';
+    } else if (t.kind == 'task' || t.kind == 'event' || t.kind == null) {
+      final key = '${t.kind ?? 'task'}:${t.masterId ?? t.id}';
       final info = _itemGoalByKey[key];
       if (info != null) {
         final goalTitle = (info['title'] as String?) ?? 'Goal';
@@ -5046,16 +5019,16 @@ class _HomePageState extends State<HomePage> {
     final key = _rowKeys.putIfAbsent(keyId, () => GlobalKey());
     return KeyedSubtree(
       key: key,
-      child: row.TodoRow(
-        todo: like,
+      child: row.TaskRow(
+        task: like,
         onToggleCompleted: () => _toggleCompleted(t),
-        onToggleSkipped: (t.kind == 'todo') ? () => _toggleSkip(t) : null,
+        onToggleSkipped: (t.kind == 'task') ? () => _toggleSkip(t) : null,
         onEdit: () => (t.kind == 'event')
             ? _editEvent(t)
             : (t.kind == 'habit')
             ? _editHabit(t)
-            : _editTodo(t),
-        onDelete: () => _deleteTodo(t),
+            : _editTask(t),
+        onDelete: () => _deleteTask(t),
         highlighted: _highlightedId == t.id,
         extraBadge: extraBadge,
         onTitleEdited: (newTitle) async {
@@ -5433,7 +5406,7 @@ class _HomePageState extends State<HomePage> {
     if (task.kind == 'event') {
       _editEvent(task);
     } else {
-      _editTodo(task);
+      _editTask(task);
     }
   }
 
@@ -5442,7 +5415,7 @@ class _HomePageState extends State<HomePage> {
       (t) => t.id == taskId,
       orElse: () => scheduledAllTime.firstWhere((t) => t.id == taskId),
     );
-    _deleteTodo(task);
+    _deleteTask(task);
   }
 
   // Helper functions for DayView event operations

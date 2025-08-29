@@ -48,7 +48,7 @@ function ensureSummaryText(text, operations = [], notes = {}) {
 function buildOpKey(op) {
   try {
     return [
-      op.kind || 'todo',
+      op.kind || 'task',
       op.action || op.op || 'create',
       op.id || '',
       op.scheduledFor || '',
@@ -68,7 +68,7 @@ async function buildPreviews(ops) {
     const arr = Array.isArray(ops) ? ops : [];
     for (const op of arr) {
       const action = String(op.action || op.op || '').toLowerCase();
-      const kind = String(op.kind || 'todo').toLowerCase();
+      const kind = String(op.kind || 'task').toLowerCase();
       const needsBefore = ['update','delete','complete','set_status','complete_occurrence'].includes(action);
       let before = null;
       if (needsBefore && op.id != null) {
@@ -76,7 +76,7 @@ async function buildPreviews(ops) {
           const id = Number(op.id);
           if (Number.isFinite(id)) {
             if (kind === 'event') before = await db.getEventById(id);
-            else before = await db.getTodoById(id);
+            else before = await db.getTaskById(id);
           }
         } catch {}
       }

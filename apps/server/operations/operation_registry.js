@@ -8,25 +8,25 @@ export class OperationRegistry {
   }
   
   registerAllOperations(processor) {
-    // Todo operations
-    processor.registerOperationType('todo_create', {
-      validator: OperationValidators.todoCreate,
-      executor: this.executors.todoCreate.bind(this.executors)
+    // Task operations (formerly Todo)
+    processor.registerOperationType('task_create', {
+      validator: OperationValidators.taskCreate,
+      executor: this.executors.taskCreate.bind(this.executors)
     });
     
-    processor.registerOperationType('todo_update', {
-      validator: OperationValidators.todoUpdate,
-      executor: this.executors.todoUpdate.bind(this.executors)
+    processor.registerOperationType('task_update', {
+      validator: OperationValidators.taskUpdate,
+      executor: this.executors.taskUpdate.bind(this.executors)
     });
     
-    processor.registerOperationType('todo_delete', {
-      validator: OperationValidators.todoDelete,
-      executor: this.executors.todoDelete.bind(this.executors)
+    processor.registerOperationType('task_delete', {
+      validator: OperationValidators.taskDelete,
+      executor: this.executors.taskDelete.bind(this.executors)
     });
 
-    processor.registerOperationType('todo_set_status', {
-      validator: OperationValidators.todoSetStatus,
-      executor: this.executors.todoSetStatus.bind(this.executors)
+    processor.registerOperationType('task_set_status', {
+      validator: OperationValidators.taskSetStatus,
+      executor: this.executors.taskSetStatus.bind(this.executors)
     });
     
     // Event operations
@@ -48,10 +48,10 @@ export class OperationRegistry {
   
   getRegisteredOperationTypes() {
     return [
-      'todo_create',
-      'todo_update', 
-      'todo_delete',
-      'todo_set_status',
+      'task_create',
+      'task_update', 
+      'task_delete',
+      'task_set_status',
       'event_create',
       'event_update',
       'event_delete'
@@ -60,7 +60,7 @@ export class OperationRegistry {
   
   getOperationSchema(operationType) {
     const schemas = {
-      'todo_create': {
+      'task_create': {
         type: 'object',
         properties: {
           title: { type: 'string', minLength: 1, maxLength: 255 },
@@ -82,7 +82,7 @@ export class OperationRegistry {
         },
         required: ['title']
       },
-      'todo_update': {
+      'task_update': {
         type: 'object',
         properties: {
           id: { type: 'number', minimum: 1 },
@@ -105,14 +105,14 @@ export class OperationRegistry {
         },
         required: ['id']
       },
-      'todo_delete': {
+      'task_delete': {
         type: 'object',
         properties: {
           id: { type: 'number', minimum: 1 }
         },
         required: ['id']
       },
-      'todo_set_status': {
+      'task_set_status': {
         type: 'object',
         properties: {
           id: { type: 'number', minimum: 1 },
@@ -184,21 +184,21 @@ export class OperationRegistry {
   
   getOperationDocumentation(operationType) {
     const docs = {
-      'todo_create': {
-        description: 'Create a new todo item',
+      'task_create': {
+        description: 'Create a new task item',
         examples: [
           {
-            description: 'Simple todo',
+            description: 'Simple task',
             operation: {
-              kind: 'todo',
+              kind: 'task',
               action: 'create',
               title: 'Buy groceries'
             }
           },
           {
-            description: 'Todo with scheduling',
+            description: 'Task with scheduling',
             operation: {
-              kind: 'todo',
+              kind: 'task',
               action: 'create',
               title: 'Team meeting',
               scheduledFor: '2025-08-20',
@@ -208,13 +208,13 @@ export class OperationRegistry {
           }
         ]
       },
-      'todo_update': {
-        description: 'Update an existing todo item',
+      'task_update': {
+        description: 'Update an existing task item',
         examples: [
           {
             description: 'Update title',
             operation: {
-              kind: 'todo',
+              kind: 'task',
               action: 'update',
               id: 1,
               title: 'Updated task title'
@@ -222,29 +222,29 @@ export class OperationRegistry {
           }
         ]
       },
-      'todo_delete': {
-        description: 'Delete a todo item',
+      'task_delete': {
+        description: 'Delete a task item',
         examples: [
           {
             description: 'Delete by ID',
             operation: {
-              kind: 'todo',
+              kind: 'task',
               action: 'delete',
               id: 1
             }
           }
         ]
       },
-      'todo_set_status': {
-        description: 'Set master or occurrence status for a todo',
+      'task_set_status': {
+        description: 'Set master or occurrence status for a task',
         examples: [
           {
             description: 'Set master status',
-            operation: { kind: 'todo', action: 'set_status', id: 1, status: 'completed' }
+            operation: { kind: 'task', action: 'set_status', id: 1, status: 'completed' }
           },
           {
             description: 'Set occurrence status',
-            operation: { kind: 'todo', action: 'set_status', id: 1, status: 'skipped', occurrenceDate: '2025-08-18' }
+            operation: { kind: 'task', action: 'set_status', id: 1, status: 'skipped', occurrenceDate: '2025-08-18' }
           }
         ]
       },

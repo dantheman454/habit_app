@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import healthRouter from './routes/health.js';
-import todosRouter from './routes/todos.js';
+import tasksRouter from './routes/tasks.js';
 import eventsRouter from './routes/events.js';
 import goalsRouter from './routes/goals.js';
 import searchRouter from './routes/search.js';
@@ -15,7 +15,7 @@ app.use(express.json({ limit: '256kb' }));
 
 // Mount routes
 app.use(healthRouter);
-app.use(todosRouter);
+app.use(tasksRouter);
 app.use(eventsRouter);
 app.use(goalsRouter);
 app.use(searchRouter);
