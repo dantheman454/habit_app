@@ -1,6 +1,6 @@
 # Assistant Chat System Mind Map
 
-This document provides a comprehensive overview of how the assistant chat works in the habit application, from user input through execution and feedback.
+This document provides a comprehensive overview of how the assistant chat works in the task/event application, from user input through execution and feedback.
 
 ## System Architecture Overview
 

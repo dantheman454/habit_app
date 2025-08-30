@@ -1,4 +1,4 @@
-# Habit App Database ER Diagram
+# Task/Event App Database ER Diagram
 
 This document captures the current relational structure of the SQLite database used by the server (`data/app.db`). It reflects `apps/server/database/schema.sql`.
 
@@ -6,7 +6,7 @@ This document captures the current relational structure of the SQLite database u
 
 ```mermaid
 ---
-title: Habit App DB ERD
+title: Task/Event App DB ERD
 ---
 erDiagram
     direction LR
@@ -83,3 +83,4 @@ erDiagram
 - Foreign keys on link tables are defined with `ON DELETE CASCADE` in the schema.
 - FTS5 virtual tables and their triggers are omitted from the ERD for clarity.
 - `recurrence` and `completed_dates` are stored as JSON strings in the SQLite tables.
+

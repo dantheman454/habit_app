@@ -1,6 +1,6 @@
 ## Glossary
 
-This glossary defines key terms and concepts used throughout the Habit App system. Each term includes a definition, usage context, and references to relevant documentation sections.
+This glossary defines key terms and concepts used throughout the Task/Event App system. Each term includes a definition, usage context, and references to relevant documentation sections.
 
 ### Core Data Concepts
 
@@ -13,7 +13,7 @@ This glossary defines key terms and concepts used throughout the Habit App syste
 **Occurrence**: A per-day instance expanded from a repeating master within a range. Has `masterId = id`, `scheduledFor = occurrence date`. For tasks, `status` is derived from `completedDates` and `skippedDates`; for events, `completed` derives from `completedDates`. Occurrences are view constructs.
 
 - **Usage**: Generated on-demand when listing items with date ranges
-- **Example**: A daily habit creates 7 occurrences when viewing a week range
+- **Example**: A daily task creates 7 occurrences when viewing a week range
 - **Reference**: See [Data Model](./data_model.md#occurrence-expansion) for expansion algorithm
 
 **CompletedDates**: Array of `YYYY-MM-DD` on repeating masters marking which occurrences were completed. For tasks, toggled by `/api/tasks/:id/occurrence` and by `set_status` in apply operations.
@@ -66,15 +66,9 @@ This glossary defines key terms and concepts used throughout the Habit App syste
 
 ### Entity Types
 
-**Habits**: Removed. Habit entities and endpoints are not present in the current server.
 
-**Goals**: High-level objectives with optional progress fields and links to tasks/events and child goals.
 
-- **Usage**: Organize related tasks and track progress toward objectives
-- **Example**: "Learn Flutter" goal with linked tasks and sub-goals
-- **Reference**: See [Data Model](./data_model.md#goal-schema) for schema details
-
-**Context**: Categorization field for tasks and events. Values: 'school', 'personal', 'work' with 'personal' as default. Goals do not have context.
+**Context**: Categorization field for tasks and events. Values: 'school', 'personal', 'work' with 'personal' as default.
 
 - **Usage**: Filter and organize items by life area
 - **Example**: Work tasks vs personal tasks for different focus modes
@@ -88,10 +82,9 @@ This glossary defines key terms and concepts used throughout the Habit App syste
 - **Example**: `stage: "executing"` followed by `ops: [...]` with operations
 - **Reference**: See [Assistant Chat Mindmap](./assistant_chat_mindmap.md#sse-stream-handling) for implementation
 
-**Operation types**: 
+**Operation types**:
 - **Tasks**: `create|update|delete|set_status`
 - **Events**: `create|update|delete`
-- **Goals**: `create|update|delete|add_items|remove_item|add_child|remove_child`
 
 - **Usage**: Define what actions can be performed on each entity type
 - **Example**: `{"kind": "task", "action": "set_status", "id": 1, "status": "completed"}`

@@ -110,7 +110,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 **Delete Task**
 - **DELETE** `/api/tasks/:id`
   - **Response**: `{ ok: true }`
-  - **Cascade**: Removes from linked goals
+  - **Cascade**: None
 
 #### Events
 
@@ -156,61 +156,6 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 - Not supported (returns `400 not_supported`)
 - **Location**: `apps/server/routes/events.js`
 
-#### Habits
-
-- Habits REST endpoints have been removed from the server. Habit operations are not exposed via REST.
-
-#### Goals
-
-**List Goals**
-- **GET** `/api/goals`
-  - **Query Parameters**:
-    - `status?: active|completed|archived` - Filter by status
-  - **Response**: `{ goals: Goal[] }`
-  - **Location**: `apps/server/routes/goals.js`
-
-**Get Goal with Details**
-- **GET** `/api/goals/:id`
-  - **Query Parameters**:
-    - `includeItems?: boolean` - Include linked tasks/events
-    - `includeChildren?: boolean` - Include child goals
-  - **Response**: `{ goal: Goal }`
-  - **Location**: `apps/server/routes/goals.js`
-
-**Create Goal**
-- **POST** `/api/goals`
-  - **Body**:
-    ```json
-    {
-      "title": "string (required)",
-      "notes": "string (optional)",
-      "status": "active|completed|archived (optional, defaults to active)",
-      "currentProgressValue": "number (optional)",
-      "targetProgressValue": "number (optional)",
-      "progressUnit": "string (optional)"
-    }
-    ```
-  - **Response**: `{ goal: Goal }`
-  - **Location**: `apps/server/routes/goals.js`
-
-**Link Items to Goal**
-- **POST** `/api/goals/:id/items`
-  - **Body**:
-    ```json
-    {
-      "tasks": [1, 2, 3],
-      "events": [4, 5, 6]
-    }
-    ```
-  - **Response**: `{ ok: true }`
-  - **Location**: `apps/server/routes/goals.js`
-
-**Add Child Goals**
-- **POST** `/api/goals/:id/children`
-  - **Body**: `[childId1, childId2, ...]`
-  - **Response**: `{ ok: true }`
-  - **Location**: `apps/server/routes/goals.js`
-
 #### Unified Schedule
 
 **Get Unified Schedule**
@@ -218,11 +163,11 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
   - **Query Parameters**:
     - `from: YYYY-MM-DD` - Start date (required)
     - `to: YYYY-MM-DD` - End date (required)
-    - `kinds: string` - Comma-separated list: `task,event` (habits removed)
+    - `kinds: string` - Comma-separated list: `task,event`
     - `completed?: true|false` - Filter events by completion
     - `status_task?: pending|completed|skipped` - Filter tasks by status
   - **Response**: `{ items: Array }` with unified items containing `kind: 'task'|'event'`
-  - **Behavior**: Expands repeating items into per-day occurrences; habits removed from unified schedule
+  - **Behavior**: Expands repeating items into per-day occurrences
   - **Location**: `apps/server/routes/schedule.js`
 
 #### Unified Search
@@ -236,7 +181,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
     - `status_task?: pending|completed|skipped` - Filter tasks by status
     - `limit?: number` - Result limit (default: 30)
   - **Response**: `{ items: Array }` with unified items
-  - **Features**: FTS5 search across tasks and events (habits removed)
+  - **Features**: FTS5 search across tasks and events
   - **Location**: `apps/server/routes/search.js`
 
 #### Assistant and LLM
@@ -343,21 +288,6 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 - `updateEvent(id, patch)` → `Event`
 - `deleteEvent(id)` → `void` (occurrence toggle not supported)
 
-**Habit Operations**:
-- Not exposed via REST in current server
-
-**Goal Operations**:
-- `listGoals({ status? })` → `List<Goal>`
-- `getGoal(id, { includeItems?, includeChildren? })` → `Goal`
-- `createGoal(data)` → `Goal`
-- `updateGoal(id, patch)` → `Goal`
-- `deleteGoal(id)` → `void`
-- `addGoalItems(goalId, { tasks?, events? })` → `void`
-- `removeGoalTaskItem(goalId, taskId)` → `void`
-- `removeGoalEventItem(goalId, eventId)` → `void`
-- `addGoalChild(goalId, childIds)` → `void`
-- `removeGoalChild(parentId, childId)` → `void`
-
 **Unified Operations**:
 - `fetchSchedule({ from, to, kinds, completed?, statusTask? })` → `List<dynamic>`
 - `searchUnified(query, { scope?, completed?, statusTask?, limit?, cancelToken? })` → `List<dynamic>`
@@ -416,8 +346,8 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 **LlmOperation**:
 ```typescript
 {
-  kind: 'task' | 'event' | 'habit' | 'goal',
-  action: 'create' | 'update' | 'delete' | 'set_status' | 'complete' | 'complete_occurrence' | 'goal_create' | 'goal_update' | 'goal_delete' | 'goal_add_items' | 'goal_remove_item' | 'goal_add_child' | 'goal_remove_child',
+  kind: 'task' | 'event',
+  action: 'create' | 'update' | 'delete' | 'set_status' | 'complete' | 'complete_occurrence',
   id?: number,
   title?: string,
   notes?: string,
@@ -445,13 +375,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 | `POST /api/events` | `createEvent` | Requires recurrence |
 | `PATCH /api/events/:id` | `updateEvent` | Partial updates |
 | `DELETE /api/events/:id` | `deleteEvent` | Cascade deletes |
-| `GET /api/goals` | `listGoals` | With status filtering |
-| `GET /api/goals/:id` | `getGoal` | With optional includes |
-| `POST /api/goals/:id` | `createGoal` | No recurrence required |
-| `PATCH /api/goals/:id` | `updateGoal` | Partial updates |
-| `DELETE /api/goals/:id` | `deleteGoal` | Cascade deletes |
-| `POST /api/goals/:id/items` | `addGoalItems` | Link tasks/events |
-| `DELETE /api/goals/:id/items/*` | `removeGoalTaskItem`, `removeGoalEventItem` | Unlink items |
+
 | `GET /api/schedule` | `fetchSchedule` | Unified schedule view |
 | `GET /api/search` | `searchUnified` | Cross-type search |
 | `POST /api/assistant/message` | `assistantMessage` | Non-streaming |

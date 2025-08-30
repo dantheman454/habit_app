@@ -1,4 +1,4 @@
-## Habit App Mind Map (Developers)
+## Task/Event App Mind Map (Developers)
 
 This hub aligns the docs with the current implementation. It's the quickest path to the right code and concepts. Diagrams use Mermaid; we reference functions/sections instead of line numbers to reduce churn.
 
@@ -21,7 +21,7 @@ graph TD
     P[("SQLite (data/app.db)\nTables: tasks, events\nAudit_log, idempotency, op_batches\nFTS5 virtual tables")]
   end
   subgraph "LLM (Ollama)"
-    F[["Ollama local model\nhardcoded (convo=qwen3:30b, tool=qwen3:30b)\nQwen-optimized prompts and parsing"]]
+    F[["Ollama local model\nhardcoded (convo=qwen3-coder:30b, tool=qwen3-coder:30b)\nQwen-optimized prompts and parsing"]]
   end
 
   A --> A2
@@ -103,6 +103,7 @@ sequenceDiagram
 - **Operations via MCP tools**: No direct apply/dryrun endpoints
 - **Context field support**: 'school', 'personal', 'work' with 'personal' as default
 - **Timezone handling**: Fixed to `America/New_York` (configurable via `TZ_NAME`)
+- **Goals removed**: Goals entities and endpoints removed during migration
 
 ### Invariants and contracts
 - **Recurrence semantics**: Repeating tasks track per-day completion via `completedDates`; set occurrence status via MCP `set_task_status` + `occurrenceDate`
@@ -157,7 +158,7 @@ sequenceDiagram
 - `OLLAMA_HOST`: Ollama host (default: 127.0.0.1)
 - `OLLAMA_PORT`: Ollama port (default: 11434)
 - `TZ_NAME`: Timezone (default: America/New_York)
-  - Models are hardcoded: convo=`qwen3:30b`, tool=`qwen3:30b`
+  - Models are hardcoded: convo=`qwen3-coder:30b`, tool=`qwen3-coder:30b`
 
 **Testing**:
 - Unit tests: `npm test` (server), `flutter test` (client)

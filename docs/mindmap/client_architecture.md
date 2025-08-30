@@ -32,15 +32,12 @@ class _HomePageState extends State<HomePage> {
   
   // Navigation state
   MainView mainView = MainView.tasks;
-  String? _goalsStatusFilter; // null=all | 'active'|'completed'|'archived'
   String? selectedContext; // 'school', 'personal', 'work', null for 'all'
   
   // Data collections
   List<Task> scheduled = [];           // Unified schedule items
   List<Task> scheduledAllTime = [];    // All scheduled tasks for counts
   List<Task> searchResults = [];       // Search results
-  Map<int, Map<String, dynamic>> habitStatsById = {}; // Habit stats for current range
-  Map<String, Map<String, dynamic>> _itemGoalByKey = {}; // Goal badges mapping
   
   // Unified schedule filters (chips)
   Set<String> _kindFilter = <String>{'task', 'event'};
@@ -79,15 +76,7 @@ class _HomePageState extends State<HomePage> {
   final TextEditingController _qaEventNotes = TextEditingController();
   final TextEditingController _qaEventInterval = TextEditingController();
   
-  final TextEditingController _qaHabitTitle = TextEditingController();
-  final TextEditingController _qaHabitTime = TextEditingController();
-  
-  final TextEditingController _qaGoalTitle = TextEditingController();
-  final TextEditingController _qaGoalNotes = TextEditingController();
-  final TextEditingController _qaGoalCurrent = TextEditingController();
-  final TextEditingController _qaGoalTarget = TextEditingController();
-  final TextEditingController _qaGoalUnit = TextEditingController();
-  String _qaGoalStatus = 'active';
+
   bool _addingQuick = false;
   
   // FAB dialog state
@@ -101,9 +90,9 @@ class _HomePageState extends State<HomePage> {
 
 ```dart
 enum ViewMode { day, week, month }
-enum MainView { tasks, habits, goals }
+enum MainView { tasks }
 enum SmartList { today, all }
-enum AppTab { tasks, events, habits, goals }
+enum AppTab { tasks, events }
 
 // Date range calculation
 Map<String, String> rangeForView(DateTime anchor, ViewMode view) {
@@ -161,27 +150,7 @@ Future<void> _refreshAll() async {
     );
     scheduledAllTime = (allTimeResponse as List<dynamic>).map((e) => Task.fromJson(e)).toList();
     
-    // Load habit stats when needed
-    if (mainView == MainView.habits || _kindFilter.contains('habit')) {
-      final habitsResponse = await api.listHabits(
-        from: range['from'],
-        to: range['to'],
-        context: selectedContext,
-      );
-      // Process habit stats
-      final habits = habitsResponse as List<dynamic>;
-      habitStatsById.clear();
-      for (final habit in habits) {
-        habitStatsById[habit['id']] = {
-          'currentStreak': habit['currentStreak'] ?? 0,
-          'longestStreak': habit['longestStreak'] ?? 0,
-          'weekHeatmap': habit['weekHeatmap'] ?? [],
-        };
-      }
-    }
-    
-    // Load goal badges
-    await _loadGoalBadges();
+
     
   } catch (e) {
     setState(() => message = 'Failed to load data: ${e.toString()}');
@@ -382,41 +351,7 @@ Future<void> _createEvent(String title, {
 }
 ```
 
-#### Habit Operations
 
-```dart
-// Toggle habit completion
-Future<void> _toggleHabitOccurrence(int habitId, String occurrenceDate, bool completed) async {
-  try {
-    await api.toggleHabitOccurrence(habitId, occurrenceDate, completed);
-    _refreshAll(); // Refresh to update streak stats
-  } catch (e) {
-    _showError('Failed to update habit: ${e.toString()}');
-  }
-}
-
-// Create new habit (must be repeating)
-Future<void> _createHabit(String title, {
-  String? notes, 
-  String? scheduledFor, 
-  String? timeOfDay,
-  Map<String, dynamic>? recurrence
-}) async {
-  try {
-    await api.createHabit({
-      'title': title,
-      'notes': notes ?? '',
-      'scheduledFor': scheduledFor,
-      'timeOfDay': timeOfDay,
-      'recurrence': recurrence ?? {'type': 'daily'}, // Default to daily
-      'context': selectedContext ?? 'personal',
-    });
-    _refreshAll();
-  } catch (e) {
-    _showError('Failed to create habit: ${e.toString()}');
-  }
-}
-```
 
 ### Assistant Integration
 
@@ -742,51 +677,7 @@ int _compareItems(Task a, Task b) {
 }
 ```
 
-#### Habit Stats Display
 
-```dart
-Widget _buildHabitStats(int habitId) {
-  final stats = habitStatsById[habitId];
-  if (stats == null) return SizedBox.shrink();
-  
-  return Card(
-    child: Padding(
-      padding: EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              _buildStreakBadge('Current', stats['currentStreak'] ?? 0),
-              SizedBox(width: 8),
-              _buildStreakBadge('Longest', stats['longestStreak'] ?? 0),
-            ],
-          ),
-          SizedBox(height: 8),
-          _buildWeekHeatmap(stats['weekHeatmap'] ?? []),
-        ],
-      ),
-    ),
-  );
-}
-
-Widget _buildWeekHeatmap(List<dynamic> heatmap) {
-  return Row(
-    children: heatmap.map((day) {
-      final completed = day['completed'] ?? false;
-      return Container(
-        width: 20,
-        height: 20,
-        margin: EdgeInsets.all(1),
-        decoration: BoxDecoration(
-          color: completed ? Colors.green : Colors.grey.shade300,
-          borderRadius: BorderRadius.circular(2),
-        ),
-      );
-    }).toList(),
-  );
-}
-```
 
 ### Networking and Environment
 
