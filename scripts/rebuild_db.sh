@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Rebuild the SQLite database and seed sample data.
-# Uses scripts/seed_tasks_and_events.js which wipes and seeds todos and events.
+# Uses scripts/seed_tasks_and_events.js which wipes and seeds tasks and events.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="${SCRIPT_DIR}/.."

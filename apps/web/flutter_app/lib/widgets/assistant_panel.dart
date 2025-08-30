@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
-import '../api.dart' as api;
 
 class LlmOperationLike {
   final String op;
@@ -515,13 +514,11 @@ class AssistantPanel extends StatelessWidget {
         if (candidate is Map) {
           final op = candidate['op'];
           if (op is String && op.isNotEmpty) {
-            if (op.startsWith('goal_')) return 'goal';
             return 'task';
           }
         } else {
           final op = candidate['op'];
           if (op is String && op.isNotEmpty) {
-            if (op.startsWith('goal_')) return 'goal';
             return 'task';
           }
         }
@@ -534,8 +531,6 @@ class AssistantPanel extends StatelessWidget {
     switch (kind) {
       case 'event':
         return const Icon(Icons.event, size: 16);
-      case 'goal':
-        return const Icon(Icons.flag, size: 16);
       default:
         return const Icon(Icons.check_box_outline_blank, size: 16);
     }

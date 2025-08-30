@@ -32,41 +32,7 @@ CREATE TABLE IF NOT EXISTS events (
   updated_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS goals (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  title TEXT NOT NULL,
-  notes TEXT NOT NULL DEFAULT '',
-  status TEXT NOT NULL CHECK(status IN ('active','completed','archived')) DEFAULT 'active',
-  current_progress_value REAL NULL,
-  target_progress_value REAL NULL,
-  progress_unit TEXT NULL,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS goal_task_items (
-  goal_id INTEGER NOT NULL,
-  task_id INTEGER NOT NULL,
-  PRIMARY KEY (goal_id, task_id),
-  FOREIGN KEY (goal_id) REFERENCES goals(id) ON DELETE CASCADE,
-  FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS goal_event_items (
-  goal_id INTEGER NOT NULL,
-  event_id INTEGER NOT NULL,
-  PRIMARY KEY (goal_id, event_id),
-  FOREIGN KEY (goal_id) REFERENCES goals(id) ON DELETE CASCADE,
-  FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS goal_hierarchy (
-  parent_goal_id INTEGER NOT NULL,
-  child_goal_id INTEGER NOT NULL,
-  PRIMARY KEY (parent_goal_id, child_goal_id),
-  FOREIGN KEY (parent_goal_id) REFERENCES goals(id) ON DELETE CASCADE,
-  FOREIGN KEY (child_goal_id) REFERENCES goals(id) ON DELETE CASCADE
-);
+-- goals and related link tables removed during migration
 
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -8,10 +8,8 @@ import 'views/week_view.dart';
 import 'views/month_view.dart';
 import 'widgets/task_row.dart' as row;
 
-
 import 'widgets/fab_actions.dart';
 import 'widgets/compact_subheader.dart';
-import 'widgets/global_search.dart';
 
 import 'api.dart' as api;
 import 'package:dio/dio.dart';
@@ -40,8 +38,7 @@ var createTaskFn = (Map<String, dynamic> data) async {
   throw Exception('create_task_failed');
 };
 var createEventFn = api.createEvent;
-var createHabitFn = api.createHabit;
-var createGoalFn = api.createGoal;
+
 void main() {
   runApp(const App());
 }
@@ -51,7 +48,7 @@ class Task {
   final int id;
   String title;
   String notes;
-  String? kind; // 'task'|'event'|'habit' for unified schedule rows
+  String? kind; // 'task'|'event' for unified schedule rows
   String? scheduledFor; // YYYY-MM-DD or null
   String? timeOfDay; // HH:MM or null
   String? endTime; // HH:MM or null (for events)
@@ -104,7 +101,7 @@ class Task {
 class LlmOperation {
   final String op; // create|update|delete|complete
   // V3 shape support
-  final String? kind; // task|event|habit|goal
+  final String? kind; // task|event
   final String? action; // create|update|delete|complete|complete_occurrence
   final int? id;
   final String? title;
@@ -488,9 +485,9 @@ class _HomePageState extends State<HomePage> {
   int? _highlightedId;
 
   // Search filter state
-  String _searchScope = 'all'; // 'all', 'task', 'event', 'habit'
+  String _searchScope = 'all'; // 'all', 'task', 'event'
   String? _searchContext; // null for 'all', or 'personal', 'work', 'school'
-  String _searchStatusTodo = 'pending'; // 'pending', 'completed', 'skipped'
+  String _searchStatusTask = 'pending'; // 'pending', 'completed', 'skipped'
   bool?
   _searchCompleted; // null for 'all', true for completed, false for incomplete
 
@@ -502,8 +499,6 @@ class _HomePageState extends State<HomePage> {
 
   MainView mainView = MainView.tasks;
 
-  String? _goalsStatusFilter; // null=all | 'active'|'completed'|'archived'
-
   // Context filter state
   String? selectedContext; // 'school', 'personal', 'work', null for 'all'
 
@@ -511,13 +506,6 @@ class _HomePageState extends State<HomePage> {
   List<Task> scheduled = [];
   List<Task> scheduledAllTime = [];
   List<Task> searchResults = [];
-  // Habit stats for current range (by habit id)
-  Map<int, Map<String, dynamic>> habitStatsById = {};
-  // Goal badges mapping: key `${kind}:${masterOrId}` -> { goalId, title }
-  Map<String, Map<String, dynamic>> _itemGoalByKey = {};
-  // Habits narrow-view state
-  int? _selectedHabitId;
-  int _habitFocusCol = 0; // 0..6
 
   // Unified schedule filters (chips)
   // Default to show both tasks and events; tabs can filter to specific types.
@@ -556,11 +544,11 @@ class _HomePageState extends State<HomePage> {
   String? _pendingScrollYmd;
 
   // Quick-add controllers
-  final TextEditingController _qaTodoTitle = TextEditingController();
-  final TextEditingController _qaTodoTime = TextEditingController();
-  final TextEditingController _qaTodoDate = TextEditingController();
-  final TextEditingController _qaTodoNotes = TextEditingController();
-  final TextEditingController _qaTodoInterval = TextEditingController();
+  final TextEditingController _qaTaskTitle = TextEditingController();
+  final TextEditingController _qaTaskTime = TextEditingController();
+  final TextEditingController _qaTaskDate = TextEditingController();
+  final TextEditingController _qaTaskNotes = TextEditingController();
+  final TextEditingController _qaTaskInterval = TextEditingController();
 
   final TextEditingController _qaEventTitle = TextEditingController();
   final TextEditingController _qaEventStart = TextEditingController();
@@ -570,17 +558,9 @@ class _HomePageState extends State<HomePage> {
   final TextEditingController _qaEventNotes = TextEditingController();
   final TextEditingController _qaEventInterval = TextEditingController();
 
-  // Habit quick-add controllers (kept for no-op UI stubs)
-  final TextEditingController _qaHabitTitle = TextEditingController();
-  final TextEditingController _qaHabitTime = TextEditingController();
+  // Habit quick-add removed
 
-  // Goals inline quick-add controllers
-  final TextEditingController _qaGoalTitle = TextEditingController();
-  final TextEditingController _qaGoalNotes = TextEditingController();
-  final TextEditingController _qaGoalCurrent = TextEditingController();
-  final TextEditingController _qaGoalTarget = TextEditingController();
-  final TextEditingController _qaGoalUnit = TextEditingController();
-  String _qaGoalStatus = 'active';
+  // Goals quick-add removed
   bool _addingQuick = false;
 
   // FAB dialog state variables
@@ -594,7 +574,7 @@ class _HomePageState extends State<HomePage> {
     try {
       final saved = storage.getItem('mainTab') ?? '';
       if (saved == 'goals') {
-        mainView = MainView.goals;
+        mainView = MainView.tasks;
       } else {
         // Default to tasks view with both tasks and events
         mainView = MainView.tasks;
@@ -611,45 +591,6 @@ class _HomePageState extends State<HomePage> {
     _searchContext = selectedContext;
   }
 
-  Widget _quickAddHabitsInline() {
-    return Row(
-      children: [
-        SizedBox(
-          width: 260,
-          child: TextField(
-            key: const Key('qa_habit_title'),
-            controller: _qaHabitTitle,
-            decoration: const InputDecoration(labelText: 'Title *'),
-            textInputAction: TextInputAction.done,
-            onSubmitted: (_) => _submitQuickAddHabit(),
-            onEditingComplete: _submitQuickAddHabit,
-          ),
-        ),
-        const SizedBox(width: 8),
-        SizedBox(
-          width: 120,
-          child: TextField(
-            key: const Key('qa_habit_time'),
-            controller: _qaHabitTime,
-            decoration: const InputDecoration(labelText: 'Time'),
-          ),
-        ),
-        const SizedBox(width: 8),
-        const SizedBox(width: 8),
-        FilledButton(
-          onPressed: _addingQuick ? null : _submitQuickAddHabit,
-          child: _addingQuick
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Text('Add'),
-        ),
-      ],
-    );
-  }
-
   bool _isValidTime(String s) {
     if (s.trim().isEmpty) return true; // optional
     final parts = s.trim().split(':');
@@ -662,12 +603,12 @@ class _HomePageState extends State<HomePage> {
     return true;
   }
 
-  Future<void> _submitQuickAddTodo({String? selectedContext}) async {
+  Future<void> _submitQuickAddTask({String? selectedContext}) async {
     if (_addingQuick) return;
-    final title = _qaTodoTitle.text.trim();
-    final date = _qaTodoDate.text.trim();
-    final time = _qaTodoTime.text.trim();
-    final notes = _qaTodoNotes.text.trim();
+    final title = _qaTaskTitle.text.trim();
+    final date = _qaTaskDate.text.trim();
+    final time = _qaTaskTime.text.trim();
+    final notes = _qaTaskNotes.text.trim();
 
     if (title.isEmpty) {
       ScaffoldMessenger.of(
@@ -706,7 +647,7 @@ class _HomePageState extends State<HomePage> {
           : _qaSelectedRecurrence == 'every_n_days'
           ? {
               'type': 'every_n_days',
-              'intervalDays': int.tryParse(_qaTodoInterval.text.trim()) ?? 1,
+              'intervalDays': int.tryParse(_qaTaskInterval.text.trim()) ?? 1,
             }
           : {'type': _qaSelectedRecurrence};
 
@@ -720,11 +661,11 @@ class _HomePageState extends State<HomePage> {
       });
       if (!mounted) return;
       setState(() {
-        _qaTodoTitle.clear();
-        _qaTodoTime.clear();
-        _qaTodoDate.clear();
-        _qaTodoNotes.clear();
-        _qaTodoInterval.clear();
+        _qaTaskTitle.clear();
+        _qaTaskTime.clear();
+        _qaTaskDate.clear();
+        _qaTaskNotes.clear();
+        _qaTaskInterval.clear();
       });
       if (!TestHooks.skipRefresh) {
         try {
@@ -892,152 +833,6 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _submitQuickAddHabit() async {
-    if (_addingQuick) return;
-    final title = _qaHabitTitle.text.trim();
-    final time = _qaHabitTime.text.trim();
-    if (title.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Please enter a title.')));
-      return;
-    }
-    if (!_isValidTime(time)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Use 24‑hour time, e.g. 09:00.')),
-      );
-      return;
-    }
-    setState(() => _addingQuick = true);
-    WidgetsBinding.instance.addPostFrameCallback((_) {});
-    await Future<void>.delayed(Duration.zero);
-    try {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Habits feature has been removed.')),
-        );
-      }
-      if (!mounted) return;
-      setState(() {
-        _qaHabitTitle.clear();
-        _qaHabitTime.clear();
-      });
-      if (!TestHooks.skipRefresh) await _refreshAll();
-    } catch (e) {
-      if (mounted) {
-        // Enhanced error handling with technical details
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'Habit Creation Failed',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                Text('Error: ${e.toString()}'),
-                Text('Type: ${e.runtimeType}'),
-                if (e is DioException) ...[
-                  Text('Status: ${e.response?.statusCode ?? 'Unknown'}'),
-                  if (e.response?.data != null)
-                    Text('Response: ${e.response!.data}'),
-                ],
-              ],
-            ),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 10),
-            action: SnackBarAction(
-              label: 'Copy Error',
-              onPressed: () =>
-                  Clipboard.setData(ClipboardData(text: e.toString())),
-            ),
-          ),
-        );
-      }
-    } finally {
-      await Future<void>.delayed(const Duration(milliseconds: 16));
-      if (mounted) {
-        setState(() => _addingQuick = false);
-      }
-    }
-  }
-
-  Future<void> _submitQuickAddGoal() async {
-    if (_addingQuick) return;
-    final title = _qaGoalTitle.text.trim();
-    final notes = _qaGoalNotes.text.trim();
-    final cpv = double.tryParse(_qaGoalCurrent.text.trim());
-    final tpv = double.tryParse(_qaGoalTarget.text.trim());
-    final unit = _qaGoalUnit.text.trim();
-    if (title.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Please enter a title.')));
-      return;
-    }
-    setState(() => _addingQuick = true);
-    WidgetsBinding.instance.addPostFrameCallback((_) {});
-    await Future<void>.delayed(Duration.zero);
-    try {
-      await Future<void>.delayed(const Duration(milliseconds: 1));
-      await createGoalFn({
-        'title': title,
-        if (notes.isNotEmpty) 'notes': notes,
-        'status': _qaGoalStatus,
-        if (cpv != null) 'currentProgressValue': cpv,
-        if (tpv != null) 'targetProgressValue': tpv,
-        if (unit.isNotEmpty) 'progressUnit': unit,
-      });
-      if (!mounted) return;
-      setState(() {
-        _qaGoalTitle.clear();
-        _qaGoalNotes.clear();
-        _qaGoalCurrent.clear();
-        _qaGoalTarget.clear();
-        _qaGoalUnit.clear();
-        _qaGoalStatus = 'active';
-      });
-      setState(() {});
-    } catch (e) {
-      if (mounted) {
-        // Enhanced error handling with technical details
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'Goal Creation Failed',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                Text('Error: ${e.toString()}'),
-                Text('Type: ${e.runtimeType}'),
-                if (e is DioException) ...[
-                  Text('Status: ${e.response?.statusCode ?? 'Unknown'}'),
-                  if (e.response?.data != null)
-                    Text('Response: ${e.response!.data}'),
-                ],
-              ],
-            ),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 10),
-            action: SnackBarAction(
-              label: 'Copy Error',
-              onPressed: () =>
-                  Clipboard.setData(ClipboardData(text: e.toString())),
-            ),
-          ),
-        );
-      }
-    } finally {
-      await Future<void>.delayed(const Duration(milliseconds: 16));
-      if (mounted) {
-        setState(() => _addingQuick = false);
-      }
-    }
-  }
 
   @override
   void dispose() {
@@ -1047,11 +842,11 @@ class _HomePageState extends State<HomePage> {
     searchCtrl.dispose();
     _searchFocus.dispose();
     _removeSearchOverlay();
-    _qaTodoTitle.dispose();
-    _qaTodoTime.dispose();
-    _qaTodoDate.dispose();
-    _qaTodoNotes.dispose();
-    _qaTodoInterval.dispose();
+    _qaTaskTitle.dispose();
+    _qaTaskTime.dispose();
+    _qaTaskDate.dispose();
+    _qaTaskNotes.dispose();
+    _qaTaskInterval.dispose();
     _qaEventTitle.dispose();
     _qaEventStart.dispose();
     _qaEventEnd.dispose();
@@ -1071,10 +866,8 @@ class _HomePageState extends State<HomePage> {
       if (view == ViewMode.day ||
           view == ViewMode.week ||
           view == ViewMode.month) {
-        // Select kinds strictly by tab: tasks (task or event) or habits
-        final kinds = (mainView == MainView.habits)
-            ? <String>['habit']
-            : (_kindFilter.toList());
+        // Only tasks/events remain
+        final kinds = _kindFilter.toList();
         final raw = await api.fetchSchedule(
           from: r.from,
           to: r.to,
@@ -1087,39 +880,6 @@ class _HomePageState extends State<HomePage> {
             .map((e) => Task.fromJson(Map<String, dynamic>.from(e)))
             .toList();
 
-        // Load habit stats for the same range to display streak badges
-        try {
-          final habitsRaw = await api.listHabits(
-            from: r.from,
-            to: r.to,
-            context: selectedContext,
-          );
-          final Map<int, Map<String, dynamic>> statsMap = {};
-          for (final h in habitsRaw) {
-            final m = Map<String, dynamic>.from(h);
-            final hid = (m['id'] as int?);
-            if (hid != null) {
-              final int current = (m['currentStreak'] is int)
-                  ? (m['currentStreak'] as int)
-                  : 0;
-              final int longest = (m['longestStreak'] is int)
-                  ? (m['longestStreak'] as int)
-                  : 0;
-              final List<dynamic> heat = (m['weekHeatmap'] is List<dynamic>)
-                  ? (m['weekHeatmap'] as List<dynamic>)
-                  : const [];
-              statsMap[hid] = {
-                'currentStreak': current,
-                'longestStreak': longest,
-                'weekHeatmap': heat,
-              };
-            }
-          }
-          habitStatsById = statsMap;
-        } catch (_) {
-          // Non-fatal; stats not critical for schedule rendering
-          habitStatsById = {};
-        }
       } else {
         final scheduledRaw = await api.fetchScheduled(
           from: r.from,
@@ -1169,8 +929,7 @@ class _HomePageState extends State<HomePage> {
         }
         message = null;
       });
-      // Load goal badges (non-blocking)
-      _loadGoalBadges();
+      
       _maybeScrollToPendingDate();
     } catch (e) {
       setState(() => message = 'Load failed: $e');
@@ -1241,13 +1000,13 @@ class _HomePageState extends State<HomePage> {
     return list;
   }
 
-  Future<void> _onSetTodoStatusOrOccurrenceNew(int id, String status) async {
+  Future<void> _onSetTaskStatusOrOccurrence(int id, String status) async {
     try {
       final t = _currentList().firstWhere(
         (e) =>
             (e.kind == 'task' || e.kind == null) &&
             (e.id == id || e.masterId == id),
-        orElse: () => throw Exception('todo_not_found'),
+        orElse: () => throw Exception('task_not_found'),
       );
       if (t.masterId != null && t.scheduledFor != null) {
         await api.callMCPTool('set_task_status', {
@@ -1261,55 +1020,9 @@ class _HomePageState extends State<HomePage> {
           'status': status,
         });
       }
-      setState(() => _searchStatusTodo = status);
+      setState(() => _searchStatusTask = status);
       await _refreshAll();
     } catch (_) {}
-  }
-
-  Future<void> _loadGoalBadges() async {
-    try {
-      final goals = await api.listGoals();
-      final Map<String, Map<String, dynamic>> map = {};
-      for (final g in goals) {
-        final gm = Map<String, dynamic>.from(g);
-        final gid = gm['id'] as int?;
-        if (gid == null) continue;
-        final detail = await api.getGoal(
-          gid,
-          includeItems: true,
-          includeChildren: false,
-        );
-        if (detail == null) continue;
-        final title = (detail['title'] as String?) ?? '';
-        // Tasks
-        if (detail['items'] is Map && detail['items']['tasks'] is List) {
-          for (final t in (detail['items']['tasks'] as List)) {
-            final tm = Map<String, dynamic>.from(t);
-            final id = tm['id'] as int?;
-            if (id != null) {
-              map['task:$id'] = {'goalId': gid, 'title': title};
-            }
-          }
-        }
-        // Events
-        if (detail['items'] is Map && detail['items']['events'] is List) {
-          for (final ev in (detail['items']['events'] as List)) {
-            final em = Map<String, dynamic>.from(ev);
-            final id = em['id'] as int?;
-            if (id != null) {
-              map['event:$id'] = {'goalId': gid, 'title': title};
-            }
-          }
-        }
-      }
-      if (mounted) {
-        setState(() {
-          _itemGoalByKey = map;
-        });
-      }
-    } catch (_) {
-      // Non-blocking
-    }
   }
 
   Future<void> _runSearch(String q) async {
@@ -1329,7 +1042,7 @@ class _HomePageState extends State<HomePage> {
         q,
         scope: _searchScope,
         completed: _searchCompleted ?? (showCompleted ? null : false),
-        statusTask: _searchStatusTodo,
+        statusTask: _searchStatusTask,
         context: _searchContext,
         cancelToken: _searchCancelToken,
         limit: 30,
@@ -1381,8 +1094,8 @@ class _HomePageState extends State<HomePage> {
     _runSearch(searchCtrl.text);
   }
 
-  void _setSearchStatusTodo(String status) {
-    setState(() => _searchStatusTodo = status);
+  void _setSearchStatusTask(String status) {
+    setState(() => _searchStatusTask = status);
     _runSearch(searchCtrl.text);
   }
 
@@ -1395,7 +1108,7 @@ class _HomePageState extends State<HomePage> {
     setState(() {
       _searchScope = 'all';
       _searchContext = selectedContext;
-      _searchStatusTodo = 'pending';
+      _searchStatusTask = 'pending';
       _searchCompleted = null;
     });
     _runSearch(searchCtrl.text);
@@ -1503,8 +1216,8 @@ class _HomePageState extends State<HomePage> {
                                           ),
                                           _buildFilterChip(
                                             'Habits',
-                                            _searchScope == 'habit',
-                                            () => _setSearchScope('habit'),
+                                            false,
+                                            () {},
                                           ),
                                         ],
                                       ),
@@ -1545,22 +1258,22 @@ class _HomePageState extends State<HomePage> {
                                           children: [
                                             _buildFilterChip(
                                               'Pending',
-                                              _searchStatusTodo == 'pending',
-                                              () => _setSearchStatusTodo(
+                                              _searchStatusTask == 'pending',
+                                              () => _setSearchStatusTask(
                                                 'pending',
                                               ),
                                             ),
                                             _buildFilterChip(
                                               'Completed',
-                                              _searchStatusTodo == 'completed',
-                                              () => _setSearchStatusTodo(
+                                              _searchStatusTask == 'completed',
+                                              () => _setSearchStatusTask(
                                                 'completed',
                                               ),
                                             ),
                                             _buildFilterChip(
                                               'Skipped',
-                                              _searchStatusTodo == 'skipped',
-                                              () => _setSearchStatusTodo(
+                                              _searchStatusTask == 'skipped',
+                                              () => _setSearchStatusTask(
                                                 'skipped',
                                               ),
                                             ),
@@ -1568,10 +1281,9 @@ class _HomePageState extends State<HomePage> {
                                         ),
                                       ],
                                       if (_searchScope == 'event' ||
-                                          _searchScope == 'habit' ||
                                           _searchScope == 'all') ...[
                                         const SizedBox(height: 8),
-                                        // Completed status chips (for events/habits)
+                                        // Completed status chips (for events)
                                         Wrap(
                                           spacing: 6,
                                           runSpacing: 6,
@@ -1624,25 +1336,38 @@ class _HomePageState extends State<HomePage> {
                                       builder: (ctx) {
                                         final theme = Theme.of(ctx);
                                         // Group results by date, then type
-                                        final Map<String, List<Task>> byDate = {};
+                                        final Map<String, List<Task>> byDate =
+                                            {};
                                         for (final t in results) {
-                                          final k = (t.scheduledFor ?? 'unscheduled');
+                                          final k =
+                                              (t.scheduledFor ?? 'unscheduled');
                                           (byDate[k] ??= <Task>[]).add(t);
                                         }
-                                        final orderedDates = byDate.keys.toList()
+                                        final orderedDates =
+                                            byDate.keys.toList()
                                           ..sort((a, b) => a.compareTo(b));
                                         final tiles = <Widget>[];
                                         for (final d in orderedDates) {
-                                          tiles.add(Padding(
-                                            padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+                                          tiles.add(
+                                            Padding(
+                                              padding:
+                                                  const EdgeInsets.fromLTRB(
+                                                    12,
+                                                    8,
+                                                    12,
+                                                    6,
+                                                  ),
                                             child: Text(
                                               d,
                                               style: TextStyle(
                                                 fontWeight: FontWeight.w600,
-                                                color: theme.colorScheme.onSurfaceVariant,
+                                                  color: theme
+                                                      .colorScheme
+                                                      .onSurfaceVariant,
                                               ),
                                             ),
-                                          ));
+                                            ),
+                                          );
                                           final items = byDate[d]!;
                                           int rank(String? k) {
                                             switch (k) {
@@ -1651,31 +1376,48 @@ class _HomePageState extends State<HomePage> {
                                               case 'task':
                                               case null:
                                                 return 1;
-                                              case 'habit':
-                                                return 2;
+
                                               default:
                                                 return 3;
                                             }
                                           }
+
                                           items.sort((a, b) {
-                                            final r = rank(a.kind) - rank(b.kind);
+                                            final r =
+                                                rank(a.kind) - rank(b.kind);
                                             if (r != 0) return r;
                                             return a.title.compareTo(b.title);
                                           });
-                                          for (var i = 0; i < items.length; i++) {
+                                          for (
+                                            var i = 0;
+                                            i < items.length;
+                                            i++
+                                          ) {
                                             final t = items[i];
                                             final idx = results.indexOf(t);
-                                            final selected = idx == _searchHoverIndex;
-                                            tiles.add(InkWell(
-                                              onTap: () => _selectSearchResult(t),
+                                            final selected =
+                                                idx == _searchHoverIndex;
+                                            tiles.add(
+                                              InkWell(
+                                                onTap: () =>
+                                                    _selectSearchResult(t),
                                               onHover: (h) => setState(
-                                                () => _searchHoverIndex = h ? idx : _searchHoverIndex,
+                                                  () => _searchHoverIndex = h
+                                                      ? idx
+                                                      : _searchHoverIndex,
                                               ),
                                               child: Container(
                                                 color: selected
-                                                    ? theme.colorScheme.primary.withAlpha((0.08 * 255).round())
+                                                      ? theme
+                                                            .colorScheme
+                                                            .primary
+                                                            .withAlpha(
+                                                              (0.08 * 255)
+                                                                  .round(),
+                                                            )
                                                     : Colors.transparent,
-                                                padding: const EdgeInsets.symmetric(
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
                                                   horizontal: 12,
                                                   vertical: 8,
                                                 ),
@@ -1683,16 +1425,29 @@ class _HomePageState extends State<HomePage> {
                                                   children: [
                                                     Expanded(
                                                       child: Column(
-                                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                                          crossAxisAlignment:
+                                                              CrossAxisAlignment
+                                                                  .start,
                                                         children: [
-                                                          _highlightedText(t.title, searchCtrl.text),
-                                                          const SizedBox(height: 4),
+                                                            _highlightedText(
+                                                              t.title,
+                                                              searchCtrl.text,
+                                                            ),
+                                                            const SizedBox(
+                                                              height: 4,
+                                                            ),
                                                           Wrap(
                                                             spacing: 6,
                                                             runSpacing: 4,
                                                             children: [
-                                                              _chip((t.scheduledFor ?? 'unscheduled')),
-                                                              _buildKindChip(t.kind ?? 'task'),
+                                                                _chip(
+                                                                  (t.scheduledFor ??
+                                                                      'unscheduled'),
+                                                                ),
+                                                                _buildKindChip(
+                                                                  t.kind ??
+                                                                      'task',
+                                                                ),
                                                             ],
                                                           ),
                                                         ],
@@ -1701,17 +1456,27 @@ class _HomePageState extends State<HomePage> {
                                                   ],
                                                 ),
                                               ),
-                                            ));
+                                              ),
+                                            );
                                             if (i < items.length - 1) {
-                                              tiles.add(Divider(
+                                              tiles.add(
+                                                Divider(
                                                 height: 1,
-                                                color: theme.colorScheme.outline.withAlpha((0.2 * 255).round()),
-                                              ));
+                                                  color: theme
+                                                      .colorScheme
+                                                      .outline
+                                                      .withAlpha(
+                                                        (0.2 * 255).round(),
+                                                      ),
+                                                ),
+                                              );
                                             }
                                           }
                                         }
                                         return ListView(
-                                          padding: const EdgeInsets.symmetric(vertical: 6),
+                                          padding: const EdgeInsets.symmetric(
+                                            vertical: 6,
+                                          ),
                                           shrinkWrap: true,
                                           children: tiles,
                                         );
@@ -1764,10 +1529,14 @@ class _HomePageState extends State<HomePage> {
 
   Widget _highlightedText(String text, String query) {
     final q = query.trim();
-    if (q.isEmpty) return Text(text, maxLines: 1, overflow: TextOverflow.ellipsis);
+    if (q.isEmpty) {
+      return Text(text, maxLines: 1, overflow: TextOverflow.ellipsis);
+    }
     final lower = text.toLowerCase();
     final idx = lower.indexOf(q.toLowerCase());
-    if (idx < 0) return Text(text, maxLines: 1, overflow: TextOverflow.ellipsis);
+    if (idx < 0) {
+      return Text(text, maxLines: 1, overflow: TextOverflow.ellipsis);
+    }
     final before = text.substring(0, idx);
     final match = text.substring(idx, idx + q.length);
     final after = text.substring(idx + q.length);
@@ -1776,9 +1545,21 @@ class _HomePageState extends State<HomePage> {
       overflow: TextOverflow.ellipsis,
       text: TextSpan(
         children: [
-          TextSpan(text: before, style: const TextStyle(color: Colors.black87)),
-          TextSpan(text: match, style: const TextStyle(fontWeight: FontWeight.w700, color: Colors.black)),
-          TextSpan(text: after, style: const TextStyle(color: Colors.black87)),
+          TextSpan(
+            text: before,
+            style: const TextStyle(color: Colors.black87),
+          ),
+          TextSpan(
+            text: match,
+            style: const TextStyle(
+              fontWeight: FontWeight.w700,
+              color: Colors.black,
+            ),
+          ),
+          TextSpan(
+            text: after,
+            style: const TextStyle(color: Colors.black87),
+          ),
         ],
       ),
     );
@@ -1797,10 +1578,6 @@ class _HomePageState extends State<HomePage> {
         icon = Icons.task;
         color = Colors.blue;
         break;
-      case 'habit':
-        icon = Icons.repeat;
-        color = Colors.purple;
-        break;
       default:
         icon = Icons.circle;
         color = Colors.grey;
@@ -1811,7 +1588,10 @@ class _HomePageState extends State<HomePage> {
       decoration: BoxDecoration(
         color: color.withAlpha((0.1 * 255).round()),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withAlpha((0.3 * 255).round()), width: 1),
+        border: Border.all(
+          color: color.withAlpha((0.3 * 255).round()),
+          width: 1,
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1885,19 +1665,6 @@ class _HomePageState extends State<HomePage> {
       if (t.kind == 'event') {
         // Event completion is not supported
         setState(() => message = 'Event completion is not supported.');
-      } else if (t.kind == 'habit') {
-        if (t.masterId != null && t.scheduledFor != null) {
-          await api.toggleHabitOccurrence(
-            t.masterId!,
-            t.scheduledFor!,
-            !t.completed,
-          );
-        } else {
-          await api.updateHabit(t.id, {
-            'completed': !t.completed,
-            if (t.recurrence != null) 'recurrence': t.recurrence,
-          });
-        }
       } else {
         // task: use status model
         if (t.masterId != null && t.scheduledFor != null) {
@@ -1948,304 +1715,6 @@ class _HomePageState extends State<HomePage> {
     } catch (_) {}
   }
 
-  Future<void> _editHabit(Task t) async {
-    final titleCtrl = TextEditingController(text: t.title);
-    final notesCtrl = TextEditingController(text: t.notes);
-    final dateCtrl = TextEditingController(text: t.scheduledFor ?? '');
-    final timeCtrl = TextEditingController(text: t.timeOfDay ?? '');
-    final todoSearchCtrl = TextEditingController();
-    final eventSearchCtrl = TextEditingController();
-    final intervalCtrl = TextEditingController(
-      text: (t.recurrence != null && t.recurrence!['intervalDays'] != null)
-          ? '${t.recurrence!['intervalDays']}'
-          : '1',
-    );
-
-    String recurType = (t.recurrence != null && t.recurrence!['type'] is String)
-        ? (t.recurrence!['type'] as String)
-        : 'daily';
-    // Link pickers for edit: allow adding/removing
-    final selectedTodoIds = <int>{};
-    final selectedEventIds = <int>{};
-    List<Map<String, dynamic>> allTodos = [];
-    List<Map<String, dynamic>> allEvents = [];
-
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (c) => StatefulBuilder(
-        builder: (c, setDlgState) {
-          Future<void> loadLinkables() async {
-            try {
-              final tds = await api.fetchScheduledAllTime();
-              final evs = await api.listEvents();
-              setDlgState(() {
-                allTodos = tds
-                    .map((x) => Map<String, dynamic>.from(x))
-                    .toList();
-                allEvents = evs
-                    .map((x) => Map<String, dynamic>.from(x))
-                    .toList();
-              });
-            } catch (_) {}
-          }
-
-          if (allTodos.isEmpty && allEvents.isEmpty) {
-            loadLinkables();
-          }
-          return AlertDialog(
-            title: const Text('Edit habit'),
-            content: SizedBox(
-              width: 480,
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    TextField(
-                      controller: titleCtrl,
-                      decoration: const InputDecoration(labelText: 'Title'),
-                    ),
-                    TextField(
-                      controller: notesCtrl,
-                      decoration: const InputDecoration(labelText: 'Notes'),
-                    ),
-                    TextField(
-                      controller: dateCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Anchor date (YYYY-MM-DD)',
-                      ),
-                    ),
-                    TextField(
-                      controller: timeCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Time (HH:MM or empty)',
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const SizedBox.shrink(),
-                    const SizedBox(height: 8),
-                    DropdownButtonFormField<String>(
-                      value: recurType,
-                      decoration: const InputDecoration(
-                        labelText: 'Recurrence (habits must repeat)',
-                      ),
-                      items: const [
-                        DropdownMenuItem(value: 'daily', child: Text('Daily')),
-                        DropdownMenuItem(
-                          value: 'weekdays',
-                          child: Text('Weekdays (Mon–Fri)'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'weekly',
-                          child: Text('Weekly (by anchor)'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'every_n_days',
-                          child: Text('Every N days'),
-                        ),
-                      ],
-                      onChanged: (v) =>
-                          setDlgState(() => recurType = v ?? 'daily'),
-                    ),
-                    if (recurType == 'every_n_days')
-                      TextField(
-                        controller: intervalCtrl,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'Every N days (>=1)',
-                        ),
-                      ),
-                    const SizedBox(height: 12),
-                    const Text(
-                      'Link existing tasks (optional)',
-                      style: TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 4),
-                    TextField(
-                      controller: todoSearchCtrl,
-                      decoration: const InputDecoration(
-                        prefixIcon: Icon(Icons.search),
-                        hintText: 'Filter tasks...',
-                      ),
-                      onChanged: (_) => setDlgState(() {}),
-                    ),
-                    const SizedBox(height: 6),
-                    Container(
-                      constraints: const BoxConstraints(maxHeight: 120),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey.shade300),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: ListView(
-                        children: [
-                          for (final x in allTodos.where((it) {
-                            final q = todoSearchCtrl.text.trim().toLowerCase();
-                            if (q.isEmpty) return true;
-                            final title = (it['title'] ?? '').toString();
-                            return title.toLowerCase().contains(q);
-                          }))
-                            CheckboxListTile(
-                              dense: true,
-                              value: selectedTodoIds.contains(x['id'] as int),
-                              onChanged: (v) => setDlgState(() {
-                                final id = x['id'] as int;
-                                if (v == true) {
-                                  selectedTodoIds.add(id);
-                                } else {
-                                  selectedTodoIds.remove(id);
-                                }
-                              }),
-                              title: Text('#${x['id']}  ${x['title'] ?? ''}'),
-                            ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Link existing events (optional)',
-                      style: TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 4),
-                    TextField(
-                      controller: eventSearchCtrl,
-                      decoration: const InputDecoration(
-                        prefixIcon: Icon(Icons.search),
-                        hintText: 'Filter events...',
-                      ),
-                      onChanged: (_) => setDlgState(() {}),
-                    ),
-                    const SizedBox(height: 6),
-                    Container(
-                      constraints: const BoxConstraints(maxHeight: 120),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey.shade300),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: ListView(
-                        children: [
-                          for (final e in allEvents.where((it) {
-                            final q = eventSearchCtrl.text.trim().toLowerCase();
-                            if (q.isEmpty) return true;
-                            final title = (it['title'] ?? '').toString();
-                            return title.toLowerCase().contains(q);
-                          }))
-                            CheckboxListTile(
-                              dense: true,
-                              value: selectedEventIds.contains(e['id'] as int),
-                              onChanged: (v) => setDlgState(() {
-                                final id = e['id'] as int;
-                                if (v == true) {
-                                  selectedEventIds.add(id);
-                                } else {
-                                  selectedEventIds.remove(id);
-                                }
-                              }),
-                              title: Text('#${e['id']}  ${e['title'] ?? ''}'),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(c, false),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(c, true),
-                child: const Text('Save'),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-    if (ok != true) {
-      return;
-    }
-
-    final patch = <String, dynamic>{};
-    if (titleCtrl.text != t.title) {
-      patch['title'] = titleCtrl.text;
-    }
-    if (notesCtrl.text != t.notes) {
-      patch['notes'] = notesCtrl.text;
-    }
-    final sched = dateCtrl.text.trim();
-    final normalized = sched.isEmpty ? null : sched;
-    if (normalized != (t.scheduledFor ?? '')) {
-      patch['scheduledFor'] = normalized;
-    }
-
-    final time = timeCtrl.text.trim();
-    if ((time.isEmpty ? null : time) != (t.timeOfDay)) {
-      patch['timeOfDay'] = time.isEmpty ? null : time;
-    }
-    // Recurrence
-    final existingType =
-        (t.recurrence != null && t.recurrence!['type'] is String)
-        ? (t.recurrence!['type'] as String)
-        : 'daily';
-    final existingN =
-        (t.recurrence != null && t.recurrence!['intervalDays'] is int)
-        ? (t.recurrence!['intervalDays'] as int)
-        : null;
-    if (recurType != existingType) {
-      patch['recurrence'] = {'type': recurType};
-      if (recurType == 'every_n_days') {
-        final n = int.tryParse(intervalCtrl.text.trim());
-        if (n != null && n >= 1) {
-          (patch['recurrence'] as Map<String, dynamic>)['intervalDays'] = n;
-        }
-      }
-    } else if (recurType == 'every_n_days') {
-      final n = int.tryParse(intervalCtrl.text.trim());
-      if (n != null && n >= 1 && n != existingN) {
-        patch['recurrence'] = {'type': recurType, 'intervalDays': n};
-      }
-    }
-
-    // If recurrence becomes repeating, require an anchor date
-    final willRepeat = () {
-      if (patch['recurrence'] is Map) {
-        final Map rec = patch['recurrence'] as Map;
-        return (rec['type'] != 'none');
-      }
-      return false;
-    }();
-    final nextAnchor = (patch.containsKey('scheduledFor'))
-        ? (patch['scheduledFor'] as String?)
-        : (t.scheduledFor);
-    if (willRepeat && (nextAnchor == null || nextAnchor.trim().isEmpty)) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Set an anchor date (YYYY-MM-DD) for repeating habits.',
-            ),
-          ),
-        );
-      }
-      return;
-    }
-    try {
-      await api.updateHabit(t.id, patch);
-      // Apply linking
-      if (selectedTodoIds.isNotEmpty || selectedEventIds.isNotEmpty) {
-        await api.linkHabitItems(
-          t.id,
-          tasks: selectedTodoIds.toList(),
-          events: selectedEventIds.toList(),
-        );
-      }
-      await _refreshAll();
-    } catch (e) {
-      setState(() => message = 'Edit failed: $e');
-    }
-  }
 
   Future<void> _editTask(Task t) async {
     final titleCtrl = TextEditingController(text: t.title);
@@ -2451,9 +1920,10 @@ class _HomePageState extends State<HomePage> {
       try {
         final res = await api.api.get('/api/events/${t.id}');
         originalEventData = Map<String, dynamic>.from(res.data['event']);
-      } catch (e) {
-        // If fetching fails, use the Task data
-        print('Failed to fetch original event data: $e');
+      } catch (_) {
+      }
+      if (!mounted) {
+        return;
       }
     }
 
@@ -2605,7 +2075,9 @@ class _HomePageState extends State<HomePage> {
       }
       return;
     }
-    if (ok != true) return;
+    if (!mounted || ok != true) {
+      return;
+    }
     final patch = <String, dynamic>{};
     if (titleCtrl.text != t.title) patch['title'] = titleCtrl.text;
     if (notesCtrl.text != t.notes) patch['notes'] = notesCtrl.text;
@@ -2694,13 +2166,9 @@ class _HomePageState extends State<HomePage> {
         clientContext: () {
           // Limit to current view as requested: derive range and kinds
           final dr = rangeForView(anchor, view);
-          final kinds = (mainView == MainView.habits)
-              ? <String>['habit']
-              : (mainView == MainView.goals)
-              ? <String>['goal']
-              : (_kindFilter.contains('event')
+          final kinds = _kindFilter.contains('event')
                     ? <String>['event']
-                    : <String>['task']);
+              : <String>['task'];
           return {
             'range': {'from': dr.from, 'to': dr.to},
             'kinds': kinds,
@@ -2772,7 +2240,9 @@ class _HomePageState extends State<HomePage> {
             try {
               for (final p in previews) {
                 final k = (p['key'] ?? '').toString();
-                if (k.isNotEmpty) assistantOpPreviews[k] = Map<String, dynamic>.from(p);
+                if (k.isNotEmpty) {
+                  assistantOpPreviews[k] = Map<String, dynamic>.from(p);
+                }
               }
             } catch (_) {}
             // Build a quick map by key
@@ -3007,13 +2477,13 @@ class _HomePageState extends State<HomePage> {
     return anchor;
   }
 
-  void _showQuickAddTodo() {
+  void _showQuickAddTask() {
     // Reset state variables
     _qaSelectedContext = selectedContext ?? 'personal';
     _qaSelectedRecurrence = 'none';
 
     // Set default date to today
-    _qaTodoDate.text = anchor;
+    _qaTaskDate.text = anchor;
 
     showDialog<void>(
       context: context,
@@ -3027,7 +2497,7 @@ class _HomePageState extends State<HomePage> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   TextField(
-                    controller: _qaTodoTitle,
+                    controller: _qaTaskTitle,
                     decoration: const InputDecoration(labelText: 'Title *'),
                     autofocus: true,
                   ),
@@ -3036,7 +2506,7 @@ class _HomePageState extends State<HomePage> {
                     children: [
                       Expanded(
                         child: TextField(
-                          controller: _qaTodoDate,
+                          controller: _qaTaskDate,
                           decoration: const InputDecoration(
                             labelText: 'Date (YYYY-MM-DD)',
                           ),
@@ -3044,7 +2514,7 @@ class _HomePageState extends State<HomePage> {
                       ),
                       const SizedBox(width: 8),
                       IconButton(
-                        onPressed: () => _pickDate(_qaTodoDate),
+                        onPressed: () => _pickDate(_qaTaskDate),
                         icon: const Icon(Icons.calendar_today),
                         tooltip: 'Pick date',
                       ),
@@ -3055,7 +2525,7 @@ class _HomePageState extends State<HomePage> {
                     children: [
                       Expanded(
                         child: TextField(
-                          controller: _qaTodoTime,
+                          controller: _qaTaskTime,
                           decoration: const InputDecoration(
                             labelText: 'Time (HH:MM)',
                           ),
@@ -3063,7 +2533,7 @@ class _HomePageState extends State<HomePage> {
                       ),
                       const SizedBox(width: 8),
                       IconButton(
-                        onPressed: () => _pickTime(_qaTodoTime),
+                        onPressed: () => _pickTime(_qaTaskTime),
                         icon: const Icon(Icons.access_time),
                         tooltip: 'Pick time',
                       ),
@@ -3071,7 +2541,7 @@ class _HomePageState extends State<HomePage> {
                   ),
                   const SizedBox(height: 8),
                   TextField(
-                    controller: _qaTodoNotes,
+                    controller: _qaTaskNotes,
                     decoration: const InputDecoration(labelText: 'Notes'),
                     maxLines: 3,
                   ),
@@ -3112,7 +2582,7 @@ class _HomePageState extends State<HomePage> {
                   ),
                   if (_qaSelectedRecurrence == 'every_n_days')
                     TextField(
-                      controller: _qaTodoInterval,
+                      controller: _qaTaskInterval,
                       keyboardType: TextInputType.number,
                       decoration: const InputDecoration(
                         labelText: 'Every N days (>=1)',
@@ -3132,7 +2602,9 @@ class _HomePageState extends State<HomePage> {
                   ? null
                   : () async {
                       Navigator.of(context).pop();
-                      await _submitQuickAddTodo(selectedContext: _qaSelectedContext);
+                      await _submitQuickAddTask(
+                        selectedContext: _qaSelectedContext,
+                      );
                     },
               child: _addingQuick
                   ? const SizedBox(
@@ -3297,7 +2769,9 @@ class _HomePageState extends State<HomePage> {
                   ? null
                   : () async {
                       Navigator.of(context).pop();
-                      await _submitQuickAddEvent(selectedContext: _qaSelectedContext);
+                      await _submitQuickAddEvent(
+                        selectedContext: _qaSelectedContext,
+                      );
                     },
               child: _addingQuick
                   ? const SizedBox(
@@ -3367,13 +2841,16 @@ class _HomePageState extends State<HomePage> {
                                                 segments: const [
                                                   ButtonSegment(
                                                       value: ViewMode.day,
-                                                      label: Text('Day')),
+                                                    label: Text('Day'),
+                                                  ),
                                                   ButtonSegment(
                                                       value: ViewMode.week,
-                                                      label: Text('Week')),
+                                                    label: Text('Week'),
+                                                  ),
                                                   ButtonSegment(
                                                       value: ViewMode.month,
-                                                      label: Text('Month')),
+                                                    label: Text('Month'),
+                                                  ),
                                                 ],
                                                 selected: {view},
                                                 onSelectionChanged: (s) async {
@@ -3390,7 +2867,8 @@ class _HomePageState extends State<HomePage> {
                                               onNext: _goNext,
                                               onToday: _goToToday,
                                               selectedContext: selectedContext,
-                                              onContextChanged: (context) async {
+                                              onContextChanged:
+                                                  (context) async {
                                                 setState(() {
                                                   selectedContext = context;
                                                 });
@@ -3399,11 +2877,15 @@ class _HomePageState extends State<HomePage> {
                                               showCompleted: showCompleted,
                                               onShowCompletedChanged: (v) {
                                                 setState(
-                                                    () => showCompleted = v);
+                                                  () => showCompleted = v,
+                                                );
                                                 _refreshAll();
                                               },
                                               // New assistant/search wiring
-                                              onToggleAssistant: () => setState(() => assistantCollapsed = !assistantCollapsed),
+                                              onToggleAssistant: () => setState(
+                                                () => assistantCollapsed =
+                                                    !assistantCollapsed,
+                                              ),
                                               searchController: searchCtrl,
                                               searchFocus: _searchFocus,
                                               searchLink: _searchLink,
@@ -3426,26 +2908,53 @@ class _HomePageState extends State<HomePage> {
                                                 if (event is! KeyDownEvent) {
                                                   return KeyEventResult.ignored;
                                                 }
-                                                final len = math.min(searchResults.length, 7);
-                                                if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+                                                final len = math.min(
+                                                  searchResults.length,
+                                                  7,
+                                                );
+                                                if (event.logicalKey ==
+                                                    LogicalKeyboardKey
+                                                        .arrowDown) {
                                                   setState(() {
-                                                    _searchHoverIndex = len == 0 ? -1 : (_searchHoverIndex + 1) % len;
+                                                    _searchHoverIndex = len == 0
+                                                        ? -1
+                                                        : (_searchHoverIndex +
+                                                                  1) %
+                                                              len;
                                                   });
                                                   _showSearchOverlayIfNeeded();
                                                   return KeyEventResult.handled;
-                                                } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+                                                } else if (event.logicalKey ==
+                                                    LogicalKeyboardKey
+                                                        .arrowUp) {
                                                   setState(() {
-                                                    _searchHoverIndex = len == 0 ? -1 : (_searchHoverIndex - 1 + len) % len;
+                                                    _searchHoverIndex = len == 0
+                                                        ? -1
+                                                        : (_searchHoverIndex -
+                                                                  1 +
+                                                                  len) %
+                                                              len;
                                                   });
                                                   _showSearchOverlayIfNeeded();
                                                   return KeyEventResult.handled;
-                                                } else if (event.logicalKey == LogicalKeyboardKey.enter) {
-                                                  final list = searchResults.take(7).toList();
+                                                } else if (event.logicalKey ==
+                                                    LogicalKeyboardKey.enter) {
+                                                  final list = searchResults
+                                                      .take(7)
+                                                      .toList();
                                                   if (list.isEmpty) {
-                                                    return KeyEventResult.handled;
+                                                    return KeyEventResult
+                                                        .handled;
                                                   }
-                                                  final idx = _searchHoverIndex >= 0 && _searchHoverIndex < list.length ? _searchHoverIndex : 0;
-                                                  _selectSearchResult(list[idx]);
+                                                  final idx =
+                                                      _searchHoverIndex >= 0 &&
+                                                          _searchHoverIndex <
+                                                              list.length
+                                                      ? _searchHoverIndex
+                                                      : 0;
+                                                  _selectSearchResult(
+                                                    list[idx],
+                                                  );
                                                   return KeyEventResult.handled;
                                                 }
                                                 return KeyEventResult.ignored;
@@ -3470,14 +2979,9 @@ class _HomePageState extends State<HomePage> {
                                               switchOutCurve: AppAnim.easeIn,
                                               child: KeyedSubtree(
                                                 key: ValueKey(
-                                                    '${mainView}_${view}_${anchor}_${selectedContext ?? 'all'}'),
-                                                child: (mainView ==
-                                                        MainView.tasks)
-                                                    ? _buildMainList()
-                                                    : (mainView ==
-                                                            MainView.habits
-                                                        ? _buildHabitsList()
-                                                        : _buildGoalsView()),
+                                                  '${mainView}_${view}_${anchor}_${selectedContext ?? 'all'}',
+                                                ),
+                                                child: _buildMainList(),
                                               ),
                                             ),
                                             Positioned(
@@ -3485,7 +2989,7 @@ class _HomePageState extends State<HomePage> {
                                               bottom: 16,
                                               child: FabActions(
                                                 onCreateTask: () =>
-                                                    _showQuickAddTodo(),
+                                                    _showQuickAddTask(),
                                                 onCreateEvent: () =>
                                                     _showQuickAddEvent(),
                                                 currentDate:
@@ -3509,7 +3013,10 @@ class _HomePageState extends State<HomePage> {
                                       Positioned(
                                         left: 0,
                                         child: AssistantHandle(
-                                          onTap: () => setState(() => assistantCollapsed = !assistantCollapsed),
+                                          onTap: () => setState(
+                                            () => assistantCollapsed =
+                                                !assistantCollapsed,
+                                          ),
                                           open: !assistantCollapsed,
                                           insidePanel: !assistantCollapsed,
                                         ),
@@ -3525,13 +3032,19 @@ class _HomePageState extends State<HomePage> {
                                             child: AssistantPanel(
                                               transcript: assistantTranscript,
                                               operations: assistantOps,
-                                              operationsChecked: assistantOpsChecked,
+                                              operationsChecked:
+                                                  assistantOpsChecked,
                                               sending: assistantSending,
-                                              previewsByKey: assistantOpPreviews,
-                                              onToggleOperation: (i, v) => setState(
-                                                () => assistantOpsChecked[i] = v,
-                                              ),
-                                              onApplySelected: _applyAssistantOps,
+                                              previewsByKey:
+                                                  assistantOpPreviews,
+                                              onToggleOperation: (i, v) =>
+                                                  setState(
+                                                    () =>
+                                                        assistantOpsChecked[i] =
+                                                            v,
+                                                  ),
+                                              onApplySelected:
+                                                  _applyAssistantOps,
                                               onDiscard: () => setState(() {
                                                 assistantOps = [];
                                                 assistantOpsChecked = [];
@@ -3539,23 +3052,33 @@ class _HomePageState extends State<HomePage> {
                                               }),
                                               inputController: assistantCtrl,
                                               onSend: _sendAssistantMessage,
-                                              opLabel: (op) => _opLabel((op as AnnotatedOp).op),
+                                              opLabel: (op) => _opLabel(
+                                                (op as AnnotatedOp).op,
+                                              ),
                                               onClearChat: () => setState(() {
                                                 assistantTranscript.clear();
                                                 assistantOps = [];
                                                 assistantOpsChecked = [];
                                                 assistantOpPreviews.clear();
                                               }),
-                                              clarifyQuestion: _pendingClarifyQuestion,
-                                              clarifyOptions: _pendingClarifyOptions,
-                                              onToggleClarifyId: (id) => setState(() {
-                                                if (_clarifySelectedIds.contains(id)) {
-                                                  _clarifySelectedIds.remove(id);
+                                              clarifyQuestion:
+                                                  _pendingClarifyQuestion,
+                                              clarifyOptions:
+                                                  _pendingClarifyOptions,
+                                              onToggleClarifyId: (id) =>
+                                                  setState(() {
+                                                    if (_clarifySelectedIds
+                                                        .contains(id)) {
+                                                      _clarifySelectedIds
+                                                          .remove(id);
                                                 } else {
-                                                  _clarifySelectedIds.add(id);
+                                                      _clarifySelectedIds.add(
+                                                        id,
+                                                      );
                                                 }
                                               }),
-                                              onSelectClarifyDate: (d) => setState(() {
+                                              onSelectClarifyDate: (d) =>
+                                                  setState(() {
                                                 _clarifySelectedDate = d;
                                               }),
                                               progressStage: _progressStage,
@@ -3563,11 +3086,17 @@ class _HomePageState extends State<HomePage> {
                                               progressInvalid: _progressInvalid,
                                               progressStart: _progressStart,
                                               todayYmd: ymd(DateTime.now()),
-                                              selectedClarifyIds: _clarifySelectedIds,
-                                              selectedClarifyDate: _clarifySelectedDate,
+                                              selectedClarifyIds:
+                                                  _clarifySelectedIds,
+                                              selectedClarifyDate:
+                                                  _clarifySelectedDate,
                                               thinking: assistantThinking,
-                                              showThinking: assistantShowThinking,
-                                              onToggleThinking: () => setState(() => assistantShowThinking = !assistantShowThinking),
+                                              showThinking:
+                                                  assistantShowThinking,
+                                              onToggleThinking: () => setState(
+                                                () => assistantShowThinking =
+                                                    !assistantShowThinking,
+                                              ),
                                             ),
                                           ),
                                         ),
@@ -3606,7 +3135,6 @@ class _HomePageState extends State<HomePage> {
     }
     return parts.join(' ');
   }
-
 
   Widget _buildMainList() {
     final items = _currentList();
@@ -3671,7 +3199,7 @@ class _HomePageState extends State<HomePage> {
           dateYmd: anchor,
           events: _anchorEventsAsMaps(),
           tasks: _anchorTasksAsMaps(),
-          onSetTodoStatusOrOccurrence: _onSetTodoStatusOrOccurrenceNew,
+          onSetTaskStatusOrOccurrence: _onSetTaskStatusOrOccurrence,
           onEditTask: _onEditTask,
           onDeleteTask: _onDeleteTask,
           onEditEvent: _onEditEvent,
@@ -4250,674 +3778,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   // --- Goals minimal UI ---
-  Widget _buildGoalsView() {
-    // Always show quick-add for Goals at top
-    final goalsQuickAddHeader = Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      child: Row(
-        children: [
-          const Expanded(
-            child: Text(
-              'Goals',
-              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
-            ),
-          ),
-          SizedBox(
-            width: 240,
-            child: TextField(
-              key: const Key('qa_goal_title'),
-              controller: _qaGoalTitle,
-              decoration: const InputDecoration(labelText: 'Title *'),
-              textInputAction: TextInputAction.done,
-              onSubmitted: (_) => _submitQuickAddGoal(),
-              onEditingComplete: _submitQuickAddGoal,
-            ),
-          ),
-          const SizedBox(width: 8),
-          DropdownButton<String>(
-            value: _qaGoalStatus,
-            items: const [
-              DropdownMenuItem(value: 'active', child: Text('Active')),
-              DropdownMenuItem(value: 'completed', child: Text('Completed')),
-              DropdownMenuItem(value: 'archived', child: Text('Archived')),
-            ],
-            onChanged: (v) => setState(() => _qaGoalStatus = v ?? 'active'),
-          ),
-          const SizedBox(width: 8),
-          SizedBox(
-            width: 180,
-            child: TextField(
-              key: const Key('qa_goal_notes'),
-              controller: _qaGoalNotes,
-              decoration: const InputDecoration(labelText: 'Notes'),
-            ),
-          ),
-          const SizedBox(width: 8),
-          SizedBox(
-            width: 80,
-            child: TextField(
-              key: const Key('qa_goal_current'),
-              controller: _qaGoalCurrent,
-              decoration: const InputDecoration(labelText: 'Current'),
-            ),
-          ),
-          const SizedBox(width: 8),
-          SizedBox(
-            width: 80,
-            child: TextField(
-              key: const Key('qa_goal_target'),
-              controller: _qaGoalTarget,
-              decoration: const InputDecoration(labelText: 'Target'),
-            ),
-          ),
-          const SizedBox(width: 8),
-          SizedBox(
-            width: 80,
-            child: TextField(
-              key: const Key('qa_goal_unit'),
-              controller: _qaGoalUnit,
-              decoration: const InputDecoration(labelText: 'Unit'),
-            ),
-          ),
-          const SizedBox(width: 8),
-          FilledButton(
-            onPressed: _addingQuick ? null : _submitQuickAddGoal,
-            child: const Text('Add'),
-          ),
-        ],
-      ),
-    );
-
-    return Column(
-      children: [
-        goalsQuickAddHeader,
-        Expanded(
-          child: FutureBuilder<List<dynamic>>(
-            future: api.listGoals(status: _goalsStatusFilter),
-            builder: (context, snap) {
-              if (snap.connectionState != ConnectionState.done) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              if (snap.hasError) {
-                return Center(child: Text('Load failed: ${snap.error}'));
-              }
-              final raw = snap.data ?? const <dynamic>[];
-              final goals = raw
-                  .map((e) => Map<String, dynamic>.from(e))
-                  .toList();
-              goals.sort((a, b) => (a['id'] as int).compareTo(b['id'] as int));
-              return ListView(
-                padding: const EdgeInsets.all(12),
-                children: [
-                  const SizedBox(height: 8),
-                  Builder(
-                    builder: (context) {
-                      int all = goals.length;
-                      int active = goals
-                          .where((g) => (g['status'] as String?) == 'active')
-                          .length;
-                      int completed = goals
-                          .where((g) => (g['status'] as String?) == 'completed')
-                          .length;
-                      int archived = goals
-                          .where((g) => (g['status'] as String?) == 'archived')
-                          .length;
-                      return Wrap(
-                        spacing: 8,
-                        runSpacing: 6,
-                        children: [
-                          _filterChip(
-                            'All $all',
-                            _goalsStatusFilter == null,
-                            () {
-                              setState(() {
-                                _goalsStatusFilter = null;
-                              });
-                            },
-                          ),
-                          _filterChip(
-                            'Active $active',
-                            _goalsStatusFilter == 'active',
-                            () {
-                              setState(() {
-                                _goalsStatusFilter =
-                                    (_goalsStatusFilter == 'active')
-                                    ? null
-                                    : 'active';
-                              });
-                            },
-                          ),
-                          _filterChip(
-                            'Completed $completed',
-                            _goalsStatusFilter == 'completed',
-                            () {
-                              setState(() {
-                                _goalsStatusFilter =
-                                    (_goalsStatusFilter == 'completed')
-                                    ? null
-                                    : 'completed';
-                              });
-                            },
-                          ),
-                          _filterChip(
-                            'Archived $archived',
-                            _goalsStatusFilter == 'archived',
-                            () {
-                              setState(() {
-                                _goalsStatusFilter =
-                                    (_goalsStatusFilter == 'archived')
-                                    ? null
-                                    : 'archived';
-                              });
-                            },
-                          ),
-                        ],
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  ...goals.map((g) => _goalRow(g)),
-                ],
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _goalRow(Map<String, dynamic> g) {
-    final status = (g['status'] as String?) ?? 'active';
-    final cpv = (g['currentProgressValue'] as num?)?.toDouble();
-    final tpv = (g['targetProgressValue'] as num?)?.toDouble();
-    final unit = (g['progressUnit'] as String?) ?? '';
-    String progressText = '';
-    if (tpv != null) {
-      final cur = cpv ?? 0;
-      progressText = unit.isNotEmpty
-          ? '${cur.toStringAsFixed(cur.truncateToDouble() == cur ? 0 : 1)} / ${tpv.toStringAsFixed(tpv.truncateToDouble() == tpv ? 0 : 1)} $unit'
-          : '${cur.toStringAsFixed(cur.truncateToDouble() == cur ? 0 : 1)} / ${tpv.toStringAsFixed(tpv.truncateToDouble() == tpv ? 0 : 1)}';
-    }
-    return Card(
-      child: ListTile(
-        title: Row(
-          children: [
-            _statusPill(status),
-            const SizedBox(width: 6),
-            Expanded(child: Text(g['title'] as String? ?? '')),
-          ],
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if ((g['notes'] as String?)?.isNotEmpty == true)
-              Text(g['notes'] as String),
-            if (progressText.isNotEmpty)
-              Text(
-                progressText,
-                style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
-              ),
-          ],
-        ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            PopupMenuButton<String>(
-              tooltip: 'Change status',
-              onSelected: (v) async {
-                try {
-                  await api.updateGoal(g['id'] as int, {'status': v});
-                  setState(() {});
-                } catch (_) {}
-              },
-              itemBuilder: (c) => const [
-                PopupMenuItem(value: 'active', child: Text('Active')),
-                PopupMenuItem(value: 'completed', child: Text('Completed')),
-                PopupMenuItem(value: 'archived', child: Text('Archived')),
-              ],
-              child: const Icon(Icons.more_vert),
-            ),
-            IconButton(
-              icon: const Icon(Icons.chevron_right),
-              onPressed: () => _openGoalDetail(g['id'] as int),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _statusPill(String s) {
-    Color bg;
-    Color fg;
-    switch (s) {
-      case 'completed':
-        bg = const Color(0xFFD3F9D8);
-        fg = const Color(0xFF205B2A);
-        break;
-      case 'archived':
-        bg = const Color(0xFFE9ECEF);
-        fg = const Color(0xFF495057);
-        break;
-      default:
-        bg = const Color(0xFFE7F5FF);
-        fg = const Color(0xFF17496E);
-        break;
-    }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(s, style: TextStyle(color: fg, fontSize: 11)),
-    );
-  }
-
-  Future<void> _openGoalDetail(int id) async {
-    try {
-      final goal = await api.getGoal(
-        id,
-        includeItems: true,
-        includeChildren: true,
-      );
-      if (!mounted || goal == null) return;
-      final addTodoCtrl = TextEditingController();
-      final addEventCtrl = TextEditingController();
-      final addChildCtrl = TextEditingController();
-      await showDialog<void>(
-        context: context,
-        builder: (c) => AlertDialog(
-          title: Text(goal['title'] as String? ?? ''),
-          content: SizedBox(
-            width: 520,
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if ((goal['notes'] as String?)?.isNotEmpty == true)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Text(goal['notes'] as String),
-                    ),
-                  Text('Status: ${(goal['status'] as String?) ?? 'active'}'),
-                  const SizedBox(height: 12),
-                  const Text('Items'),
-                  const SizedBox(height: 6),
-                  ...(goal['items'] != null && goal['items']['tasks'] is List
-                      ? (goal['items']['tasks'] as List)
-                            .map<Map<String, dynamic>>(
-                              (e) => Map<String, dynamic>.from(e),
-                            )
-                            .map(
-                              (t) => Row(
-                                children: [
-                                  const Icon(
-                                    Icons.check_circle_outline,
-                                    size: 14,
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Expanded(
-                                    child: Text(t['title'] as String? ?? ''),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.link_off, size: 16),
-                                    onPressed: () async {
-                                      await api.removeGoalTaskItem(
-                                        id,
-                                        t['id'] as int,
-                                      );
-                                      if (!mounted) return;
-                                      Navigator.of(context).pop();
-                                      await _openGoalDetail(id);
-                                    },
-                                  ),
-                                ],
-                              ),
-                            )
-                            .toList()
-                      : const <Widget>[]),
-                  ...(goal['items'] != null && goal['items']['events'] is List
-                      ? (goal['items']['events'] as List)
-                            .map<Map<String, dynamic>>(
-                              (e) => Map<String, dynamic>.from(e),
-                            )
-                            .map(
-                              (ev) => Row(
-                                children: [
-                                  const Icon(Icons.event, size: 14),
-                                  const SizedBox(width: 6),
-                                  Expanded(
-                                    child: Text(ev['title'] as String? ?? ''),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.link_off, size: 16),
-                                    onPressed: () async {
-                                      await api.removeGoalEventItem(
-                                        id,
-                                        ev['id'] as int,
-                                      );
-                                      if (!mounted) return;
-                                      Navigator.of(context).pop();
-                                      await _openGoalDetail(id);
-                                    },
-                                  ),
-                                ],
-                              ),
-                            )
-                            .toList()
-                      : const <Widget>[]),
-                  const SizedBox(height: 12),
-                  const Text('Children'),
-                  const SizedBox(height: 6),
-                  ...(goal['children'] is List
-                      ? (goal['children'] as List)
-                            .map<int>((e) => (e as int))
-                            .map(
-                              (cid) => Row(
-                                children: [
-                                  const Icon(Icons.flag, size: 14),
-                                  const SizedBox(width: 6),
-                                  Expanded(child: Text('Goal #$cid')),
-                                  IconButton(
-                                    icon: const Icon(Icons.link_off, size: 16),
-                                    onPressed: () async {
-                                      await api.removeGoalChild(id, cid);
-                                      if (!mounted) return;
-                                      Navigator.of(context).pop();
-                                      await _openGoalDetail(id);
-                                    },
-                                  ),
-                                ],
-                              ),
-                            )
-                            .toList()
-                      : const <Widget>[]),
-                  const SizedBox(height: 12),
-                  const Divider(height: 1),
-                  const SizedBox(height: 8),
-                  const Text('Link items (IDs, comma-separated)'),
-                  const SizedBox(height: 6),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: addTodoCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Task IDs',
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: TextField(
-                          controller: addEventCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Event IDs',
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      FilledButton(
-                        onPressed: () async {
-                          try {
-                            final tasks = addTodoCtrl.text
-                                .split(',')
-                                .map((s) => int.tryParse(s.trim()))
-                                .whereType<int>()
-                                .toList();
-                            final events = addEventCtrl.text
-                                .split(',')
-                                .map((s) => int.tryParse(s.trim()))
-                                .whereType<int>()
-                                .toList();
-                            await api.addGoalItems(
-                              id,
-                              tasks: tasks.isEmpty ? null : tasks,
-                              events: events.isEmpty ? null : events,
-                            );
-                            if (!mounted) return;
-                            Navigator.of(context).pop();
-                            await _openGoalDetail(id);
-                          } catch (e) {
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Link failed: $e')),
-                              );
-                            }
-                          }
-                        },
-                        child: const Text('Add'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  const Text('Add child (Goal ID)'),
-                  const SizedBox(height: 6),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: addChildCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Child goal ID',
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      FilledButton(
-                        onPressed: () async {
-                          final cid = int.tryParse(addChildCtrl.text.trim());
-                          if (cid == null) {
-                            return;
-                          }
-                          try {
-                            await api.addGoalChild(id, cid);
-                            if (!mounted) return;
-                            Navigator.of(context).pop();
-                            await _openGoalDetail(id);
-                          } catch (e) {
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Add child failed: $e')),
-                              );
-                            }
-                          }
-                        },
-                        child: const Text('Add Child'),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () async {
-                if (!mounted) return;
-                Navigator.of(context).pop();
-                await _openEditGoalDialog(goal);
-              },
-              child: const Text('Edit'),
-            ),
-            TextButton(
-              onPressed: () async {
-                try {
-                  await api.deleteGoal(id);
-                  if (!mounted) return;
-                  Navigator.of(context).pop();
-                  if (mounted) setState(() {});
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Delete failed: $e')),
-                    );
-                  }
-                }
-              },
-              child: const Text('Delete'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Close'),
-            ),
-          ],
-        ),
-      );
-    } catch (e) {
-      setState(() => message = 'Load goal failed: $e');
-    }
-  }
-
-  Future<void> _openEditGoalDialog(Map<String, dynamic> goal) async {
-    final titleCtrl = TextEditingController(
-      text: goal['title'] as String? ?? '',
-    );
-    final notesCtrl = TextEditingController(
-      text: goal['notes'] as String? ?? '',
-    );
-    String status = (goal['status'] as String?) ?? 'active';
-    final currentCtrl = TextEditingController(
-      text: ((goal['currentProgressValue'] as num?)?.toString() ?? ''),
-    );
-    final targetCtrl = TextEditingController(
-      text: ((goal['targetProgressValue'] as num?)?.toString() ?? ''),
-    );
-    final unitCtrl = TextEditingController(
-      text: (goal['progressUnit'] as String?) ?? '',
-    );
-    final id = goal['id'] as int;
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (c) => StatefulBuilder(
-        builder: (c, setDlgState) {
-          return AlertDialog(
-            title: const Text('Edit goal'),
-            content: SizedBox(
-              width: 420,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: titleCtrl,
-                    decoration: const InputDecoration(labelText: 'Title'),
-                  ),
-                  TextField(
-                    controller: notesCtrl,
-                    decoration: const InputDecoration(labelText: 'Notes'),
-                  ),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: currentCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Current',
-                          ),
-                          keyboardType: TextInputType.number,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: TextField(
-                          controller: targetCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Target',
-                          ),
-                          keyboardType: TextInputType.number,
-                        ),
-                      ),
-                    ],
-                  ),
-                  TextField(
-                    controller: unitCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Unit (optional)',
-                    ),
-                  ),
-                  DropdownButtonFormField<String>(
-                    value: status,
-                    decoration: const InputDecoration(labelText: 'Status'),
-                    items: const [
-                      DropdownMenuItem(value: 'active', child: Text('Active')),
-                      DropdownMenuItem(
-                        value: 'completed',
-                        child: Text('Completed'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'archived',
-                        child: Text('Archived'),
-                      ),
-                    ],
-                    onChanged: (v) => setDlgState(() => status = v ?? 'active'),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(c, false),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(c, true),
-                child: const Text('Save'),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-    if (ok != true) return;
-    try {
-      final current = double.tryParse(currentCtrl.text.trim());
-      final target = double.tryParse(targetCtrl.text.trim());
-      final unit = unitCtrl.text.trim();
-      await api.updateGoal(id, {
-        'title': titleCtrl.text.trim(),
-        'notes': notesCtrl.text,
-        'status': status,
-        'currentProgressValue': current,
-        'targetProgressValue': target,
-        'progressUnit': unit,
-      });
-      setState(() {});
-    } catch (e) {
-      setState(() => message = 'Update goal failed: $e');
-    }
-  }
-
-  Widget _filterChip(String label, bool selected, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: selected
-              ? Theme.of(
-                  context,
-                ).colorScheme.primary.withAlpha((0.1 * 255).round())
-              : Colors.grey.shade100,
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(
-            color: selected
-                ? Theme.of(context).colorScheme.primary
-                : Colors.grey.shade300,
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: selected
-                ? Theme.of(context).colorScheme.primary
-                : Colors.black87,
-            fontSize: 12,
-          ),
-        ),
-      ),
-    );
-  }
+  
 
   Widget _buildRow(Task t) {
     // Determine overdue: only when viewing today's Day view, timed tasks, not completed, and time < now
@@ -4952,67 +3813,8 @@ class _HomePageState extends State<HomePage> {
       'overdue': isOverdue,
       'context': t.context,
     };
-    // Build a small extra badge for habits with streaks if stats available
+    // No extra badges for goals/habits after migration
     Widget? extraBadge;
-    if (t.kind == 'habit') {
-      final stats = (t.masterId != null)
-          ? habitStatsById[t.masterId!]
-          : habitStatsById[t.id];
-      final int current = (stats != null && stats['currentStreak'] is int)
-          ? stats['currentStreak'] as int
-          : 0;
-      final int longest = (stats != null && stats['longestStreak'] is int)
-          ? stats['longestStreak'] as int
-          : 0;
-      extraBadge = Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: Theme.of(context).colorScheme.outline),
-        ),
-        child: Text(
-          '🔥 $current / $longest',
-          style: TextStyle(
-            fontSize: 11,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-        ),
-      );
-    } else if (t.kind == 'task' || t.kind == 'event' || t.kind == null) {
-      final key = '${t.kind ?? 'task'}:${t.masterId ?? t.id}';
-      final info = _itemGoalByKey[key];
-      if (info != null) {
-        final goalTitle = (info['title'] as String?) ?? 'Goal';
-        final goalId = info['goalId'] as int?;
-        extraBadge = InkWell(
-          onTap: (goalId == null) ? null : () => _openGoalDetail(goalId),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            decoration: BoxDecoration(
-              color: Colors.grey.shade100,
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: Colors.grey.shade300),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  Icons.flag_outlined,
-                  size: 12,
-                  color: Colors.black54,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  goalTitle,
-                  style: const TextStyle(fontSize: 11, color: Colors.black87),
-                ),
-              ],
-            ),
-          ),
-        );
-      }
-    }
     final keyId = t.masterId != null && t.scheduledFor != null
         ? Object.hashAll([t.masterId, t.scheduledFor])
         : t.id;
@@ -5023,11 +3825,7 @@ class _HomePageState extends State<HomePage> {
         task: like,
         onToggleCompleted: () => _toggleCompleted(t),
         onToggleSkipped: (t.kind == 'task') ? () => _toggleSkip(t) : null,
-        onEdit: () => (t.kind == 'event')
-            ? _editEvent(t)
-            : (t.kind == 'habit')
-            ? _editHabit(t)
-            : _editTask(t),
+        onEdit: () => (t.kind == 'event') ? _editEvent(t) : _editTask(t),
         onDelete: () => _deleteTask(t),
         highlighted: _highlightedId == t.id,
         extraBadge: extraBadge,
@@ -5038,13 +3836,8 @@ class _HomePageState extends State<HomePage> {
                 'title': newTitle,
                 'recurrence': t.recurrence ?? {'type': 'none'},
               });
-            } else if (t.kind == 'habit') {
-              await api.updateHabit(t.id, {
-                'title': newTitle,
-                'recurrence': t.recurrence ?? {'type': 'daily'},
-              });
             } else {
-              await api.callMCPTool('update_todo', {
+              await api.callMCPTool('update_task', {
                 'id': t.id,
                 'title': newTitle,
                 'recurrence': t.recurrence ?? {'type': 'none'},
@@ -5067,16 +3860,8 @@ class _HomePageState extends State<HomePage> {
               setState(() {
                 t.timeOfDay = newTime;
               });
-            } else if (t.kind == 'habit') {
-              await api.updateHabit(t.id, {
-                'timeOfDay': newTime,
-                'recurrence': t.recurrence ?? {'type': 'daily'},
-              });
-              setState(() {
-                t.timeOfDay = newTime;
-              });
             } else {
-              await api.callMCPTool('update_todo', {
+              await api.callMCPTool('update_task', {
                 'id': t.id,
                 'timeOfDay': newTime,
                 'recurrence': t.recurrence ?? {'type': 'none'},
@@ -5087,312 +3872,6 @@ class _HomePageState extends State<HomePage> {
             }
           } catch (_) {}
         },
-      ),
-    );
-  }
-
-  Widget _buildHabitsList() {
-    // Always show quick-add for Habits at top
-    final quickAddHeader = Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      child: Row(
-        children: [
-          Expanded(
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              children: [_quickAddHabitsInline()],
-            ),
-          ),
-        ],
-      ),
-    );
-
-    // Build Sun-Sat range from current anchor week
-    final a = parseYmd(anchor);
-    final sunday = a.subtract(Duration(days: a.weekday % 7));
-    final week = List<DateTime>.generate(
-      7,
-      (i) => sunday.add(Duration(days: i)),
-    );
-    final weekY = week.map((d) => ymd(d)).toList();
-
-    final rows = <dynamic>[];
-
-    // Optimistic toggle helper
-    Future<void> toggleHabit(int hid, String y, bool newCompleted) async {
-      // Optimistic update of weekHeatmap and (if today) currentStreak
-      final prev = Map<int, Map<String, dynamic>>.from(habitStatsById);
-      try {
-        final stats = Map<String, dynamic>.from(
-          habitStatsById[hid] ?? const <String, dynamic>{},
-        );
-        final List<dynamic> heat = (stats['weekHeatmap'] is List)
-            ? List<dynamic>.from(stats['weekHeatmap'] as List)
-            : <dynamic>[];
-        for (int i = 0; i < heat.length; i++) {
-          final e = heat[i];
-          if (e is Map && e['date'] == y) {
-            heat[i] = {'date': y, 'completed': newCompleted};
-            break;
-          }
-        }
-        final todayY = ymd(DateTime.now());
-        int current = (stats['currentStreak'] as int?) ?? 0;
-        if (y == todayY) {
-          current = newCompleted
-              ? (current + 1)
-              : (current > 0 ? current - 1 : 0);
-        }
-        final updated = {
-          ...stats,
-          'weekHeatmap': heat,
-          'currentStreak': current,
-        };
-        setState(() {
-          habitStatsById = {...habitStatsById, hid: updated};
-        });
-        await api.toggleHabitOccurrence(hid, y, newCompleted);
-        // Optionally refresh to reconcile server state
-        await _refreshAll();
-      } catch (e) {
-        setState(() {
-          habitStatsById = prev;
-        });
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Update failed. Reverted.')),
-          );
-        }
-      }
-    }
-
-    final isNarrow = MediaQuery.of(context).size.width < 1100;
-    if (!isNarrow) {
-      return Column(
-        children: [
-          quickAddHeader,
-          const Expanded(child: SizedBox.shrink()),
-        ],
-      );
-    }
-
-    // Narrow layout: left list + right focus grid
-    final selectedId = null;
-    final selectedStats = null;
-    final Set<String> completedSet = {};
-    final todayY = ymd(DateTime.now());
-
-    return Column(
-      children: [
-        quickAddHeader,
-        Expanded(
-          child: Row(
-            children: [
-              // Left list
-              SizedBox(
-                width: 260,
-                child: ListView(
-                  padding: const EdgeInsets.all(12),
-                  children: rows.map((h) {
-                    final isSel = h.id == selectedId;
-                    final s = habitStatsById[h.id] ?? const <String, dynamic>{};
-                    final current = (s['currentStreak'] as int?) ?? 0;
-                    final longest = (s['longestStreak'] as int?) ?? 0;
-                    return InkWell(
-                      onTap: () => setState(() {
-                        _selectedHabitId = h.id;
-                      }),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 8,
-                        ),
-                        margin: const EdgeInsets.only(bottom: 8),
-                        decoration: BoxDecoration(
-                          border: Border.all(
-                            color: isSel
-                                ? Theme.of(context).colorScheme.primary
-                                : Colors.grey.shade300,
-                            width: isSel ? 2 : 1,
-                          ),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Row(
-                          children: [
-                            const SizedBox(width: 0),
-                            Expanded(
-                              child: Text(
-                                h.title,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFEFF1F3),
-                                borderRadius: BorderRadius.circular(999),
-                                border: Border.all(
-                                  color: const Color(0xFFCDD3D8),
-                                ),
-                              ),
-                              child: Text(
-                                '🔥 $current / $longest',
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  color: Color(0xFF616975),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ),
-              const VerticalDivider(width: 1),
-              // Right single-habit grid with keyboard nav
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildWeekdayHeader(),
-                      const Divider(height: 1),
-                      const SizedBox(height: 8),
-                      Focus(
-                        autofocus: true,
-                        onKeyEvent: (node, event) {
-                          if (event is! KeyDownEvent) {
-                            return KeyEventResult.ignored;
-                          }
-                          if (event.logicalKey ==
-                              LogicalKeyboardKey.arrowLeft) {
-                            setState(() {
-                              _habitFocusCol = (_habitFocusCol - 1).clamp(0, 6);
-                            });
-                            return KeyEventResult.handled;
-                          }
-                          if (event.logicalKey ==
-                              LogicalKeyboardKey.arrowRight) {
-                            setState(() {
-                              _habitFocusCol = (_habitFocusCol + 1).clamp(0, 6);
-                            });
-                            return KeyEventResult.handled;
-                          }
-                          if (event.logicalKey == LogicalKeyboardKey.home) {
-                            setState(() {
-                              _habitFocusCol = 0;
-                            });
-                            return KeyEventResult.handled;
-                          }
-                          if (event.logicalKey == LogicalKeyboardKey.end) {
-                            setState(() {
-                              _habitFocusCol = 6;
-                            });
-                            return KeyEventResult.handled;
-                          }
-                          if (event.logicalKey == LogicalKeyboardKey.space) {
-                            if (selectedId != null) {
-                              final y = weekY[_habitFocusCol];
-                              final newCompleted = !completedSet.contains(y);
-                              toggleHabit(selectedId, y, newCompleted);
-                            }
-                            return KeyEventResult.handled;
-                          }
-                          return KeyEventResult.ignored;
-                        },
-                        child: Row(
-                          children: [
-                            for (int i = 0; i < 7; i++)
-                              Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 4,
-                                ),
-                                child: _habitDayCell(
-                                  dateYmd: weekY[i],
-                                  isToday: weekY[i] == todayY,
-                                  completed: completedSet.contains(weekY[i]),
-                                  focused: i == _habitFocusCol,
-                                  onTap: (selectedId == null)
-                                      ? null
-                                      : () => toggleHabit(
-                                          selectedId,
-                                          weekY[i],
-                                          !completedSet.contains(weekY[i]),
-                                        ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _habitDayCell({
-    required String dateYmd,
-    required bool isToday,
-    required bool completed,
-    required bool focused,
-    VoidCallback? onTap,
-  }) {
-    final bg = completed
-        ? Theme.of(
-            context,
-          ).colorScheme.surfaceContainerHighest.withAlpha((0.8 * 255).round())
-        : Colors.transparent;
-    final borderColor = Theme.of(context).colorScheme.outlineVariant;
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        width: 36,
-        height: 32,
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: borderColor),
-        ),
-        child: Stack(
-          children: [
-            if (isToday)
-              Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.primary.withAlpha((0.3 * 255).round()),
-                  ),
-                ),
-              ),
-            if (focused)
-              Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.primary.withAlpha((0.15 * 255).round()),
-                    width: 2,
-                  ),
-                ),
-              ),
-          ],
-        ),
       ),
     );
   }

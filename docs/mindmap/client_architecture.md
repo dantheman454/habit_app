@@ -70,13 +70,7 @@ class _HomePageState extends State<HomePage> {
   int _progressInvalid = 0;
   DateTime? _progressStart;
   
-  // Quick-add controllers
-  final TextEditingController _qaTodoTitle = TextEditingController();
-  final TextEditingController _qaTodoTime = TextEditingController();
-  final TextEditingController _qaTodoDate = TextEditingController();
-  final TextEditingController _qaTodoNotes = TextEditingController();
-  final TextEditingController _qaTodoInterval = TextEditingController();
-  
+
   final TextEditingController _qaEventTitle = TextEditingController();
   final TextEditingController _qaEventStart = TextEditingController();
   final TextEditingController _qaEventEnd = TextEditingController();

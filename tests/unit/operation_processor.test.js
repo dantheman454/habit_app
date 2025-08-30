@@ -246,11 +246,7 @@ describe('OperationProcessor', () => {
     
     const mockValidator = (op) => ({ valid: true, errors: [] });
     const mockExecutor = (op) => ({ created: true });
-    
-    processor.registerOperationType('todo_create', {
-      validator: mockValidator,
-      executor: mockExecutor
-    });
+
     
     const operations = [
       { kind: 'task', action: 'create', title: 'Test 1' },

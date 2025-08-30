@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
 import '../util/animation.dart';
 import '../widgets/event_timeline.dart';
-import '../widgets/task_list.dart';
 
 class DayView extends StatelessWidget {
   final String dateYmd;
   final List<Map<String, dynamic>> events;
   final List<Map<String, dynamic>> tasks;
-  final void Function(int id, String status) onSetTodoStatusOrOccurrence;
+  final void Function(int id, String status) onSetTaskStatusOrOccurrence;
   final void Function(int id)? onEditTask;
   final void Function(int id)? onDeleteTask;
   final void Function(int id)? onEditEvent;
@@ -18,7 +17,7 @@ class DayView extends StatelessWidget {
     required this.dateYmd,
     required this.events,
     required this.tasks,
-    required this.onSetTodoStatusOrOccurrence,
+    required this.onSetTaskStatusOrOccurrence,
     this.onEditTask,
     this.onDeleteTask,
     this.onEditEvent,
@@ -28,44 +27,6 @@ class DayView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Feature toggle: unified timeline prototype (events + tasks in one column)
-    const bool unified = true;
-
-    if (!unified) {
-      // Existing two-pane layout
-      return Column(
-        children: [
-          const Divider(height: 1),
-          Expanded(
-            child: Row(
-              children: [
-                Expanded(
-                  flex: 3,
-                  child: EventTimeline(
-                    dateYmd: dateYmd,
-                    events: events,
-                    onTapEvent: onEditEvent,
-                    scrollController: scrollController,
-                    minHour: 0,
-                    maxHour: 24,
-                    pixelsPerMinute: 1.2,
-                  ),
-                ),
-                const VerticalDivider(width: 1),
-                Expanded(
-                  flex: 2,
-                  child: TaskList(
-                    tasks: tasks,
-                    onSetStatus: onSetTodoStatusOrOccurrence,
-                    onEdit: onEditTask,
-                    onDelete: onDeleteTask,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      );
-    }
 
     // Unified timeline data prep
     final List<Map<String, dynamic>> allDayTasks = [];
@@ -91,10 +52,14 @@ class DayView extends StatelessWidget {
     // Auto-scroll to earliest timed item (one-shot heuristic)
     try {
       if (scrollController != null) {
-        int _parseHmToMinutes(String? hhmm) {
-          if (hhmm == null || hhmm.isEmpty) return 0;
+        int parseHmToMinutes(String? hhmm) {
+          if (hhmm == null || hhmm.isEmpty) {
+            return 0;
+          }
           final parts = hhmm.split(':');
-          if (parts.length != 2) return 0;
+          if (parts.length != 2) {
+            return 0;
+          }
           final h = int.tryParse(parts[0]) ?? 0;
           final m = int.tryParse(parts[1]) ?? 0;
           return (h * 60) + m;
@@ -102,22 +67,24 @@ class DayView extends StatelessWidget {
         int? earliest;
         for (final itm in timedUnified) {
           final start = ((itm['startTime'] ?? itm['timeOfDay']) as String?) ?? '';
-          final mins = _parseHmToMinutes(start);
-          if (earliest == null || mins < earliest) earliest = mins;
+          final mins = parseHmToMinutes(start);
+          if (earliest == null || mins < earliest) {
+            earliest = mins;
+          }
         }
         if (earliest != null) {
-          final double pxPerMin = 1.2; // matches EventTimeline pixelsPerMinute
+          const double pxPerMin = 1.2; // matches EventTimeline pixelsPerMinute
           final target = (earliest * pxPerMin) - 120; // small top margin
           final desired = target < 0 ? 0.0 : target.toDouble();
           WidgetsBinding.instance.addPostFrameCallback((_) {
             try {
               if (scrollController!.hasClients) {
                 final max = scrollController!.position.maxScrollExtent;
-                final target = desired.clamp(0.0, max);
+                final clamped = desired.clamp(0.0, max);
                 final current = scrollController!.position.pixels;
-                if ((current - target).abs() > 4) {
+                if ((current - clamped).abs() > 4) {
                   scrollController!.animateTo(
-                    target,
+                    clamped,
                     duration: AppAnim.microInteraction,
                     curve: AppAnim.easeOut,
                   );
@@ -157,7 +124,7 @@ class DayView extends StatelessWidget {
                   _AllDayTasksCollapsible(
                     dateYmd: dateYmd,
                     tasks: allDayTasks,
-                    onSetStatus: onSetTodoStatusOrOccurrence,
+                    onSetStatus: onSetTaskStatusOrOccurrence,
                     onEdit: onEditTask,
                     onDelete: onDeleteTask,
                   ),
@@ -322,8 +289,11 @@ class _AllDayTasksCollapsibleState extends State<_AllDayTasksCollapsible> {
     int visibleThreshold = kBaseVisibleCount;
     try {
       final h = MediaQuery.of(context).size.height;
-      if (h >= 1000) visibleThreshold = 8;
-      else if (h >= 800) visibleThreshold = 6;
+      if (h >= 1000) {
+        visibleThreshold = 8;
+      } else if (h >= 800) {
+        visibleThreshold = 6;
+      }
     } catch (_) {}
     final bool hasToggle = total > visibleThreshold;
     final int hiddenWhenCollapsed = (total - visibleThreshold).clamp(0, total);

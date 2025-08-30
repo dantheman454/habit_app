@@ -9,7 +9,7 @@ graph TD
   subgraph "Client (Flutter Web)"
     A["Flutter Web UI\napps/web/flutter_app/lib/main.dart\nState: ViewMode, MainView, SmartList"]
     A2["API wrapper\napps/web/flutter_app/lib/api.dart\nDio client, SSE support"]
-    A3["Widgets\nassistant_panel.dart, sidebar.dart, todo_row.dart\nReal-time updates"]
+    A3["Widgets\nassistant_panel.dart, sidebar.dart, task_row.dart\nReal-time updates"]
   end
   subgraph "Server (Express.js)"
     B["Express API\napps/server/server.js\nREST endpoints, SSE streaming"]
@@ -18,7 +18,7 @@ graph TD
     B4["Operation Processor\napps/server/operations/operation_processor.js, apps/server/operations/operation_registry.js\nValidation, execution, transactions"]
   end
   subgraph "Persistence (SQLite)"
-    P[("SQLite (data/app.db)\nTables: todos, events, goals\nLinking tables, audit_log, idempotency, op_batches\nFTS5 virtual tables")]
+    P[("SQLite (data/app.db)\nTables: tasks, events\nAudit_log, idempotency, op_batches\nFTS5 virtual tables")]
   end
   subgraph "LLM (Ollama)"
     F[["Ollama local model\nhardcoded (convo=qwen3:30b, tool=qwen3:30b)\nQwen-optimized prompts and parsing"]]
@@ -44,16 +44,16 @@ sequenceDiagram
   participant DB as "SQLite data/app.db"
   participant LLM as "Ollama model"
 
-  Note over UI,LLM: Create Todo Flow
-  UI->>API: POST /api/todos {title, recurrence, context}
+  Note over UI,LLM: Create Task Flow
+  UI->>API: POST /api/tasks {title, recurrence, context}
   API->>DB: INSERT with validation
-  API-->>UI: {todo} with generated id
+  API-->>UI: {task} with generated id
 
   Note over UI,LLM: Assistant Proposal Flow
   UI->>API: GET /api/assistant/message/stream?message="update task"
   API->>OPS: runOpsAgentToolCalling (focused context, tool surface)
   OPS->>LLM: Tool-calling prompt (qwen3:30b)
-  LLM-->>OPS: tool_calls JSON (e.g., todo.update)
+  LLM-->>OPS: tool_calls JSON (e.g., task.update)
   API-->>UI: SSE: ops (validated proposals) and summary
   UI->>API: POST /api/mcp/tools/call (apply selected ops)
   API->>DB: Execute via Operation Processor (transaction + audit)
@@ -105,12 +105,12 @@ sequenceDiagram
 - **Timezone handling**: Fixed to `America/New_York` (configurable via `TZ_NAME`)
 
 ### Invariants and contracts
-- **Recurrence semantics**: Repeating items track per-day completion via `completedDates`; use `/api/*/:id/occurrence` or `complete_occurrence`
+- **Recurrence semantics**: Repeating tasks track per-day completion via `completedDates`; set occurrence status via MCP `set_task_status` + `occurrenceDate`
 - **State transitions**: Changing repeating→none clears `completedDates`
 - **Time formats**: Times are `HH:MM` or null; dates are `YYYY-MM-DD`
 - **Audit trail**: Assistant operations executed through MCP tool calls; all actions logged
-- **Status fields**: Todos use `status` field ('pending'|'completed'|'skipped'); events use `completed` boolean
-- **Search capabilities**: FTS5 virtual tables provide full-text search for todos and events
+- **Status fields**: Tasks use `status` field ('pending'|'completed'|'skipped'); events use `completed` boolean
+- **Search capabilities**: FTS5 virtual tables provide full-text search for tasks and events
 - **Idempotency**: MCP tool calls deduplicate by `Idempotency-Key` + request hash
 
 ### Key files and their responsibilities

@@ -96,7 +96,7 @@ class EventTimeline extends StatelessWidget {
         }
 
         final blocks = <Widget>[];
-        String _fmtLabel(int m) {
+        String fmtLabel(int m) {
           final h = minHour + (m ~/ 60);
           final mm = (m % 60).toString().padLeft(2, '0');
           return '${h.toString().padLeft(2, '0')}:$mm';
@@ -109,7 +109,7 @@ class EventTimeline extends StatelessWidget {
           final double widthPx = width * (1 / laneCount) - 4; // small gap
           final titleText = e.title.isEmpty ? 'Event' : e.title;
           final tooltip =
-              '$titleText  ${_fmtLabel(e.startM)}–${_fmtLabel(e.endM)}';
+              '$titleText  ${fmtLabel(e.startM)}–${fmtLabel(e.endM)}';
           // Find the original event data to get notes
           final rawEvent = events.firstWhere(
             (raw) => raw['id'] == e.id,

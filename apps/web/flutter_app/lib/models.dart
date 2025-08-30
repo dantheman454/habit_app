@@ -1,8 +1,8 @@
 // Shared enums and models for the Habitus app
 enum ViewMode { day, week, month }
 
-enum MainView { tasks, habits, goals }
+enum MainView { tasks }
 
 enum SmartList { today, all }
 
-enum AppTab { tasks, events, habits, goals }
+enum AppTab { tasks, events }

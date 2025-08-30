@@ -11,7 +11,7 @@ title: Habit App DB ERD
 erDiagram
     direction LR
 
-    TODOS {
+    TASKS {
         int id PK
         string title
         string notes
@@ -38,18 +38,6 @@ erDiagram
         string recurrence "JSON"
         string completed_dates "JSON or NULL"
         string context "school|personal|work"
-        string created_at
-        string updated_at
-    }
-
-    GOALS {
-        int id PK
-        string title
-        string notes
-        string status "active|completed|archived"
-        float current_progress_value "nullable"
-        float target_progress_value "nullable"
-        string progress_unit "nullable"
         string created_at
         string updated_at
     }
@@ -88,36 +76,10 @@ erDiagram
         string after_json
     }
 
-    GOAL_TODO_ITEMS {
-        int goal_id FK
-        int todo_id FK
-    }
-
-    GOAL_EVENT_ITEMS {
-        int goal_id FK
-        int event_id FK
-    }
-
-    GOAL_HIERARCHY {
-        int parent_goal_id FK
-        int child_goal_id FK
-    }
-
-    TODOS ||--o{ GOAL_TODO_ITEMS : referenced_by
-    GOALS ||--o{ GOAL_TODO_ITEMS : has
-
-    EVENTS ||--o{ GOAL_EVENT_ITEMS : referenced_by
-    GOALS ||--o{ GOAL_EVENT_ITEMS : has
-
-    GOALS ||--o{ GOAL_HIERARCHY : parent
-    GOALS ||--o{ GOAL_HIERARCHY : child
-
     OP_BATCHES ||--o{ OP_BATCH_OPS : contains
 ```
 
 ## Notes
 - Foreign keys on link tables are defined with `ON DELETE CASCADE` in the schema.
-- FTS5 virtual tables (`*_fts`) and their triggers are omitted from the ERD for clarity.
+- FTS5 virtual tables and their triggers are omitted from the ERD for clarity.
 - `recurrence` and `completed_dates` are stored as JSON strings in the SQLite tables.
-- The server enforces additional rules (e.g., habits should be repeating) at the API level.
-- `context` field defaults to 'personal' for todos, events, and habits; goals do not have a context field.

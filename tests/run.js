@@ -156,24 +156,7 @@ async function main() {
   // master set_status via MCP op
   const masterPending = await applyOperationsMCP([{ kind: 'task', action: 'set_status', id: repId, status: 'pending' }]);
 
-  // Goals: create A and B, add B as child of A, attach task if present
-  const goalA = await request('POST', '/api/goals', { title: 'Goal A' });
-  const goalB = await request('POST', '/api/goals', { title: 'Goal B' });
-  assert.equal(goalA.status, 200); assert.equal(goalB.status, 200);
-  const aId = goalA.body.goal.id; const bId = goalB.body.goal.id;
-  const addChild = await request('POST', `/api/goals/${aId}/children`, [bId]);
-  assert.equal(addChild.status, 200);
-  const goalGet = await request('GET', `/api/goals/${aId}?includeChildren=true`);
-  assert.equal(goalGet.status, 200);
-  assert.ok(Array.isArray(goalGet.body.goal.children));
-  if (Number.isFinite(createdTaskId)) {
-    const addItems = await request('POST', `/api/goals/${aId}/items`, { tasks: [createdTaskId] });
-    assert.equal(addItems.status, 200);
-    const remItem = await request('DELETE', `/api/goals/${aId}/items/task/${createdTaskId}`);
-    assert.equal(remItem.status, 200);
-  }
-  const remChild = await request('DELETE', `/api/goals/${aId}/children/${bId}`);
-  assert.equal(remChild.status, 200);
+  // Goals routes removed in migration; skip goal flows in integration tests
 
   // Idempotency replay: same payload and Idempotency-Key
   const idemKey = 'test-key-1';

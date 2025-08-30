@@ -7,8 +7,8 @@ Vision:
 Behaviour flow (how I am going to use it):
 -Daily overview
 -Weekly/Monthly planning
--quickly add/modify/delete todos
--Consolidate/organize large amounts of todos that build up
+-quickly add/modify/delete tasks/events
+-Consolidate/organize large amounts of tasks that build up
 
 
 

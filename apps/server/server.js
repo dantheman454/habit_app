@@ -75,9 +75,7 @@ function listAllEventsRaw() {
   try { return db.searchEvents({ q: ' ' }); } catch { return []; }
 }
 
-function listAllHabitsRaw() {
-  try { return db.searchHabits({ q: ' ' }); } catch { return []; }
-}
+// Habits removed in migration
 
 function filterTasksByWhere(where = {}) { return filterTasksByWhereUtil(where, { listAllTasksRaw }); }
 
@@ -91,8 +89,7 @@ function buildRouterSnapshots() {
   const { fromYmd, toYmd } = weekRangeFromToday(TIMEZONE);
   const tasksWeek = filterTasksByWhereUtil({ scheduled_range: { from: fromYmd, to: toYmd }, status: 'pending' }, { listAllTasksRaw });
   const eventsWeek = filterItemsByWhereUtil(listAllEventsRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false });
-  const habitsWeek = filterItemsByWhereUtil(listAllHabitsRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false });
-  const weekItems = [...tasksWeek, ...eventsWeek, ...habitsWeek];
+  const weekItems = [...tasksWeek, ...eventsWeek];
   const compact = (t) => ({ id: t.id, title: t.title, scheduledFor: t.scheduledFor });
   return { week: { from: fromYmd, to: toYmd, items: weekItems.map(compact) } };
 }
@@ -206,8 +203,6 @@ app.post('/api/mcp/tools/call', async (req, res) => {
           before = await db.getTaskById(op.id);
         } else if (op.kind === 'event') {
           before = await db.getEventById(op.id);
-        } else if (op.kind === 'habit') {
-          before = await db.getHabitById(op.id);
         }
       } catch (e) {
         console.warn('Failed to fetch before state:', e.message);
@@ -230,8 +225,6 @@ app.post('/api/mcp/tools/call', async (req, res) => {
             after = op.action === 'delete' ? null : await db.getTaskById(op.id);
           } else if (op.kind === 'event') {
             after = op.action === 'delete' ? null : await db.getEventById(op.id);
-          } else if (op.kind === 'habit') {
-            after = op.action === 'delete' ? null : await db.getHabitById(op.id);
           }
         }
       } catch (e) {
@@ -471,20 +464,6 @@ function inferOperationShape(o) {
       else if (action === 'delete') op.op = 'delete';
       else if (action === 'complete') op.op = 'complete';
       else if (action === 'complete_occurrence') op.op = 'complete_occurrence';
-    } else if (kind === 'habit') {
-      if (action === 'create') op.op = 'create';
-      else if (action === 'update') op.op = 'update';
-      else if (action === 'delete') op.op = 'delete';
-      else if (action === 'complete') op.op = 'complete';
-      else if (action === 'complete_occurrence') op.op = 'complete_occurrence';
-    } else if (kind === 'goal') {
-      if (action === 'create') op.op = 'goal_create';
-      else if (action === 'update') op.op = 'goal_update';
-      else if (action === 'delete') op.op = 'goal_delete';
-      else if (action === 'add_items') op.op = 'goal_add_items';
-      else if (action === 'remove_item') op.op = 'goal_remove_item';
-      else if (action === 'add_child') op.op = 'goal_add_child';
-      else if (action === 'remove_child') op.op = 'goal_remove_child';
     }
   }
   // If only action provided in V3, try to infer op
@@ -621,15 +600,14 @@ function buildSchemaV2Excerpt() {
   // Repurposed for V3 reminder text (no bulk operations)
   return [
     'Schema v3:',
-  '- Wrapper: { kind: "task"|"event"|"goal", action: string, ...payload }',
+  '- Wrapper: { kind: "task"|"event", action: string, ...payload }',
   '- task actions: create|update|delete|set_status',
     '- event actions: create|update|delete|complete|complete_occurrence',
-    '- goal actions: create|update|delete|add_items|remove_item|add_child|remove_child',
     'Rules:',
   '- For task/event create/update, include a recurrence object (use {"type":"none"} for non-repeating).',
     '- For repeating tasks/events (recurrence.type != none), an anchor scheduledFor is REQUIRED.',
   '- For tasks: use set_status with {id, status:"pending|completed|skipped"} (and optional occurrenceDate for repeating). Do NOT use complete/complete_occurrence for tasks.',
-  '- For repeating events/habits: do not use master complete; use complete_occurrence with occurrenceDate.',
+  '- For repeating events: do not use master complete; use complete_occurrence with occurrenceDate.',
     '- No bulk operations; emit independent ops, ≤20 per apply.'
   ].join('\n');
 }
@@ -657,10 +635,9 @@ function buildProposalPrompt({ instruction, tasksSnapshot, transcript }) {
   const today = new Date();
   const todayYmd = ymdInTimeZone(today, TIMEZONE);
   const system = `You are an assistant for a tasks/events app. Output ONLY a single JSON object with key "operations" as an array. No prose.\n` +
-    `Each operation MUST include fields: kind (task|event|goal) and action.\n` +
+    `Each operation MUST include fields: kind (task|event) and action.\n` +
     `task actions: create|update|delete|set_status.\n` +
     `event actions: create|update|delete|complete|complete_occurrence.\n` +
-    `goal actions: create|update|delete|add_items|remove_item|add_child|remove_child.\n` +
     `For task/event create/update include recurrence (use {"type":"none"} for non-repeating). If recurrence.type != none, scheduledFor is REQUIRED.\n` +
     `For tasks: use set_status with {id, status:"pending|completed|skipped"} and optional occurrenceDate for repeating.\n` +
     `For events: use complete or complete_occurrence (with occurrenceDate).\n` +
@@ -681,7 +658,7 @@ function appendAudit(entry) {
 async function withDbTransaction(fn) { return db.runInTransaction(fn); }
 
 // --- Assistant chat (two-call pipeline) ---
-function buildConversationalSummaryPrompt({ instruction, operations, todosSnapshot, transcript }) {
+function buildConversationalSummaryPrompt({ instruction, operations, tasksSnapshot, transcript }) {
   const today = new Date();
   const todayYmd = ymdInTimeZone(today, TIMEZONE);
   const compactOps = operations.map((op) => {

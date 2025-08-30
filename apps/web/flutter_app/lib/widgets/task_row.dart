@@ -3,7 +3,7 @@ import '../util/context_colors.dart';
 import 'expandable_text.dart';
 
 class TaskRow extends StatelessWidget {
-  final Map<String, dynamic> task; // kind: 'task'|'event'|'habit'
+  final Map<String, dynamic> task; // kind: 'task'|'event'
   final VoidCallback onToggleCompleted;
   final VoidCallback? onToggleSkipped; // only meaningful for tasks
   final VoidCallback onEdit;

@@ -1,3 +1,6 @@
+import db from '../database/DbService.js';
+import { OperationRegistry } from '../operations/operation_registry.js';
+
 export class HabitusMCPServer {
   constructor(expressApp) {
     this.expressApp = expressApp;
@@ -14,190 +17,40 @@ export class HabitusMCPServer {
   }
 
   setupDefaultTools() {
-    this.tools.set('create_task', {
-      name: 'create_task',
-      description: 'Create a new task item',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          title: { type: 'string' },
-          notes: { type: 'string' },
-          scheduledFor: { type: 'string', format: 'date' },
-          timeOfDay: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' },
-          recurrence: { type: 'object' },
-          context: { type: 'string', enum: ['school','personal','work'] }
-        },
-        required: ['title', 'recurrence']
+    const registry = new OperationRegistry(db);
+    const addContextIfApplicable = (opType, schema) => {
+      try {
+        const needsContext = /^(task|event)_(create|update)$/.test(opType);
+        const clone = schema ? JSON.parse(JSON.stringify(schema)) : { type: 'object', properties: {} };
+        if (needsContext) {
+          clone.properties = clone.properties || {};
+          if (!clone.properties.context) {
+            clone.properties.context = { type: 'string', enum: ['school','personal','work'] };
+          }
+        }
+        return clone;
+      } catch {
+        return schema;
       }
-    });
+    };
 
-    this.tools.set('update_task', {
-      name: 'update_task',
-      description: 'Update an existing task item',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          id: { type: 'integer' },
-          title: { type: 'string' },
-          notes: { type: 'string' },
-          scheduledFor: { type: 'string', format: 'date' },
-          timeOfDay: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' },
-          recurrence: { type: 'object' },
-          context: { type: 'string', enum: ['school','personal','work'] },
-        },
-        required: ['id']
-      }
-    });
+    const defineTool = (name, description, opType) => {
+      const base = registry.getOperationSchema(opType) || { type: 'object', additionalProperties: true };
+      const inputSchema = addContextIfApplicable(opType, base);
+      this.tools.set(name, { name, description, inputSchema });
+    };
 
-    this.tools.set('delete_task', {
-      name: 'delete_task',
-      description: 'Delete a task item',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          id: { type: 'integer' }
-        },
-        required: ['id']
-      }
-    });
+    defineTool('create_task', 'Create a new task item', 'task_create');
+    defineTool('update_task', 'Update an existing task item', 'task_update');
+    defineTool('delete_task', 'Delete a task item', 'task_delete');
+    defineTool('set_task_status', 'Set the status of a task item', 'task_set_status');
 
-    this.tools.set('set_task_status', {
-      name: 'set_task_status',
-      description: 'Set the status of a task item',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          id: { type: 'integer' },
-          status: { type: 'string', enum: ['pending', 'completed', 'skipped'] },
-          occurrenceDate: { type: 'string', format: 'date' }
-        },
-        required: ['id', 'status']
-      }
-    });
+    // Event tools
+    defineTool('create_event', 'Create a new event', 'event_create');
+    defineTool('update_event', 'Update an existing event', 'event_update');
+    defineTool('delete_event', 'Delete an event', 'event_delete');
 
-    this.tools.set('complete_task_occurrence', {
-      name: 'complete_task_occurrence',
-      description: 'Mark a specific occurrence of a recurring task as completed',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          id: { type: 'integer' },
-          occurrenceDate: { type: 'string', format: 'date' },
-          completed: { type: 'boolean' }
-        },
-        required: ['id', 'occurrenceDate']
-      }
-    });
-
-    // Event tools (minimal alignment)
-    this.tools.set('create_event', {
-      name: 'create_event',
-      description: 'Create a new event',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          title: { type: 'string' },
-          notes: { type: 'string' },
-          scheduledFor: { type: 'string', format: 'date' },
-          startTime: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' },
-          endTime: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' },
-          location: { type: 'string' },
-          recurrence: { type: 'object' },
-          context: { type: 'string', enum: ['school','personal','work'] },
-        },
-        required: ['title']
-      }
-    });
-
-    this.tools.set('update_event', {
-      name: 'update_event',
-      description: 'Update an existing event',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          id: { type: 'integer' },
-          title: { type: 'string' },
-          notes: { type: 'string' },
-          scheduledFor: { type: 'string', format: 'date' },
-          startTime: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' },
-          endTime: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' },
-          location: { type: 'string' },
-          recurrence: { type: 'object' },
-          context: { type: 'string', enum: ['school','personal','work'] },
-        },
-        required: ['id']
-      }
-    });
-
-    this.tools.set('delete_event', {
-      name: 'delete_event',
-      description: 'Delete an event',
-      inputSchema: {
-        type: 'object',
-        properties: { id: { type: 'integer' } },
-        required: ['id']
-      }
-    });
-
-    // Habit tools (minimal alignment)
-    this.tools.set('create_habit', {
-      name: 'create_habit',
-      description: 'Create a new habit',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          title: { type: 'string' },
-          notes: { type: 'string' },
-          scheduledFor: { type: 'string', format: 'date' },
-          timeOfDay: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' },
-          recurrence: { type: 'object' },
-          context: { type: 'string', enum: ['school','personal','work'] },
-        },
-        required: ['title']
-      }
-    });
-
-    this.tools.set('update_habit', {
-      name: 'update_habit',
-      description: 'Update a habit',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          id: { type: 'integer' },
-          title: { type: 'string' },
-          notes: { type: 'string' },
-          scheduledFor: { type: 'string', format: 'date' },
-          timeOfDay: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' },
-          recurrence: { type: 'object' },
-          context: { type: 'string', enum: ['school','personal','work'] },
-        },
-        required: ['id']
-      }
-    });
-
-    this.tools.set('delete_habit', {
-      name: 'delete_habit',
-      description: 'Delete a habit',
-      inputSchema: {
-        type: 'object',
-        properties: { id: { type: 'integer' } },
-        required: ['id']
-      }
-    });
-
-    this.tools.set('set_habit_occurrence_status', {
-      name: 'set_habit_occurrence_status',
-      description: 'Set the status of a specific occurrence of a recurring habit',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          id: { type: 'integer' },
-          occurrenceDate: { type: 'string', format: 'date' },
-          status: { type: 'string', enum: ['pending', 'completed', 'skipped'] }
-        },
-        required: ['id', 'occurrenceDate', 'status']
-      }
-    });
+    // Habit tools removed during migration (tasks/events only)
   }
 
   setupDefaultResources() {
@@ -242,19 +95,11 @@ export class HabitusMCPServer {
 
   convertToolCallToOperation(name, args) {
     // Suffix-aware mappings for better alignment with operation types
-    const mSetStatus = name.match(/^set_(task|event|habit)_status$/);
+    const mSetStatus = name.match(/^set_(task|event)_status$/);
     if (mSetStatus) {
       return { kind: mSetStatus[1], action: 'set_status', ...args };
     }
-    const mSetOccurrenceStatus = name.match(/^set_(task|habit)_occurrence_status$/);
-    if (mSetOccurrenceStatus) {
-      return { kind: mSetOccurrenceStatus[1], action: 'set_occurrence_status', ...args };
-    }
-    const mCompleteOcc = name.match(/^complete_(task|habit)_occurrence$/);
-    if (mCompleteOcc) {
-      return { kind: mCompleteOcc[1], action: 'complete_occurrence', ...args };
-    }
-    const mCrud = name.match(/^(create|update|delete)_(task|event|habit)$/);
+    const mCrud = name.match(/^(create|update|delete)_(task|event)$/);
     if (mCrud) {
       return { kind: mCrud[2], action: mCrud[1], ...args };
     }
@@ -299,21 +144,10 @@ Delete a task item by ID.
 ### set_task_status
 Set the status of a task item (pending, completed, skipped). For repeating tasks, use occurrenceDate to set status for a specific occurrence.
 
-### complete_task_occurrence
-Mark a specific occurrence of a recurring task as completed.
-
 ## Event Operations
 
 ### create_event, update_event, delete_event
 Manage calendar events with start/end times, location, and recurrence. Event completion is not supported.
-
-## Habit Operations
-
-### create_habit, update_habit, delete_habit
-Manage habits with scheduling, time of day, and recurrence (must be repeating).
-
-### set_habit_occurrence_status
-Set the status of a specific occurrence of a recurring habit (pending, completed, skipped).
 `
             }
           ]

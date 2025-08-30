@@ -1,7 +1,7 @@
 {
-  "name": "todo-mcp-server",
+  "name": "tasks-events-mcp-server",
   "version": "1.0.0",
-  "description": "MCP server for todo list operations",
+  "description": "MCP server for tasks and events operations",
   "main": "apps/server/server.js",
   "type": "module",
   "engines": {

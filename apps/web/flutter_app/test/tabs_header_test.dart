@@ -18,20 +18,13 @@ void main() {
       ),
     );
 
-    // Expect four segments with text labels
+    // Expect two segments with text labels
     expect(find.text('Tasks'), findsOneWidget);
     expect(find.text('Events'), findsOneWidget);
-    expect(find.text('Habits'), findsOneWidget);
-    expect(find.text('Goals'), findsOneWidget);
 
     // Tap Events and verify callback
     await tester.tap(find.text('Events'));
     await tester.pump();
     expect(changed, AppTab.events);
-
-    // Tap Habits and verify callback
-    await tester.tap(find.text('Habits'));
-    await tester.pump();
-    expect(changed, AppTab.habits);
   });
 }

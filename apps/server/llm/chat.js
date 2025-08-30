@@ -20,7 +20,7 @@ export async function runChat({ instruction, transcript = [], timezone } = {}) {
 
   const qa = buildQAContext({ timezone: timezone || TIMEZONE });
   const qwenPrompt = createQwenPrompt({
-    system: 'You are Mr. Assister, a helpful, concise assistant for a habits/tasks app. Answer questions about tasks/events using the provided context. If the user asks to perform an action, do not modify data — only explain what you can do.',
+    system: 'You are Mr. Assister, a helpful, concise assistant for a tasks/events app. Answer questions about tasks/events using the provided context. If the user asks to perform an action, do not modify data — only explain what you can do.',
     user: `Today: ${todayYmd} (${timezone || TIMEZONE})\nRecent conversation:\n${convo || '(none)'}\n\nContext (QA):\n${JSON.stringify(qa, null, 2)}\n\nUser: ${msg}\n\nGuidelines:\n- Keep it short and actionable (1-3 sentences)\n- Plain text only (no markdown)\n- If needed info is missing, ask a short clarifying question.\n- Use the provided context; do not invent data or IDs.\n\nRespond:`
   });
 

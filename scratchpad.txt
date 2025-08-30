@@ -1,6 +1,6 @@
 Keep in mind:
 -User behaviours
-    *current todo list and google calendar usage
+    *current task list and google calendar usage
     *Daily/Weekly check in 
     *Task allocation/planning
     *Event tracking/planning
@@ -17,13 +17,13 @@ Keep in mind:
 
     
 
-Get done asap:    
+Get done asap:   
     -Clean up UI 
         *get 'work' context button working
         *Make the tasks subheader have less whitespace
         *make updating/creating tasks and events easier (time and date are a pain right now)
         *get searchbar working
-        *fix it from being so snappy when deleting todos or going between tabs
+        *fix it from being so snappy when deleting tasks or going between tabs
 
     -Clean up legacy code and unused imports
         >Remove harmony prompting and Qwen specific functionality

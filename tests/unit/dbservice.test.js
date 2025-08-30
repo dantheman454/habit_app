@@ -83,32 +83,7 @@ test('events: create/get/update/list/search/delete', () => {
   assert.equal(db.getEventById(e1.id), null);
 });
 
-test('goals: CRUD + items/children linking + cascades', () => {
-  const g1 = db.createGoal({ title: 'Goal A' });
-  const g2 = db.createGoal({ title: 'Goal B' });
-  assert.ok(g1.id && g2.id);
-  // children
-  db.addGoalChildren(g1.id, [g2.id]);
-  const withChild = db.getGoalById(g1.id, { includeChildren: true });
-  assert.ok(Array.isArray(withChild.children) && withChild.children.includes(g2.id));
-  // items
-  const t = db.createTask({ title: 'Linked', recurrence: { type: 'none' } });
-  const e = db.createEvent({ title: 'Linked E', recurrence: { type: 'none' } });
-  db.addGoalTaskItems(g1.id, [t.id]);
-  db.addGoalEventItems(g1.id, [e.id]);
-  const withItems = db.getGoalById(g1.id, { includeItems: true });
-  assert.ok(withItems.items && withItems.items.tasks.some(x => x.id === t.id));
-  assert.ok(withItems.items.events.some(x => x.id === e.id));
-  // remove links
-  db.removeGoalTaskItem(g1.id, t.id);
-  db.removeGoalEventItem(g1.id, e.id);
-  const withItems2 = db.getGoalById(g1.id, { includeItems: true });
-  assert.equal(withItems2.items.tasks.some(x => x.id === t.id), false);
-  assert.equal(withItems2.items.events.some(x => x.id === e.id), false);
-  // delete cascades (goal hierarchy rows should go when parent deleted)
-  db.deleteGoal(g1.id);
-  assert.equal(db.getGoalById(g1.id), null);
-});
+// goals removed in migration; no goal tests remain
 
 test('idempotency cache: round-trip save/get', () => {
   const key = 'unit-key-1';

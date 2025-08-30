@@ -72,8 +72,8 @@ Future<List<dynamic>> searchTasks(
 // Unified search (server-side merge of tasks + events; habits optional later)
 Future<List<dynamic>> searchUnified(
   String q, {
-  String scope = 'all', // 'task' | 'event' | 'habit' | 'all'
-  bool? completed, // applies to events/habits only
+  String scope = 'all', // 'task' | 'event' | 'all'
+  bool? completed, // applies to events only
   String? statusTask, // applies to tasks only
   String? context, // 'school' | 'personal' | 'work' | null for 'all'
   CancelToken? cancelToken,
@@ -331,74 +331,7 @@ Future<Map<String, dynamic>> assistantMessage(
   }
 }
 
-// --- Goals API ---
-Future<List<dynamic>> listGoals({String? status}) async {
-  final res = await api.get(
-    '/api/goals',
-    queryParameters: {if (status != null) 'status': status},
-  );
-  return (res.data['goals'] as List<dynamic>);
-}
-
-Future<Map<String, dynamic>?> getGoal(
-  int id, {
-  bool includeItems = false,
-  bool includeChildren = false,
-}) async {
-  final res = await api.get(
-    '/api/goals/$id',
-    queryParameters: {
-      if (includeItems) 'includeItems': 'true',
-      if (includeChildren) 'includeChildren': 'true',
-    },
-  );
-  return (res.data['goal'] as Map?) == null
-      ? null
-      : Map<String, dynamic>.from(res.data['goal']);
-}
-
-Future<Map<String, dynamic>> createGoal(Map<String, dynamic> data) async {
-  final res = await api.post('/api/goals', data: data);
-  return Map<String, dynamic>.from(res.data['goal']);
-}
-
-Future<Map<String, dynamic>> updateGoal(
-  int id,
-  Map<String, dynamic> patch,
-) async {
-  final res = await api.patch('/api/goals/$id', data: patch);
-  return Map<String, dynamic>.from(res.data['goal']);
-}
-
-Future<void> deleteGoal(int id) async {
-  await api.delete('/api/goals/$id');
-}
-
-Future<void> addGoalItems(int id, {List<int>? tasks, List<int>? events}) async {
-  await api.post(
-    '/api/goals/$id/items',
-    data: {
-      if (tasks != null) 'tasks': tasks,
-      if (events != null) 'events': events,
-    },
-  );
-}
-
-Future<void> removeGoalTaskItem(int goalId, int taskId) async {
-  await api.delete('/api/goals/$goalId/items/task/$taskId');
-}
-
-Future<void> removeGoalEventItem(int goalId, int eventId) async {
-  await api.delete('/api/goals/$goalId/items/event/$eventId');
-}
-
-Future<void> addGoalChild(int parentId, int childId) async {
-  await api.post('/api/goals/$parentId/children', data: [childId]);
-}
-
-Future<void> removeGoalChild(int parentId, int childId) async {
-  await api.delete('/api/goals/$parentId/children/$childId');
-}
+// Goals API removed during migration
 
 // --- Events API ---
 Future<List<dynamic>> listEvents({
@@ -454,100 +387,14 @@ Future<List<dynamic>> searchEvents(
   return (res.data['events'] as List<dynamic>);
 }
 
-// --- Habits API ---
-Future<List<dynamic>> listHabits({
-  String? from,
-  String? to,
-  bool? completed,
-  String? context, // 'school' | 'personal' | 'work' | null for 'all'
-}) async {
-  final res = await api.get(
-    '/api/habits',
-    queryParameters: {
-      if (from != null) 'from': from,
-      if (to != null) 'to': to,
-      if (completed != null) 'completed': completed.toString(),
-      if (context != null) 'context': context,
-    },
-  );
-  return (res.data['habits'] as List<dynamic>);
-}
-
-Future<Map<String, dynamic>> createHabit(Map<String, dynamic> data) async {
-  final res = await api.post('/api/habits', data: data);
-  return Map<String, dynamic>.from(res.data['habit']);
-}
-
-Future<Map<String, dynamic>> updateHabit(
-  int id,
-  Map<String, dynamic> patch,
-) async {
-  final res = await api.patch('/api/habits/$id', data: patch);
-  return Map<String, dynamic>.from(res.data['habit']);
-}
-
-Future<void> deleteHabit(int id) async {
-  await api.delete('/api/habits/$id');
-}
-
-Future<Map<String, dynamic>> toggleHabitOccurrence(
-  int id,
-  String occurrenceDate,
-  bool completed,
-) async {
-  final res = await api.patch(
-    '/api/habits/$id/occurrence',
-    data: {'occurrenceDate': occurrenceDate, 'completed': completed},
-  );
-  return Map<String, dynamic>.from(res.data['habit']);
-}
-
-Future<List<dynamic>> searchHabits(
-  String q, {
-  bool? completed,
-  String? context, // 'school' | 'personal' | 'work' | null for 'all'
-  CancelToken? cancelToken,
-}) async {
-  final res = await api.get(
-    '/api/habits/search',
-    queryParameters: {
-      'query': q,
-      if (completed != null) 'completed': completed.toString(),
-      if (context != null) 'context': context,
-    },
-    cancelToken: cancelToken,
-  );
-  return (res.data['habits'] as List<dynamic>);
-}
-
-Future<void> linkHabitItems(
-  int habitId, {
-  List<int>? tasks,
-  List<int>? events,
-}) async {
-  await api.post(
-    '/api/habits/$habitId/items',
-    data: {
-      if (tasks != null) 'tasks': tasks,
-      if (events != null) 'events': events,
-    },
-  );
-}
-
-Future<void> unlinkHabitTask(int habitId, int taskId) async {
-  await api.delete('/api/habits/$habitId/items/task/$taskId');
-}
-
-Future<void> unlinkHabitEvent(int habitId, int eventId) async {
-  await api.delete('/api/habits/$habitId/items/event/$eventId');
-}
+// Habits API removed during migration
 
 // --- Unified schedule ---
 Future<List<dynamic>> fetchSchedule({
   required String from,
   required String to,
   List<String>? kinds,
-  bool? completed, // events/habits only
+  bool? completed, // events only
   String? statusTask, // tasks only
   String? context, // 'school' | 'personal' | 'work' | null for 'all'
 }) async {
@@ -705,8 +552,6 @@ Future<Map<String, dynamic>> previewOperations(
         if (id != null) {
           if (kind == 'event') {
             before = await _getEventById(id);
-          } else if (kind == 'habit') {
-            before = await _getHabitById(id);
           } else {
             before = await _getTaskById(id);
           }
@@ -740,16 +585,6 @@ Future<Map<String, dynamic>?> _getEventById(int id) async {
   }
 }
 
-Future<Map<String, dynamic>?> _getHabitById(int id) async {
-  try {
-    final res = await api.get('/api/habits/$id');
-    final m = (res.data['habit'] as Map?);
-    return m == null ? null : Map<String, dynamic>.from(m);
-  } catch (_) {
-    return null;
-  }
-}
-
 String _operationToToolName(Map<String, dynamic> op) {
   final kind = op['kind'] ?? 'task';
   final action = op['action'] ?? op['op'] ?? 'create';
@@ -764,7 +599,7 @@ String _operationToToolName(Map<String, dynamic> op) {
     case 'complete':
       return 'complete_$kind';
     case 'complete_occurrence':
-      return 'complete_${kind}_occurrence';
+      return 'set_${kind}_status';
     case 'set_status':
       return 'set_${kind}_status';
     default:
@@ -782,5 +617,10 @@ Map<String, dynamic> _operationToToolArgs(Map<String, dynamic> op) {
     }
   }
   
+  // Option A: map complete_occurrence -> set_status with status: 'completed'
+  if (op['action'] == 'complete_occurrence' && args['status'] == null) {
+    args['status'] = 'completed';
+  }
+
   return args;
 }

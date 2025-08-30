@@ -29,18 +29,17 @@ describe('HabitusMCPServer', () => {
     assert(toolNames.includes('update_task'));
     assert(toolNames.includes('delete_task'));
     assert(toolNames.includes('set_task_status'));
-    assert(toolNames.includes('complete_task_occurrence'));
     
     // Check for expected event tools
     assert(toolNames.includes('create_event'));
     assert(toolNames.includes('update_event'));
     assert(toolNames.includes('delete_event'));
     
-    // Check for expected habit tools
-    assert(toolNames.includes('create_habit'));
-    assert(toolNames.includes('update_habit'));
-    assert(toolNames.includes('delete_habit'));
-    assert(toolNames.includes('set_habit_occurrence_status'));
+    // Habit tools removed: ensure they are not present
+    assert(!toolNames.includes('create_habit'));
+    assert(!toolNames.includes('update_habit'));
+    assert(!toolNames.includes('delete_habit'));
+    assert(!toolNames.includes('set_habit_occurrence_status'));
   });
 
   test('should convert tool call to operation format', () => {

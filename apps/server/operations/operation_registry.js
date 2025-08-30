@@ -8,7 +8,7 @@ export class OperationRegistry {
   }
   
   registerAllOperations(processor) {
-    // Task operations (formerly Todo)
+    // Task operations
     processor.registerOperationType('task_create', {
       validator: OperationValidators.taskCreate,
       executor: this.executors.taskCreate.bind(this.executors)
@@ -289,79 +289,6 @@ export class OperationRegistry {
               kind: 'event',
               action: 'delete',
               id: 1
-            }
-          }
-        ]
-      },
-      
-      'habit_create': {
-        description: 'Create a new habit to track',
-        examples: [
-          {
-            description: 'Daily habit',
-            operation: {
-              kind: 'habit',
-              action: 'create',
-              title: 'Exercise',
-              scheduledFor: '2025-08-18',
-              timeOfDay: '07:00',
-              recurrence: { type: 'daily' }
-            }
-          },
-          {
-            description: 'Weekly habit',
-            operation: {
-              kind: 'habit',
-              action: 'create',
-              title: 'Read',
-              scheduledFor: '2025-08-18',
-              timeOfDay: '20:00',
-              recurrence: { 
-                type: 'weekly',
-                daysOfWeek: [1, 3, 5] // Monday, Wednesday, Friday
-              }
-            }
-          }
-        ]
-      },
-      'habit_update': {
-        description: 'Update an existing habit',
-        examples: [
-          {
-            description: 'Update recurrence',
-            operation: {
-              kind: 'habit',
-              action: 'update',
-              id: 1,
-              recurrence: { type: 'daily' }
-            }
-          }
-        ]
-      },
-      'habit_delete': {
-        description: 'Delete a habit',
-        examples: [
-          {
-            description: 'Delete by ID',
-            operation: {
-              kind: 'habit',
-              action: 'delete',
-              id: 1
-            }
-          }
-        ]
-      },
-      'habit_set_occurrence_status': {
-        description: 'Set the status of a specific occurrence of a recurring habit',
-        examples: [
-          {
-            description: 'Set occurrence status',
-            operation: { 
-              kind: 'habit', 
-              action: 'set_occurrence_status', 
-              id: 1, 
-              occurrenceDate: '2025-08-18',
-              status: 'completed' 
             }
           }
         ]
