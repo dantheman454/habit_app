@@ -36,7 +36,7 @@ interface Task {
   title: string;                                 // Required, non-empty
   notes: string;                                 // Optional, defaults to ''
   scheduledFor: string | null;                   // YYYY-MM-DD or null for backlog
-  timeOfDay: string | null;                      // HH:MM or null (all-day)
+  timeOfDay: string | null;                      // canonical 24h HH:MM or null (all-day)
   status: 'pending' | 'completed' | 'skipped';   // Required, defaults to 'pending'
   recurrence: Recurrence;                        // Required JSON object
   completedDates: string[] | null;               // YYYY-MM-DD array for repeating
@@ -69,8 +69,8 @@ interface Event {
   title: string;                                 // Required, non-empty
   notes: string;                                 // Optional, defaults to ''
   scheduledFor: string | null;                   // YYYY-MM-DD or null
-  startTime: string | null;                      // HH:MM or null
-  endTime: string | null;                        // HH:MM or null
+  startTime: string | null;                      // canonical 24h HH:MM or null
+  endTime: string | null;                        // canonical 24h HH:MM or null (may wrap)
   location: string | null;                       // Optional location
   completed: boolean;                            // Required, defaults to false
   recurrence: Recurrence;                        // Required JSON object
@@ -87,6 +87,11 @@ interface Event {
 - Includes `location` field for venue information
 - No `skippedDates` (events are either completed or not)
 
+**Flutter Model Notes**:
+- The Flutter `Task` class includes additional fields: `kind`, `endTime`, `priority`, `masterId`
+- The `timeOfDay` field in Flutter can also hold `startTime` values for unified schedule views
+- The `LlmOperation` class includes both `op` (legacy) and `kind`/`action` (V3) fields for backward compatibility
+
 ### Recurrence System
 
 #### Recurrence Object
@@ -98,6 +103,8 @@ interface Recurrence {
   until?: string | null;                         // YYYY-MM-DD or null (no cap)
 }
 ```
+
+**Note**: Operation validators include `'monthly'` and `'yearly'` types, but these are not implemented in the actual recurrence logic (`utils/recurrence.js`).
 
 #### Recurrence Types
 
@@ -137,31 +144,47 @@ interface Recurrence {
 #### Expansion Algorithm
 
 ```javascript
-function expandOccurrences(master, fromDate, toDate) {
+function expandTaskOccurrences(task, fromDate, toDate) {
   const occurrences = [];
-  const anchor = parseYMD(master.scheduledFor);
-  const untilDate = master.recurrence.until ? parseYMD(master.recurrence.until) : null;
-  
-  for (let date = fromDate; date < toDate; date = addDays(date, 1)) {
-    if (untilDate && date > untilDate) break;
-    if (matchesRule(date, anchor, master.recurrence)) {
-      const occurrence = {
-        ...master,
-        masterId: master.id,
-        scheduledFor: ymd(date),
-        status: getStatus(date, master.completedDates, master.skippedDates)
-      };
-      occurrences.push(occurrence);
+  const anchor = task.scheduledFor ? parseYMD(task.scheduledFor) : null;
+  if (!anchor) return occurrences;
+  const untilYmd = task.recurrence?.until ?? undefined;
+  const untilDate = (untilYmd && isYmdString(untilYmd)) ? parseYMD(untilYmd) : null;
+  const inclusiveEnd = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate() + 1);
+  for (let d = new Date(Math.max(fromDate.getTime(), anchor.getTime())); d < inclusiveEnd; d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)) {
+    if (untilDate && d > untilDate) break;
+    if (matchesRule(d, anchor, task.recurrence)) {
+      const dateStr = ymd(d);
+      const occCompleted = Array.isArray(task.completedDates) && task.completedDates.includes(dateStr);
+      const occSkipped = Array.isArray(task.skippedDates) && task.skippedDates.includes(dateStr);
+      occurrences.push({
+        id: task.id,
+        masterId: task.id,
+        title: task.title,
+        notes: task.notes,
+        scheduledFor: dateStr,
+        timeOfDay: task.timeOfDay,
+        completed: !!occCompleted,
+        status: occCompleted ? 'completed' : (occSkipped ? 'skipped' : 'pending'),
+        recurrence: task.recurrence,
+        context: task.context,
+        createdAt: task.createdAt,
+        updatedAt: task.updatedAt,
+      });
     }
   }
   return occurrences;
 }
 ```
 
+**Location**: `apps/server/routes/schedule.js`
+
 #### Status Derivation (Tasks)
 - `completedDates.includes(date)` → `status: 'completed'`
 - `skippedDates.includes(date)` → `status: 'skipped'`
 - Otherwise → `status: 'pending'`
+
+**Note**: The actual implementation also sets `completed: boolean` field based on the same logic for unified schedule views.
 
 ### Aggregates (examples)
 - Overdue tasks (past due, not completed)
@@ -170,7 +193,7 @@ function expandOccurrences(master, fromDate, toDate) {
 - Total scheduled items
 
 ### Data Integrity Invariants
-- All dates `YYYY-MM-DD`; times `HH:MM` or null
+- All dates `YYYY-MM-DD`; times canonical 24h `HH:MM` or null
 - Event `endTime` after `startTime`
 - Valid context values only
 - Repeating items require anchor date

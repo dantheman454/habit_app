@@ -58,7 +58,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
       "title": "string (required)",
       "notes": "string (optional)",
       "scheduledFor": "YYYY-MM-DD|null (optional)",
-      "timeOfDay": "HH:MM|null (optional)",
+      "timeOfDay": "HH:MM|null (optional, canonical 24h)",
       "recurrence": {
         "type": "none|daily|weekdays|weekly|every_n_days (required)",
         "intervalDays": "number>=1 (for every_n_days)",
@@ -138,8 +138,8 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
       "title": "string (required)",
       "notes": "string (optional)",
       "scheduledFor": "YYYY-MM-DD|null (optional)",
-      "startTime": "HH:MM|null (optional)",
-      "endTime": "HH:MM|null (optional)",
+      "startTime": "HH:MM|null (optional, canonical 24h)",
+      "endTime": "HH:MM|null (optional, canonical 24h; may wrap < start)",
       "location": "string (optional)",
       "recurrence": {
         "type": "none|daily|weekdays|weekly|every_n_days (required)",
@@ -259,14 +259,14 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 **Event Validation**:
 - `recurrence` object required on create and update
 - If repeating, `scheduledFor` anchor required
-- `startTime` and `endTime` must be valid `HH:MM` format
-- `endTime` must be after `startTime` if both provided
+- `startTime` and `endTime` must be valid `HH:MM` format (canonical 24h)
+- Cross‑midnight allowed: `endTime` may be less than `startTime` (wrap to next day)
 
  
 
 **General Validation**:
 - All dates must be `YYYY-MM-DD` format
-- All times must be `HH:MM` format or null
+- All times must be canonical 24h `HH:MM` format or null
 - IDs must be positive integers
 - Titles cannot be empty strings
 
@@ -311,10 +311,13 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 - `invalid_notes` - Notes field is invalid
 - `invalid_scheduledFor` - Date format is invalid
 - `invalid_timeOfDay` - Time format is invalid
+- `invalid_start_time` - Start time format is invalid (events)
+- `invalid_end_time` - End time format is invalid (events)
 - `invalid_recurrence` - Recurrence object is malformed
 - `missing_anchor_for_recurrence` - Anchor date required for repeating items
 - `invalid_completed` - Completed field is invalid
 - `invalid_status` - Status value is invalid
+- `invalid_status_task` - Task status value is invalid (unified endpoints)
 - `invalid_id` - ID is missing or invalid
 - `not_found` - Resource not found
 - `not_repeating` - Item is not repeating (for occurrence operations)
@@ -324,6 +327,19 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 - `invalid_from` - From date is invalid
 - `invalid_to` - To date is invalid
 - `invalid_query` - Search query is invalid
+- `invalid_scope` - Search scope is invalid (task|event|all)
+- `invalid_body` - Request body is malformed
+- `invalid_message` - Assistant message is invalid
+- `invalid_where_ids` - Where clause IDs are invalid
+- `invalid_where_title_contains` - Where clause title contains is invalid
+- `invalid_where_overdue` - Where clause overdue filter is invalid
+- `invalid_where_scheduled_range` - Where clause scheduled range is invalid
+- `invalid_where_scheduled_range_from` - Where clause scheduled range from date is invalid
+- `invalid_where_scheduled_range_to` - Where clause scheduled range to date is invalid
+- `invalid_where_completed` - Where clause completed filter is invalid
+- `invalid_where_repeating` - Where clause repeating filter is invalid
+- `invalid_operations` - Operations array is invalid
+- `create_failed` - Event creation failed
 
 **HTTP Status Codes**:
 - `200` - Success
@@ -347,16 +363,20 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 ```typescript
 {
   kind: 'task' | 'event',
-  action: 'create' | 'update' | 'delete' | 'set_status' | 'complete' | 'complete_occurrence',
+  action: 'create' | 'update' | 'delete' | 'set_status',
   id?: number,
   title?: string,
   notes?: string,
   scheduledFor?: string | null,
-  timeOfDay?: string | null,
+  timeOfDay?: string | null, // For tasks
+  startTime?: string | null, // For events
+  endTime?: string | null,   // For events
+  location?: string | null,  // For events
   recurrence?: Recurrence,
-  status?: string,
-  occurrenceDate?: string,
-  // ... other fields
+  status?: string,           // For tasks: 'pending' | 'completed' | 'skipped'
+  completed?: boolean,       // For events
+  occurrenceDate?: string,   // For set_status operations
+  context?: 'school' | 'personal' | 'work'
 }
 ```
 

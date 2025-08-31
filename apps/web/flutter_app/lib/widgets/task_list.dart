@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../util/context_colors.dart';
+import '../util/time_format.dart';
 
 class TaskList extends StatelessWidget {
   final List<Map<String, dynamic>> tasks;
@@ -118,7 +119,7 @@ class TaskList extends StatelessWidget {
   }
 
   Widget _timeChip(BuildContext context, Map<String, dynamic> item) {
-    final time = (item['timeOfDay'] ?? '').toString();
+    final time = AmericanTimeFormat.to12h((item['timeOfDay'] ?? '').toString());
     if (time.isEmpty) return const SizedBox.shrink();
     
     // Check if task is overdue

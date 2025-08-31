@@ -53,7 +53,11 @@ class _HomePageState extends State<HomePage> {
   List<AnnotatedOp> assistantOps = [];
   List<bool> assistantOpsChecked = [];
   bool assistantSending = false;
+  Map<String, Map<String, dynamic>> assistantOpPreviews = {};
   bool assistantShowDiff = false;
+  // Thinking state for assistant responses
+  String? assistantThinking;
+  bool assistantShowThinking = false;
   int? assistantStreamingIndex;
   
   // Clarification state
@@ -66,7 +70,15 @@ class _HomePageState extends State<HomePage> {
   int _progressValid = 0;
   int _progressInvalid = 0;
   DateTime? _progressStart;
-  
+  // Pending smooth-scroll target (YYYY-MM-DD) for Day view
+  String? _pendingScrollYmd;
+
+  // Quick-add controllers
+  final TextEditingController _qaTaskTitle = TextEditingController();
+  final TextEditingController _qaTaskTime = TextEditingController();
+  final TextEditingController _qaTaskDate = TextEditingController();
+  final TextEditingController _qaTaskNotes = TextEditingController();
+  final TextEditingController _qaTaskInterval = TextEditingController();
 
   final TextEditingController _qaEventTitle = TextEditingController();
   final TextEditingController _qaEventStart = TextEditingController();
@@ -75,7 +87,15 @@ class _HomePageState extends State<HomePage> {
   final TextEditingController _qaEventDate = TextEditingController();
   final TextEditingController _qaEventNotes = TextEditingController();
   final TextEditingController _qaEventInterval = TextEditingController();
-  
+
+  // Today highlight animation state
+  bool _todayPulseActive = false;
+
+  // Map of row keys for ensureVisible
+  final Map<int, GlobalKey> _rowKeys = {};
+
+  // Timeline scroll controller for DayView
+  final ScrollController _timelineScrollController = ScrollController();
 
   bool _addingQuick = false;
   
@@ -128,32 +148,64 @@ String ymd(DateTime d) =>
 ```dart
 Future<void> _refreshAll() async {
   setState(() => loading = true);
-  
   try {
-    final range = rangeForView(parseYmd(anchor), view);
+    final r = rangeForView(anchor, view);
     
-    // Load unified schedule for current view
-    final scheduleResponse = await api.fetchSchedule(
-      from: range['from']!,
-      to: range['to']!,
-      kinds: _kindFilter.toList(),
-      completed: showCompleted,
-      statusTask: showCompleted ? null : 'pending',
-      context: selectedContext,
-    );
-    scheduled = (scheduleResponse as List<dynamic>).map((e) => Task.fromJson(e)).toList();
+    // Day/Week/Month: use unified schedule for Tasks and Events
+    List<Task> sList;
+    if (view == ViewMode.day || view == ViewMode.week || view == ViewMode.month) {
+      final kinds = _kindFilter.toList();
+      final raw = await api.fetchSchedule(
+        from: r.from,
+        to: r.to,
+        kinds: kinds,
+        completed: showCompleted ? null : false,
+        statusTask: showCompleted ? null : 'pending',
+        context: selectedContext,
+      );
+      sList = raw.map((e) => Task.fromJson(Map<String, dynamic>.from(e))).toList();
+    } else {
+      final scheduledRaw = await api.fetchScheduled(
+        from: r.from,
+        to: r.to,
+        status: showCompleted ? null : 'pending',
+        context: selectedContext,
+      );
+      sList = scheduledRaw.map((e) => Task.fromJson(e as Map<String, dynamic>)).toList();
+    }
     
-    // Load counts and backlog
-    final allTimeResponse = await api.fetchScheduledAllTime(
+    final scheduledAllRaw = await api.fetchScheduledAllTime(
       status: showCompleted ? null : 'pending',
       context: selectedContext,
     );
-    scheduledAllTime = (allTimeResponse as List<dynamic>).map((e) => Task.fromJson(e)).toList();
     
-
+    // Load events data when needed for "All" or "Events" views
+    List<Task> eventsAllList = const <Task>[];
+    if (mainView == MainView.tasks && (_kindFilter.contains('event') || _kindFilter.contains('task'))) {
+      try {
+        final evAllRaw = await api.listEvents(context: selectedContext);
+        eventsAllList = evAllRaw.map((e) => Task.fromJson(Map<String, dynamic>.from(e))).toList();
+      } catch (_) {}
+    }
     
+    final sAllList = scheduledAllRaw.map((e) => Task.fromJson(e as Map<String, dynamic>)).toList();
+    
+    setState(() {
+      scheduled = sList;
+      // Combine tasks and events for "All" view, or use specific list for filtered views
+      if (mainView == MainView.tasks && _kindFilter.contains('task') && _kindFilter.contains('event')) {
+        scheduledAllTime = [...sAllList, ...eventsAllList];
+      } else if (mainView == MainView.tasks && _kindFilter.contains('event')) {
+        scheduledAllTime = eventsAllList;
+      } else {
+        scheduledAllTime = sAllList;
+      }
+      message = null;
+    });
+    
+    _maybeScrollToPendingDate();
   } catch (e) {
-    setState(() => message = 'Failed to load data: ${e.toString()}');
+    setState(() => message = 'Load failed: $e');
   } finally {
     setState(() => loading = false);
   }
@@ -862,27 +914,17 @@ class OptimizedHomePageState extends State<HomePage> {
 ```dart
 class TestHooks {
   static bool skipRefresh = false;
-  static bool mockNetworkErrors = false;
-  static String? mockApiResponse;
-  
-  static void reset() {
-    skipRefresh = false;
-    mockNetworkErrors = false;
-    mockApiResponse = null;
-  }
 }
 
 // Use in development
-if (kDebugMode && TestHooks.skipRefresh) {
-  return; // Skip refresh for testing
-}
+if (!TestHooks.skipRefresh) await _refreshAll();
 ```
 - **Location**: `apps/web/flutter_app/lib/main.dart`
 
 #### Development Tools
 
 ```dart
-// Debug panel for development
+// Debug panel for development (documented but not implemented)
 class DebugPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {

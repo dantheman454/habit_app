@@ -52,10 +52,10 @@ This glossary defines key terms and concepts used throughout the Task/Event App 
 
 ### Data Integrity and Safety
 
-**Idempotency**: MCP tool calls deduplicate by `Idempotency-Key` + request hash to avoid re-applying the same changes.
+**Idempotency**: MCP tool calls deduplicate by `x-correlation-id` + request hash to avoid re-applying the same changes.
 
 - **Usage**: Prevents duplicate operations from network retries or user double-clicks
-- **Example**: Same operation with same key returns cached result
+- **Example**: Same operation with same correlation ID returns cached result
 - **Reference**: See [Backend Algorithms](./backend_algorithms.md#idempotency-implementation) for implementation
 
 **Audit log**: Append-only records of assistant and CRUD actions written during operation execution.
@@ -94,7 +94,7 @@ This glossary defines key terms and concepts used throughout the Task/Event App 
 
 **Time formats**: 
 - **Dates**: `YYYY-MM-DD` format (e.g., "2024-01-15")
-- **Times**: `timeOfDay`, `startTime`, `endTime` are `HH:MM` or null (e.g., "14:30" or null for all-day)
+- **Times**: `timeOfDay`, `startTime`, `endTime` are canonical 24h `HH:MM` or null (e.g., "14:30" or null for all-day); events may wrap across midnight
 
 - **Usage**: Standardized format for all date/time fields
 - **Example**: `scheduledFor: "2024-01-15", timeOfDay: "09:00"`
@@ -104,6 +104,7 @@ This glossary defines key terms and concepts used throughout the Task/Event App 
 
 - **Usage**: Define how often an item repeats
 - **Example**: `{"type": "daily", "until": "2024-12-31"}` for daily until year end
+- **Note**: Operation validators include `'monthly'` and `'yearly'` types, but these are not implemented in the actual recurrence logic
 - **Reference**: See [Data Model](./data_model.md#recurrence-system) for detailed types and rules
 
 ### Performance and Optimization
@@ -146,7 +147,8 @@ This glossary defines key terms and concepts used throughout the Task/Event App 
 
 - **Usage**: Monitor application state and trigger actions during development
 - **Example**: Shows current view mode, context, and item counts
-- **Reference**: See [Client Architecture](./client_architecture.md#development-tools) for implementation
+- **Note**: Currently documented but not implemented in the codebase
+- **Reference**: See [Client Architecture](./client_architecture.md#development-tools) for documentation
 
 ### Cross-References
 

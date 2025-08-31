@@ -21,7 +21,7 @@ graph TD
     P[("SQLite (data/app.db)\nTables: tasks, events\nAudit_log, idempotency, op_batches\nFTS5 virtual tables")]
   end
   subgraph "LLM (Ollama)"
-    F[["Ollama local model\nhardcoded (convo=qwen3-coder:30b, tool=qwen3-coder:30b)\nQwen-optimized prompts and parsing"]]
+    F[["Ollama local model\nhardcoded (convo=qwen3-coder:30b, code=qwen3-coder:30b)\nQwen-optimized prompts and parsing"]]
   end
 
   A --> A2
@@ -108,7 +108,7 @@ sequenceDiagram
 ### Invariants and contracts
 - **Recurrence semantics**: Repeating tasks track per-day completion via `completedDates`; set occurrence status via MCP `set_task_status` + `occurrenceDate`
 - **State transitions**: Changing repeating→none clears `completedDates`
-- **Time formats**: Times are `HH:MM` or null; dates are `YYYY-MM-DD`
+- **Time formats**: Times are canonical 24h `HH:MM` or null; dates are `YYYY-MM-DD`; events may wrap across midnight (Option A)
 - **Audit trail**: Assistant operations executed through MCP tool calls; all actions logged
 - **Status fields**: Tasks use `status` field ('pending'|'completed'|'skipped'); events use `completed` boolean
 - **Search capabilities**: FTS5 virtual tables provide full-text search for tasks and events
@@ -158,7 +158,7 @@ sequenceDiagram
 - `OLLAMA_HOST`: Ollama host (default: 127.0.0.1)
 - `OLLAMA_PORT`: Ollama port (default: 11434)
 - `TZ_NAME`: Timezone (default: America/New_York)
-  - Models are hardcoded: convo=`qwen3-coder:30b`, tool=`qwen3-coder:30b`
+  - Models are hardcoded: convo=`qwen3-coder:30b`, code=`qwen3-coder:30b`
 
 **Testing**:
 - Unit tests: `npm test` (server), `flutter test` (client)

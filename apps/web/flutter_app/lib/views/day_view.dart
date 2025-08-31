@@ -222,6 +222,9 @@ class _AllDayTaskRow extends StatelessWidget {
         visualDensity: VisualDensity.compact,
       ),
       title: Text(title.isEmpty ? 'Task' : title, overflow: TextOverflow.ellipsis),
+      subtitle: ((item['notes'] ?? '').toString().trim().isEmpty)
+          ? null
+          : Text((item['notes'] ?? '').toString(), maxLines: 1, overflow: TextOverflow.ellipsis),
       trailing: PopupMenuButton<String>(
         onSelected: (v) {
           if (v == 'edit' && onEdit != null) onEdit!(id);

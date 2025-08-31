@@ -25,7 +25,7 @@ function isValidTimeOfDay(value) {
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
 }
 ```
-- **Pattern**: `^([01]\d|2[0-3]):[0-5]\d$` (HH:MM, 00:00-23:59)
+- **Pattern**: `^([01]\d|2[0-3]):[0-5]\d$` (canonical 24h HH:MM, 00:00-23:59)
 - **Usage**: `timeOfDay`, `startTime`, `endTime`
 - **Null handling**: Returns `true` for null/undefined (all-day items)
 - **Location**: `apps/server/utils/recurrence.js`
@@ -49,7 +49,7 @@ function isValidRecurrence(rec) {
   return true;
 }
 ```
-- **Type validation**: Only allowed recurrence types
+- **Type validation**: Only allowed recurrence types (note: operation validators include 'monthly', 'yearly' but utils/recurrence.js does not)
 - **Interval validation**: `intervalDays >= 1` for `every_n_days`
 - **Until validation**: Must be valid YYYY-MM-DD or null
 - **Location**: `apps/server/utils/recurrence.js`
@@ -69,8 +69,8 @@ Normalization helpers are not present in the current codebase; endpoints and ope
 **Event Validation Rules**:
 - `recurrence` object required on create and update
 - If repeating, `scheduledFor` anchor required
-- `startTime` and `endTime` must be valid HH:MM format
-- `endTime` must be after `startTime` if both provided
+- `startTime` and `endTime` must be valid canonical 24h HH:MM format
+- Cross‑midnight allowed: `endTime` may be less than `startTime` (wrap to next day)
 
 **Context Validation**:
 ```javascript
@@ -82,51 +82,17 @@ function isValidContext(context) {
 
 #### Operation-Level Validation (Operation Processor)
 
-**Operation Validation**:
-```javascript
-function validateOperation(op) {
-  const errors = [];
-  
-  if (!op || typeof op !== 'object') return ['invalid_operation_object'];
-  
-  const kind = op.kind && String(op.kind).toLowerCase();
-  const action = op.action && String(op.action).toLowerCase();
-  const allowedActions = [
-    'create', 'update', 'delete', 'set_status'
-  ];
-  if (!allowedActions.includes(action)) errors.push('invalid_op');
-  
-  if (op.scheduledFor !== undefined && !(op.scheduledFor === null || isYmdString(op.scheduledFor))) 
-    errors.push('invalid_scheduledFor');
-    
-  if (op.timeOfDay !== undefined && !isValidTimeOfDay(op.timeOfDay === '' ? null : op.timeOfDay)) 
-    errors.push('invalid_timeOfDay');
-    
-  if (op.recurrence !== undefined && !isValidRecurrence(op.recurrence)) 
-    errors.push('invalid_recurrence');
-  
-  if (['update', 'delete', 'set_status'].includes(action)) {
-    if (!Number.isFinite(op.id)) errors.push('missing_or_invalid_id');
-  }
-  
-  if (kind === 'task' && action === 'set_status') {
-    const status = String(op.status || '');
-    if (!['pending', 'completed', 'skipped'].includes(status)) {
-      errors.push('invalid_status');
-    }
-  }
-  
-  if (op.occurrenceDate !== undefined && !(op.occurrenceDate === null || isYmdString(op.occurrenceDate))) {
-    errors.push('invalid_occurrenceDate');
-  }
-  
-  if (op.op?.startsWith('bulk') || op.action?.startsWith('bulk')) {
-    errors.push('bulk_operations_removed');
-  }
-  
-  return errors;
-}
-```
+**Operation Validation**: Uses `OperationValidators` class with specific validators for each operation type:
+- `taskCreate`, `taskUpdate`, `taskDelete`, `taskSetStatus`
+- `eventCreate`, `eventUpdate`, `eventDelete`
+
+Each validator returns `{ valid: boolean, errors: string[] }` and validates:
+- Required fields (title, id for updates/deletes)
+- Field types and formats (dates, times, recurrence)
+- Business rules (anchor dates for repeating items)
+- Context values and status enums
+
+**Location**: `apps/server/operations/validators.js`
 
 ### Recurrence and Occurrences
 
@@ -143,34 +109,48 @@ See `apps/server/utils/recurrence.js` for rule evaluation and expansion helpers.
 
 
 
-#### Clarify Candidate Ranking
+#### Ambiguity Detection
 
 ```javascript
-function topClarifyCandidates(instruction, snapshots, limit = 5) {
-  const allItems = [
-    ...(snapshots.week?.items || []),
-    ...(snapshots.backlog || [])
-  ];
+function detectAmbiguity(taskBrief, context) {
+  const lowerBrief = taskBrief.toLowerCase();
+  const actionWords = ['update', 'change', 'modify', 'complete', 'delete', 'remove', 'set', 'create', 'add'];
+  const hasAction = actionWords.some(word => lowerBrief.includes(word));
   
-  // Token-based ranking
-  const tokens = instruction.toLowerCase().split(/\s+/);
-  const scored = allItems.map(item => {
-    let score = 0;
-    const itemText = item.title.toLowerCase();
-    
-    tokens.forEach(token => {
-      if (itemText.includes(token)) score += 1;
-    });
-    
-    return { ...item, score };
-  });
+  if (!hasAction) {
+    return { needsClarification: false };
+  }
   
-  return scored
-    .filter(item => item.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit);
+  const items = context.focused || [];
+  if (items.length > 1 && !lowerBrief.match(/#\d+/)) {
+    return {
+      needsClarification: true,
+      question: "Which item do you want to work with?",
+      options: items.slice(0, 5).map(item => ({
+        id: item.id,
+        title: item.title,
+        scheduledFor: item.scheduledFor
+      }))
+    };
+  }
+  const titleMatches = items.filter(item => 
+    item.title && lowerBrief.includes(item.title.toLowerCase())
+  );
+  if (titleMatches.length > 1) {
+    return {
+      needsClarification: true,
+      question: "Which item do you mean?",
+      options: titleMatches.map(item => ({
+        id: item.id,
+        title: item.title,
+        scheduledFor: item.scheduledFor
+      }))
+    };
+  }
+  return { needsClarification: false };
 }
 ```
+- **Location**: `apps/server/llm/ops_agent.js`
 
 ### Assistant Tool-Calling Pipeline
 

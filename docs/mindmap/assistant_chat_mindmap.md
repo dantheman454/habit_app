@@ -66,6 +66,8 @@ final res = await api.assistantMessage(
 );
 ```
 
+**SSE Events**: Server emits `stage`, `ops`, `summary`, `heartbeat`, and `done` events. `clarify` and `result` listeners exist for forward compatibility but are not currently emitted.
+
 ### 2. OpsAgent Proposal (Tool-Calling)
 
 ```javascript
@@ -94,12 +96,15 @@ const operationTools = [
 }));
 ```
 
+**Note**: OpsAgent uses `task.create` format for LLM tool calling, while MCP server uses `create_task` format. The OpsAgent converts tool calls to operations internally.
+
 ## Operation Execution (Apply phase via MCP)
 
 **Tool Call Processing**:
 ```javascript
 // Proposals are previewed in the UI; user applies selected ops via MCP
 POST /api/mcp/tools/call { name, arguments }
+// Note: MCP server uses create_task, update_task format, not task.create format
 ```
 
 **Operation Processor Execution**:

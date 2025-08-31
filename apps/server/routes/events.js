@@ -73,7 +73,6 @@ router.post('/api/events', (req, res) => {
   if (typeof title !== 'string' || title.trim() === '') return res.status(400).json({ error: 'invalid_title' });
   if (startTime !== undefined && !(startTime === null || /^([01]\d|2[0-3]):[0-5]\d$/.test(String(startTime)))) return res.status(400).json({ error: 'invalid_start_time' });
   if (endTime !== undefined && !(endTime === null || /^([01]\d|2[0-3]):[0-5]\d$/.test(String(endTime)))) return res.status(400).json({ error: 'invalid_end_time' });
-  if (startTime && endTime && String(endTime) < String(startTime)) return res.status(400).json({ error: 'invalid_time_range' });
   if (context !== undefined && !['school','personal','work'].includes(String(context))) return res.status(400).json({ error: 'invalid_context' });
   const rec = (recurrence && typeof recurrence === 'object') ? recurrence : { type: 'none' };
   if (rec.type && rec.type !== 'none') {
@@ -183,7 +182,6 @@ router.patch('/api/events/:id', (req, res) => {
   if (completed !== undefined && typeof completed !== 'boolean') return res.status(400).json({ error: 'invalid_completed' });
   if (startTime !== undefined && !(startTime === null || /^([01]\d|2[0-3]):[0-5]\d$/.test(String(startTime)))) return res.status(400).json({ error: 'invalid_start_time' });
   if (endTime !== undefined && !(endTime === null || /^([01]\d|2[0-3]):[0-5]\d$/.test(String(endTime)))) return res.status(400).json({ error: 'invalid_end_time' });
-  if (startTime && endTime && String(endTime) < String(startTime)) return res.status(400).json({ error: 'invalid_time_range' });
   if (recurrence !== undefined && typeof recurrence !== 'object') return res.status(400).json({ error: 'invalid_recurrence' });
   if (context !== undefined && !['school','personal','work'].includes(String(context))) return res.status(400).json({ error: 'invalid_context' });
   if (recurrence && recurrence.type && recurrence.type !== 'none') {

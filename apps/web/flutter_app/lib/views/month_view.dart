@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../util/context_colors.dart';
+import '../util/time_format.dart';
 
 class MonthView extends StatefulWidget {
   final List<String> gridYmd; // 42 dates (6x7), Sun..Sat rows
@@ -119,6 +120,7 @@ class _MonthViewState extends State<MonthView> {
         kind: 'task',
         startMinutes: -1, // ensure tasks sort before events
         timeLabel: '',
+        notes: (t['notes'] ?? '').toString(),
       ));
     }
     // Then events, with time labels
@@ -128,6 +130,7 @@ class _MonthViewState extends State<MonthView> {
         kind: 'event',
         startMinutes: _parseMinutes(e['startTime'] ?? e['timeOfDay']),
         timeLabel: _formatTimeRange(e['startTime'], e['endTime']),
+        notes: (e['notes'] ?? '').toString(),
       ));
     }
     items.sort((a, b) => (a.startMinutes).compareTo(b.startMinutes));
@@ -143,6 +146,7 @@ class _MonthViewState extends State<MonthView> {
         kind: 'task',
         startMinutes: -1,
         timeLabel: '',
+        notes: (t['notes'] ?? '').toString(),
         contextValue: (t['context'] ?? '').toString(),
       ));
     }
@@ -153,6 +157,7 @@ class _MonthViewState extends State<MonthView> {
         kind: 'event',
         startMinutes: _parseMinutes(e['startTime'] ?? e['timeOfDay']),
         timeLabel: _formatTimeRange(e['startTime'], e['endTime']),
+        notes: (e['notes'] ?? '').toString(),
         contextValue: (e['context'] ?? '').toString(),
       ));
     }
@@ -181,11 +186,7 @@ class _MonthViewState extends State<MonthView> {
 
   String _formatSingleTime(dynamic hhmm) {
     if (hhmm is String && hhmm.contains(':')) {
-      final parts = hhmm.split(':');
-      final h = int.tryParse(parts[0]) ?? 0;
-      final m = int.tryParse(parts[1]) ?? 0;
-      final label = '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
-      return label;
+      return AmericanTimeFormat.to12h(hhmm);
     }
     return '';
   }
@@ -197,8 +198,9 @@ class _PreviewItem {
   final String kind; // 'event' | 'task'
   final int startMinutes; // used for sorting; 24*60+ pushes to end
   final String timeLabel;
+  final String? notes;
   final String contextValue;
-  _PreviewItem({required this.title, required this.kind, required this.startMinutes, required this.timeLabel, this.contextValue = ''});
+  _PreviewItem({required this.title, required this.kind, required this.startMinutes, required this.timeLabel, this.notes, this.contextValue = ''});
 }
 
 class _HoverPreview extends StatelessWidget {
@@ -235,11 +237,17 @@ class _HoverPreview extends StatelessWidget {
                     ),
                     const SizedBox(width: 6),
                     Expanded(
-                      child: Text(
-                        it.timeLabel.isEmpty ? it.title : '${it.timeLabel}  ${it.title}',
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
+                      child: Builder(builder: (context) {
+                        final title = it.title;
+                        final firstLine = (it.notes ?? '').split('\n').first.trim();
+                        final suffix = firstLine.isEmpty ? '' : ' • ${firstLine.length > 40 ? firstLine.substring(0, 40) + '…' : firstLine}';
+                        final base = it.timeLabel.isEmpty ? title : '${it.timeLabel}  $title';
+                        return Text(
+                          '$base$suffix',
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        );
+                      }),
                     ),
                   ],
                 ),

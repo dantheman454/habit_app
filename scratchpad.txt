@@ -19,16 +19,19 @@ Keep in mind:
 
 Get done asap:   
     -Clean up UI 
-        *make updating/creating tasks and events easier (time and date are a pain right now)
         *Make sure notes on events and tasks work properly
+            >Add/Update/Delete ALL fields for each (make a checklist)
         *get searchbar working
         *Clean up header; Make it cleaner and less cluttered (show completed and the context filters should be together; views and date toggle together; search bar should be less prominent but easily accessible)
+        **Make the tasks more visually distinct and better?
         *fix it from being so snappy when deleting tasks or going between tabs
 
     -Clean up legacy code and unused imports
         >Remove harmony prompting and Qwen specific functionality
         >
     -Delete and remake the unit tests
+    -SCAN FOR ANY BACKDOORS/EVIL CODE PATTERNS
+    -Look into licenses of anything this project uses 
     -spam flutter analyze until no issues found and functionality is preserved
     -Place work and school schedule in (still keep using gc and reminders until this system is rock solid with regular backups and good UX)
 

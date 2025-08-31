@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../util/animation.dart';
+import '../util/time_format.dart';
 import '../util/context_colors.dart';
 
 class WeekView extends StatefulWidget {
@@ -169,10 +170,7 @@ class _WeekViewState extends State<WeekView> {
 
   String _formatSingleTime(dynamic hhmm) {
     if (hhmm is String && hhmm.contains(':')) {
-      final parts = hhmm.split(':');
-      final h = int.tryParse(parts[0]) ?? 0;
-      final m = int.tryParse(parts[1]) ?? 0;
-      return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
+      return AmericanTimeFormat.to12h(hhmm);
     }
     return '';
   }
@@ -247,13 +245,19 @@ class _HoverPreview extends StatelessWidget {
                     ),
                     const SizedBox(width: 6),
                     Expanded(
-                      child: Text(
-                        ((it['timeLabel'] ?? '') as String).isEmpty
-                            ? (it['title'] ?? '').toString()
-                            : '${it['timeLabel']}  ${(it['title'] ?? '').toString()}',
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
+                      child: Builder(builder: (context) {
+                        final title = (it['title'] ?? '').toString();
+                        final notes = ((it['notes'] ?? '') as String).trim();
+                        final firstLine = notes.split('\n').first.trim();
+                        final suffix = firstLine.isEmpty ? '' : ' • ${firstLine.length > 40 ? firstLine.substring(0, 40) + '…' : firstLine}';
+                        final time = ((it['timeLabel'] ?? '') as String);
+                        final base = time.isEmpty ? title : '$time  $title';
+                        return Text(
+                          '$base$suffix',
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        );
+                      }),
                     ),
                   ],
                 ),

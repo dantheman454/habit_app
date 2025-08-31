@@ -134,18 +134,41 @@ router.get('/api/schedule', (req, res) => {
 
     if (requestedKinds.includes('event')) {
       let events = db.listEvents({ from: null, to: null, context: context || null }).filter(e => e.scheduledFor !== null);
+      const shouldSplit = (s, e) => {
+        if (!s || !e) return false;
+        return String(e) < String(s);
+      };
+      const pushEventOrSplit = (base) => {
+        const s = base.startTime || '';
+        const e = base.endTime || '';
+        if (shouldSplit(s, e)) {
+          // Segment A: current day start..23:59
+          items.push({ ...base, endTime: '23:59' });
+          // Segment B: next day 00:00..end
+          const d = parseYMD(base.scheduledFor);
+          if (d) {
+            const next = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
+            if (inRange(next)) {
+              items.push({ ...base, scheduledFor: ymd(next), startTime: '00:00' });
+            }
+          }
+        } else {
+          items.push(base);
+        }
+      };
+
       for (const e of events) {
         const isRepeating = (e.recurrence && e.recurrence.type && e.recurrence.type !== 'none');
         if (isRepeating) {
           for (const occ of expandEventOccurrences(e, fromDate, toDate)) {
             if (completedBool === undefined || occ.completed === completedBool) {
-              items.push({ kind: 'event', ...occ });
+              pushEventOrSplit({ kind: 'event', ...occ });
             }
           }
         } else {
           const ed = e.scheduledFor ? parseYMD(e.scheduledFor) : null;
           if (inRange(ed) && (completedBool === undefined || e.completed === completedBool)) {
-            items.push({
+            pushEventOrSplit({
               kind: 'event',
               id: e.id,
               title: e.title,

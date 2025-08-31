@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../util/context_colors.dart';
+import '../util/time_format.dart';
 import 'expandable_text.dart';
 
 class TaskRow extends StatelessWidget {
@@ -153,7 +154,7 @@ class TaskRow extends StatelessWidget {
                                   final ok = await showDialog<bool>(
                                     context: context,
                                     builder: (c) => AlertDialog(
-                                      title: const Text('Edit time (HH:MM)'),
+                                      title: const Text('Edit time (e.g., 1:00 PM)'),
                                       content: TextField(
                                         controller: ctrl,
                                         autofocus: true,
@@ -188,7 +189,7 @@ class TaskRow extends StatelessWidget {
                               ),
                             ),
                             child: Text(
-                              task['timeOfDay']!,
+                              AmericanTimeFormat.to12h(task['timeOfDay']!),
                               style: TextStyle(
                                 fontSize: 12,
                                 color: (task['overdue'] == true)

@@ -18,6 +18,8 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'util/storage.dart' as storage;
 import 'util/animation.dart';
+import 'util/time_format.dart';
+import 'widgets/time_field.dart';
 import 'models.dart';
 
 // --- Test hooks and injectable API (local single-user context) ---
@@ -50,8 +52,8 @@ class Task {
   String notes;
   String? kind; // 'task'|'event' for unified schedule rows
   String? scheduledFor; // YYYY-MM-DD or null
-  String? timeOfDay; // HH:MM or null
-  String? endTime; // HH:MM or null (for events)
+  String? timeOfDay; // canonical 24h HH:MM or null
+  String? endTime; // canonical 24h HH:MM or null (for events)
   String? priority; // low|medium|high
   bool completed;
   String? status; // 'pending'|'completed'|'skipped' for tasks
@@ -109,10 +111,10 @@ class LlmOperation {
   final String? scheduledFor;
   final String? priority;
   final bool? completed;
-  final String? timeOfDay; // HH:MM or null
+  final String? timeOfDay; // canonical 24h HH:MM or null
   // Event-specific optional fields
-  final String? startTime; // HH:MM
-  final String? endTime; // HH:MM
+  final String? startTime; // canonical 24h HH:MM
+  final String? endTime; // canonical 24h HH:MM
   final String? location;
   final Map<String, dynamic>? recurrence; // {type, intervalDays, until}
   // Occurrence completion support
@@ -592,15 +594,8 @@ class _HomePageState extends State<HomePage> {
   }
 
   bool _isValidTime(String s) {
-    if (s.trim().isEmpty) return true; // optional
-    final parts = s.trim().split(':');
-    if (parts.length != 2) return false;
-    final h = int.tryParse(parts[0]);
-    final m = int.tryParse(parts[1]);
-    if (h == null || m == null) return false;
-    if (h < 0 || h > 23) return false;
-    if (m < 0 || m > 59) return false;
-    return true;
+    if (s.trim().isEmpty) return true;
+    return AmericanTimeFormat.parseFlexible(s) != null;
   }
 
   Future<void> _submitQuickAddTask({String? selectedContext}) async {
@@ -616,9 +611,10 @@ class _HomePageState extends State<HomePage> {
       ).showSnackBar(const SnackBar(content: Text('Please enter a title.')));
       return;
     }
-    if (!_isValidTime(time)) {
+    final parsedTime = AmericanTimeFormat.parseFlexible(time);
+    if (time.isNotEmpty && parsedTime == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Use 24‑hour time, e.g. 09:00.')),
+        const SnackBar(content: Text('Enter a valid time, e.g., 1:00 PM.')),
       );
       return;
     }
@@ -655,7 +651,7 @@ class _HomePageState extends State<HomePage> {
         'title': title,
         'notes': notes,
         'scheduledFor': scheduledFor,
-        'timeOfDay': time.isEmpty ? null : time,
+        'timeOfDay': (parsedTime == null || time.isEmpty) ? null : parsedTime,
         'recurrence': recurrence,
         'context': selectedContext ?? _qaSelectedContext ?? 'personal',
       });
@@ -727,21 +723,26 @@ class _HomePageState extends State<HomePage> {
       ).showSnackBar(const SnackBar(content: Text('Please enter a title.')));
       return;
     }
-    if (!_isValidTime(start) || !_isValidTime(end)) {
+    final parsedStart = AmericanTimeFormat.parseFlexible(start);
+    final parsedEnd = AmericanTimeFormat.parseFlexible(end);
+    if ((start.isNotEmpty && parsedStart == null) || (end.isNotEmpty && parsedEnd == null)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Use 24‑hour time, e.g. 09:00.')),
+        const SnackBar(content: Text('Enter valid times, e.g., 1:00 PM.')),
       );
       return;
     }
 
     // Validate start ≤ end time if both are provided
-    if (start.isNotEmpty && end.isNotEmpty) {
-      if (start.compareTo(end) > 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('End time must be after start time.')),
-        );
-        return;
-      }
+    // Default end = start + 1h when start set and end empty
+    String? localEnd24 = parsedEnd;
+    bool endWrapped = false;
+    if ((parsedStart != null) && (end.trim().isEmpty)) {
+      final res = AmericanTimeFormat.addOneHour(parsedStart);
+      localEnd24 = res.hhmm;
+      endWrapped = res.wrapped;
+      setState(() {
+        _qaEventEnd.text = localEnd24!; // show canonical in controller; TimeField displays 12h
+      });
     }
 
     // Validate date format if provided
@@ -776,8 +777,8 @@ class _HomePageState extends State<HomePage> {
         'title': title,
         'notes': notes,
         'scheduledFor': scheduledFor,
-        'startTime': start.isEmpty ? null : start,
-        'endTime': end.isEmpty ? null : end,
+        'startTime': (parsedStart == null || start.isEmpty) ? null : parsedStart,
+        'endTime': (localEnd24 == null || (end.isNotEmpty && parsedEnd == null)) ? null : localEnd24,
         'location': location.isEmpty ? null : location,
         'recurrence': recurrence,
         'context': selectedContext ?? _qaSelectedContext ?? 'personal',
@@ -1759,12 +1760,7 @@ class _HomePageState extends State<HomePage> {
                       labelText: 'Scheduled (YYYY-MM-DD)',
                     ),
                   ),
-                  TextField(
-                    controller: timeCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Time (HH:MM or empty)',
-                    ),
-                  ),
+                  TimeField(controller: timeCtrl, label: 'Time'),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
                     value: selectedContext,
@@ -1977,21 +1973,11 @@ class _HomePageState extends State<HomePage> {
                   Row(
                     children: [
                       Expanded(
-                        child: TextField(
-                          controller: startCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Start (HH:MM)',
-                          ),
-                        ),
+                        child: TimeField(controller: startCtrl, label: 'Start Time'),
                       ),
                       const SizedBox(width: 8),
                       Expanded(
-                        child: TextField(
-                          controller: endCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'End (HH:MM, optional)',
-                          ),
-                        ),
+                        child: TimeField(controller: endCtrl, label: 'End Time'),
                       ),
                     ],
                   ),
@@ -2093,8 +2079,16 @@ class _HomePageState extends State<HomePage> {
 
     final start = startCtrl.text.trim();
     final end = endCtrl.text.trim();
-    patch['startTime'] = start.isEmpty ? null : start;
-    patch['endTime'] = end.isEmpty ? null : end;
+    final parsedStart = AmericanTimeFormat.parseFlexible(start);
+    final parsedEnd = AmericanTimeFormat.parseFlexible(end);
+    if ((start.isNotEmpty && parsedStart == null) || (end.isNotEmpty && parsedEnd == null)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter valid times, e.g., 1:00 PM.')),
+      );
+      return;
+    }
+    patch['startTime'] = (parsedStart == null || start.isEmpty) ? null : parsedStart;
+    patch['endTime'] = (parsedEnd == null || end.isEmpty) ? null : parsedEnd;
     patch['location'] = locationCtrl.text.trim().isEmpty
         ? null
         : locationCtrl.text.trim();
@@ -2527,19 +2521,9 @@ class _HomePageState extends State<HomePage> {
                   Row(
                     children: [
                       Expanded(
-                        child: TextField(
-                          controller: _qaTaskTime,
-                          decoration: const InputDecoration(
-                            labelText: 'Time (HH:MM)',
-                          ),
-                        ),
+                        child: TimeField(controller: _qaTaskTime, label: 'Time'),
                       ),
                       const SizedBox(width: 8),
-                      IconButton(
-                        onPressed: () => _pickTime(_qaTaskTime),
-                        icon: const Icon(Icons.access_time),
-                        tooltip: 'Pick time',
-                      ),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -2670,38 +2654,18 @@ class _HomePageState extends State<HomePage> {
                   Row(
                     children: [
                       Expanded(
-                        child: TextField(
-                          controller: _qaEventStart,
-                          decoration: const InputDecoration(
-                            labelText: 'Start Time (HH:MM)',
-                          ),
-                        ),
+                        child: TimeField(controller: _qaEventStart, label: 'Start Time'),
                       ),
                       const SizedBox(width: 8),
-                      IconButton(
-                        onPressed: () => _pickTime(_qaEventStart),
-                        icon: const Icon(Icons.access_time),
-                        tooltip: 'Pick start time',
-                      ),
                     ],
                   ),
                   const SizedBox(height: 8),
                   Row(
                     children: [
                       Expanded(
-                        child: TextField(
-                          controller: _qaEventEnd,
-                          decoration: const InputDecoration(
-                            labelText: 'End Time (HH:MM)',
-                          ),
-                        ),
+                        child: TimeField(controller: _qaEventEnd, label: 'End Time'),
                       ),
                       const SizedBox(width: 8),
-                      IconButton(
-                        onPressed: () => _pickTime(_qaEventEnd),
-                        icon: const Icon(Icons.access_time),
-                        tooltip: 'Pick end time',
-                      ),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -3689,18 +3653,6 @@ class _HomePageState extends State<HomePage> {
       final m = picked.month.toString().padLeft(2, '0');
       final d = picked.day.toString().padLeft(2, '0');
       ctrl.text = '$y-$m-$d';
-    }
-  }
-
-  Future<void> _pickTime(TextEditingController ctrl) async {
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.now(),
-    );
-    if (picked != null) {
-      final h = picked.hour.toString().padLeft(2, '0');
-      final m = picked.minute.toString().padLeft(2, '0');
-      ctrl.text = '$h:$m';
     }
   }
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import '../util/context_colors.dart';
+import '../util/time_format.dart';
 import 'expandable_text.dart';
 
 class EventTimeline extends StatelessWidget {
@@ -85,7 +86,7 @@ class EventTimeline extends StatelessWidget {
               top: top + 2,
               left: 4,
               child: Text(
-                '${h.toString().padLeft(2, '0')}:00',
+                AmericanTimeFormat.hourLabel12(h),
                 style: TextStyle(
                   fontSize: 9,
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -99,7 +100,8 @@ class EventTimeline extends StatelessWidget {
         String fmtLabel(int m) {
           final h = minHour + (m ~/ 60);
           final mm = (m % 60).toString().padLeft(2, '0');
-          return '${h.toString().padLeft(2, '0')}:$mm';
+          final hhmm = '${h.toString().padLeft(2, '0')}:$mm';
+          return AmericanTimeFormat.to12h(hhmm);
         }
 
         for (final e in normalized) {
@@ -108,8 +110,7 @@ class EventTimeline extends StatelessWidget {
           final double leftPx = (width * (e.lane / laneCount));
           final double widthPx = width * (1 / laneCount) - 4; // small gap
           final titleText = e.title.isEmpty ? 'Event' : e.title;
-          final tooltip =
-              '$titleText  ${fmtLabel(e.startM)}–${fmtLabel(e.endM)}';
+          final tooltip = '$titleText  ${fmtLabel(e.startM)}–${fmtLabel(e.endM)}';
           // Find the original event data to get notes
           final rawEvent = events.firstWhere(
             (raw) => raw['id'] == e.id,
