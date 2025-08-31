@@ -73,7 +73,7 @@ class DayView extends StatelessWidget {
           }
         }
         if (earliest != null) {
-          const double pxPerMin = 1.2; // matches EventTimeline pixelsPerMinute
+          final double pxPerMin = timedUnified.isEmpty ? 0.6 : 0.9; // match EventTimeline pixelsPerMinute
           final target = (earliest * pxPerMin) - 120; // small top margin
           final desired = target < 0 ? 0.0 : target.toDouble();
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -181,9 +181,9 @@ class DayView extends StatelessWidget {
               events: timedUnified,
               onTapEvent: onEditEvent,
               scrollController: scrollController,
-              minHour: 0,
-              maxHour: 24,
-              pixelsPerMinute: 1.2,
+              minHour: timedUnified.isEmpty ? 7 : 0,
+              maxHour: timedUnified.isEmpty ? 20 : 24,
+              pixelsPerMinute: timedUnified.isEmpty ? 0.6 : 0.9,
             ),
           ),
         ),

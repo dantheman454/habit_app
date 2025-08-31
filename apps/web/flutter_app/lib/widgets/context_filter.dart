@@ -13,14 +13,14 @@ class ContextFilter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         _contextChip('All', null, Icons.public),
-        const SizedBox(width: 8),
         _contextChip('School', 'school', Icons.school),
-        const SizedBox(width: 8),
         _contextChip('Personal', 'personal', Icons.person),
-        const SizedBox(width: 8),
         _contextChip('Work', 'work', Icons.work),
       ],
     );

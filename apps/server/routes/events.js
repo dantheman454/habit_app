@@ -221,8 +221,10 @@ router.get('/api/events/search', (req, res) => {
     else if (req.query.completed === 'false' || req.query.completed === false) completedBool = false;
     else return res.status(400).json({ error: 'invalid_completed' });
   }
+  const context = (req.query.context === undefined) ? undefined : String(req.query.context);
+  if (context !== undefined && !['school','personal','work'].includes(context)) return res.status(400).json({ error: 'invalid_context' });
   try {
-    let items = db.searchEvents({ q, completed: completedBool });
+    let items = db.searchEvents({ q, completed: completedBool, context });
     if (q.length < 2) {
       const ql = q.toLowerCase();
       items = items.filter(e => String(e.title || '').toLowerCase().includes(ql) || String(e.notes || '').toLowerCase().includes(ql) || String(e.location || '').toLowerCase().includes(ql));

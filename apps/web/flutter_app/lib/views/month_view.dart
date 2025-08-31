@@ -49,7 +49,8 @@ class _MonthViewState extends State<MonthView> {
           child: GridView.builder(
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 7,
-              childAspectRatio: 1.1,
+              // Slightly taller cells reduce empty whitespace look on sparse months
+              childAspectRatio: 1.0,
             ),
             itemCount: widget.gridYmd.length,
             itemBuilder: (ctx, i) {

@@ -85,7 +85,7 @@ class _WeekViewState extends State<WeekView> {
                               children: [
                                 if (items.isEmpty)
                                   Padding(
-                                    padding: const EdgeInsets.symmetric(vertical: 18),
+                                    padding: const EdgeInsets.symmetric(vertical: 8),
                                     child: Center(child: Text('—', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant))),
                                   )
                                 else ...[

@@ -59,6 +59,7 @@ router.get('/api/search', (req, res) => {
         scheduledFor: t.scheduledFor,
         status: t.status,
         timeOfDay: t.timeOfDay ?? null,
+        context: t.context,
         createdAt: t.createdAt,
         updatedAt: t.updatedAt,
       })));
@@ -79,6 +80,7 @@ router.get('/api/search', (req, res) => {
         startTime: e.startTime ?? null,
         endTime: e.endTime ?? null,
         location: e.location ?? null,
+        context: e.context,
         createdAt: e.createdAt,
         updatedAt: e.updatedAt,
       })));

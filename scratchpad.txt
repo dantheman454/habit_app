@@ -19,10 +19,10 @@ Keep in mind:
 
 Get done asap:   
     -Clean up UI 
-        *get 'work' context button working
-        *Make the tasks subheader have less whitespace
         *make updating/creating tasks and events easier (time and date are a pain right now)
+        *Make sure notes on events and tasks work properly
         *get searchbar working
+        *Clean up header; Make it cleaner and less cluttered (show completed and the context filters should be together; views and date toggle together; search bar should be less prominent but easily accessible)
         *fix it from being so snappy when deleting tasks or going between tabs
 
     -Clean up legacy code and unused imports

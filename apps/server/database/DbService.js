@@ -238,18 +238,20 @@ export class DbService {
     return rows.map(r => this._mapEvent(r));
   }
 
-  searchEvents({ q, completed = null }) {
+  searchEvents({ q, completed = null, context = null }) {
     this.openIfNeeded();
     if (!q || String(q).length < 2) {
       const sql = 'SELECT * FROM events ORDER BY id ASC';
       const rows = this.db.prepare(sql).all();
       let items = rows.map(r => this._mapEvent(r));
       if (completed !== null && completed !== undefined) items = items.filter(e => !!e.completed === !!completed);
+      if (context) items = items.filter(e => String(e.context) === String(context));
       return items;
     }
     const rows = this.db.prepare('SELECT e.* FROM events e JOIN events_fts f ON f.rowid = e.id WHERE events_fts MATCH @q').all({ q: String(q) });
     let items = rows.map(r => this._mapEvent(r));
     if (completed !== null && completed !== undefined) items = items.filter(e => !!e.completed === !!completed);
+    if (context) items = items.filter(e => String(e.context) === String(context));
     return items;
   }
 

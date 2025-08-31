@@ -99,15 +99,10 @@ class CompactSubheader extends StatelessWidget {
                   fit: FlexFit.tight,
                   child: Align(
                     alignment: Alignment.centerLeft,
-                    child: AnimatedSwitcher(
-                      duration: AppAnim.medium,
-                      switchInCurve: AppAnim.easeOut,
-                      switchOutCurve: AppAnim.easeIn,
-                      child: ContextFilter(
-                        key: ValueKey(selectedContext ?? 'all'),
-                        selectedContext: selectedContext,
-                        onChanged: onContextChanged,
-                      ),
+                    child: ContextFilter(
+                      key: ValueKey(selectedContext ?? 'all'),
+                      selectedContext: selectedContext,
+                      onChanged: onContextChanged,
                     ),
                   ),
                 ),

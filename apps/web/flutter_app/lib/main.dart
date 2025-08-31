@@ -861,6 +861,9 @@ class _HomePageState extends State<HomePage> {
     setState(() => loading = true);
     try {
       final r = rangeForView(anchor, view);
+      // Debug: ensure context is visible in dev logs
+      // ignore: avoid_print
+      print('[refresh] context=${selectedContext ?? 'all'} view=$view from=${r.from} to=${r.to}');
       // Day/Week/Month: use unified schedule for Tasks and Habits
       List<Task> sList;
       if (view == ViewMode.day ||
