@@ -52,7 +52,7 @@ sequenceDiagram
   Note over UI,LLM: Assistant Proposal Flow
   UI->>API: GET /api/assistant/message/stream?message="update task"
   API->>OPS: runOpsAgentToolCalling (focused context, tool surface)
-  OPS->>LLM: Tool-calling prompt (qwen3:30b)
+  OPS->>LLM: Tool-calling prompt (qwen3-coder:30b)
   LLM-->>OPS: tool_calls JSON (e.g., task.update)
   API-->>UI: SSE: ops (validated proposals) and summary
   UI->>API: POST /api/mcp/tools/call (apply selected ops)
@@ -150,7 +150,7 @@ sequenceDiagram
 
 **Local Setup**:
 1. Install dependencies: `npm install` (server), `flutter pub get` (client)
-2. Start Ollama: `ollama serve` (requires qwen3:30b model)
+2. Start Ollama: `ollama serve` (requires qwen3-coder:30b model)
 3. Start server: `npm start` (runs on port 3000)
 4. Build client: `flutter build web` (served by Express)
 

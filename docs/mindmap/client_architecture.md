@@ -57,14 +57,10 @@ class _HomePageState extends State<HomePage> {
   bool assistantShowDiff = false;
   // Thinking state for assistant responses
   String? assistantThinking;
-  bool assistantShowThinking = false;
+  bool assistantShowThinking = false; // persisted
   int? assistantStreamingIndex;
   
-  // Clarification state
-  String? _pendingClarifyQuestion;
-  List<Map<String, dynamic>> _pendingClarifyOptions = const [];
-  final Set<int> _clarifySelectedIds = <int>{};
-  String? _clarifySelectedDate;
+  // Progress state
   String _progressStage = '';
   String? _lastCorrelationId;
   int _progressValid = 0;
@@ -439,15 +435,11 @@ Future<void> _sendAssistantMessage(String message) async {
           };
         });
       },
-      onClarify: (question, options) {
-        // Show clarification UI
-        _showClarificationDialog(question, options);
-      },
       onStage: (stage) {
         // Update progress indicator
         setState(() => _progressStage = stage);
       },
-      onOps: (operations, version, validCount, invalidCount) {
+      onOps: (operations, version, validCount, invalidCount, previews) {
         // Show operations preview
         setState(() {
           assistantOps = operations.map((op) => AnnotatedOp.fromJson(op)).toList();
@@ -455,6 +447,17 @@ Future<void> _sendAssistantMessage(String message) async {
           _progressValid = validCount;
           _progressInvalid = invalidCount;
         });
+      },
+      onThinking: (thinking) {
+        // Show thinking process
+        setState(() {
+          assistantThinking = thinking;
+          assistantShowThinking = true;
+        });
+      },
+      onTraceId: (correlationId) {
+        // Track correlation ID
+        setState(() => _lastCorrelationId = correlationId);
       },
     );
   } catch (e) {
@@ -486,10 +489,6 @@ CloseFn startSse({
     } catch (_) {}
   }
 
-  es.addEventListener(
-    'clarify',
-    (e) => handleMessage(e as html.MessageEvent, 'clarify'),
-  );
   es.addEventListener(
     'stage',
     (e) => handleMessage(e as html.MessageEvent, 'stage'),
@@ -528,69 +527,9 @@ CloseFn startSse({
 - **Location**: `apps/web/flutter_app/lib/util/sse_impl_web.dart`
 
 Notes:
-- Server currently emits `stage`, `ops`, `summary`, `heartbeat`, and `done`. `clarify` and `result` listeners exist in the client for forward-compat but are not emitted by the current server flow.
-- The assistant POST and SSE responses include a `correlationId` surfaced via `onTraceId` when provided. The `ops` event also includes `previews` used by the UI.
-
-#### Clarification UI
-
-```dart
-void _showClarificationDialog(String question, List<Map<String, dynamic>> options) {
-  setState(() {
-    _pendingClarifyQuestion = question;
-    _pendingClarifyOptions = options;
-    _clarifySelectedIds.clear();
-    _clarifySelectedDate = null;
-  });
-}
-
-Widget _buildClarifySection() {
-  if (_pendingClarifyQuestion == null) return SizedBox.shrink();
-  
-  return Container(
-    child: Column(
-      children: [
-        Text(_pendingClarifyQuestion!),
-        Wrap(
-          spacing: 8,
-          children: _pendingClarifyOptions.map((option) => FilterChip(
-            label: Text('${option['title']} @${option['scheduledFor'] ?? 'unscheduled'}'),
-            selected: _clarifySelectedIds.contains(option['id']),
-            onSelected: (selected) {
-              setState(() {
-                if (selected) {
-                  _clarifySelectedIds.add(option['id']);
-                } else {
-                  _clarifySelectedIds.remove(option['id']);
-                }
-              });
-            },
-          )).toList(),
-        ),
-        Row(
-          children: [
-            TextButton(
-              onPressed: () {
-                setState(() {
-                  _pendingClarifyQuestion = null;
-                  _pendingClarifyOptions = [];
-                  _clarifySelectedIds.clear();
-                });
-              },
-              child: Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                _sendClarifiedMessage();
-              },
-              child: Text('Continue'),
-            ),
-          ],
-        ),
-      ],
-    ),
-  );
-}
-```
+- Server emits `stage`, `ops`, `summary`, `heartbeat`, and `done` events
+- The `ops` event includes `previews` for operation previews
+- The assistant POST and SSE responses include a `correlationId` surfaced via `onTraceId` when provided
 
 #### Operations Preview and Execution
 

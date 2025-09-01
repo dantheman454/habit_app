@@ -146,6 +146,19 @@ mcpServer.setOperationProcessor(operationProcessor);
 
 // Health route is mounted via app.js
 
+// --- Security: shared-secret auth for MCP mutations ---
+function requireMcpToken(req, res, next) {
+  try {
+    const shared = String(process.env.MCP_SHARED_SECRET || '').trim();
+    if (!shared) return next();
+    const provided = String(req.headers['x-mcp-token'] || req.headers['x-mcp-secret'] || '').trim();
+    if (provided && provided === shared) return next();
+    return res.status(401).json({ error: 'unauthorized' });
+  } catch {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+}
+
 // MCP Server endpoints
 app.get('/api/mcp/tools', async (req, res) => {
   try {
@@ -179,7 +192,7 @@ app.get('/api/mcp/resources/:type/:name', async (req, res) => {
   }
 });
 
-app.post('/api/mcp/tools/call', async (req, res) => {
+app.post('/api/mcp/tools/call', requireMcpToken, async (req, res) => {
   try {
     const { name, arguments: args } = req.body || {};
     if (!name) {
@@ -246,6 +259,14 @@ app.post('/api/mcp/tools/call', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// Dev helper route to surface MCP token value (for local setup only)
+if (process.env.NODE_ENV !== 'production') {
+  app.get('/__dev/mcp_token', (_req, res) => {
+    const present = !!String(process.env.MCP_SHARED_SECRET || '').trim();
+    res.json({ configured: present, key: present ? 'MCP_SHARED_SECRET' : null });
+  });
+}
 
 // Undo endpoints for propose-only pipeline
 app.get('/api/assistant/last_batch', async (req, res) => {

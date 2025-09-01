@@ -194,7 +194,7 @@ function expandTaskOccurrences(task, fromDate, toDate) {
 
 ### Data Integrity Invariants
 - All dates `YYYY-MM-DD`; times canonical 24h `HH:MM` or null
-- Event `endTime` after `startTime`
+- Event `endTime` may be less than `startTime` (cross-midnight events)
 - Valid context values only
 - Repeating items require anchor date
 

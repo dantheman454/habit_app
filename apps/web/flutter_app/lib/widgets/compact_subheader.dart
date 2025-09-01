@@ -25,6 +25,8 @@ class CompactSubheader extends StatelessWidget {
   final void Function(bool)? onSearchFocusChange;
   final KeyEventResult Function(FocusNode, KeyEvent)? onSearchKeyEvent;
   final VoidCallback? onSearchClear;
+  // Optional leading controls (e.g., Day/Week/Month segmented button)
+  final Widget? leadingControls;
 
   const CompactSubheader({
     super.key,
@@ -45,6 +47,7 @@ class CompactSubheader extends StatelessWidget {
     this.onSearchFocusChange,
     this.onSearchKeyEvent,
     this.onSearchClear,
+    this.leadingControls,
   });
 
   @override
@@ -93,6 +96,12 @@ class CompactSubheader extends StatelessWidget {
                 ),
 
                 const SizedBox(width: 12),
+
+                // Optional leading controls (e.g., view segmented control)
+                if (leadingControls != null) ...[
+                  leadingControls!,
+                  const SizedBox(width: 12),
+                ],
 
                 // Context selector (single-choice)
                 Flexible(

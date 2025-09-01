@@ -40,4 +40,32 @@ Verify models with: GET `/api/llm/health`.
   - Unit only: `npm run test:unit`
   - Integration only (server must be running): `npm run test:integration`
 
+## Assistant (local Ollama)
+
+The assistant is backed by the local Ollama models configured at startup. 
+
+- Environment (optional overrides):
+```bash
+export OLLAMA_HOST=127.0.0.1
+export OLLAMA_PORT=11434
+```
+
+- In browser console (dev, once):
+```js
+localStorage.setItem('MCP_SHARED_SECRET', 'dev-secret')
+```
+
+- Stream SSE:
+```bash
+curl -N "http://127.0.0.1:3000/api/assistant/message/stream?message=add%20task&transcript=[]" | sed -u 's/^/SSE: /'
+```
+
+- MCP direct test (requires shared secret):
+```bash
+curl -s -X POST http://127.0.0.1:3000/api/mcp/tools/call \
+  -H 'Content-Type: application/json' \
+  -H 'x-mcp-token: dev-secret' \
+  -d '{"name":"create_task","arguments":{"title":"Hello","scheduledFor":null,"recurrence":{"type":"none"}}}' | jq .
+```
+
 

@@ -92,6 +92,8 @@ Each validator returns `{ valid: boolean, errors: string[] }` and validates:
 - Business rules (anchor dates for repeating items)
 - Context values and status enums
 
+**Note**: Operation validators include `'monthly'` and `'yearly'` recurrence types in their validation, but these are not implemented in the actual recurrence logic.
+
 **Location**: `apps/server/operations/validators.js`
 
 ### Recurrence and Occurrences
@@ -102,12 +104,11 @@ See `apps/server/utils/recurrence.js` for rule evaluation and expansion helpers.
 
 #### Aggregate Calculations
 
-
-
-
-```
-
-
+Aggregate calculations are implemented in `apps/server/utils/filters.js` and include:
+- Overdue tasks (past due, not completed)
+- Next 7 days (scheduled within week)
+- Backlog count (unscheduled)
+- Total scheduled items
 
 #### Ambiguity Detection
 
@@ -168,7 +169,7 @@ Batch recording captures per-op before/after for undo. Idempotency table caches 
 
 ### Error Messages Catalog (selected)
 
-- `invalid_title`, `missing_recurrence`, `invalid_notes`, `invalid_scheduledFor`, `invalid_timeOfDay`, `invalid_recurrence`, `invalid_status`, `missing_or_invalid_id`, `bulk_operations_removed`.
+- `invalid_title`, `missing_recurrence`, `invalid_notes`, `invalid_scheduledFor`, `invalid_timeOfDay`, `invalid_recurrence`, `invalid_status`, `missing_or_invalid_id`, `bulk_operations_removed`, `invalid_occurrenceDate`, `invalid_context`, `update_failed`, `delete_failed`, `search_failed`, `db_error`, `assistant_failure`, `not_supported`.
 
 
 

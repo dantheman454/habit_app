@@ -60,13 +60,14 @@ final res = await api.assistantMessage(
   transcript: recent,
   streamSummary: true,
   onSummary: (s) => { /* Update placeholder bubble */ },
-  onClarify: (q, options) => { /* Handle clarification */ },
   onStage: (st) => { /* Update progress */ },
-  onOps: (ops, version, validCount, invalidCount) => { /* Show operations */ }
+  onOps: (ops, version, validCount, invalidCount, previews) => { /* Show operations */ },
+  onThinking: (thinking) => { /* Show thinking process */ },
+  onTraceId: (correlationId) => { /* Track correlation ID */ }
 );
 ```
 
-**SSE Events**: Server emits `stage`, `ops`, `summary`, `heartbeat`, and `done` events. `clarify` and `result` listeners exist for forward compatibility but are not currently emitted.
+**SSE Events**: Server emits `stage`, `ops`, `summary`, `heartbeat`, and `done` events. The `ops` event includes `previews` for operation previews.
 
 ### 2. OpsAgent Proposal (Tool-Calling)
 
@@ -91,14 +92,30 @@ const operationTools = [
   function: {
     name,
     description: `Execute operation ${name}`,
-    parameters: { type: 'object', additionalProperties: true }
+    parameters: schema // JSON Schema from OperationRegistry
   }
 }));
 ```
 
 **Note**: OpsAgent uses `task.create` format for LLM tool calling, while MCP server uses `create_task` format. The OpsAgent converts tool calls to operations internally.
 
-## Operation Execution (Apply phase via MCP)
+### 3. Operation Validation and Fallback
+
+**Validation Process**:
+```javascript
+// Each tool call is validated using OperationProcessor
+const type = operationProcessor.inferOperationType(op);
+const validator = operationProcessor.validators.get(type);
+const validation = validator ? await validator(op) : { valid: false, errors: ['unknown_operation_type'] };
+```
+
+**Fallback Logic**: If no operations are proposed but intent is actionable, the system attempts to infer operations using:
+- Focused context candidates
+- Explicit where.id
+- Title matching using indexes
+- Time extraction from instruction
+
+### 4. Operation Execution (Apply phase via MCP)
 
 **Tool Call Processing**:
 ```javascript
@@ -114,25 +131,39 @@ const validator = this.validators.get(type);
 const executor = this.executors.get(type);
 ```
 
-## Database Update
+### 5. Database Update and Audit
 
-Example shown in server tests; updates written to SQLite tables `tasks` / `events` and logged in `audit_log`.
+**Batch Recording**: Each operation is recorded with before/after state for undo capability:
+```javascript
+await batchRecorder.recordOp({
+  batchId,
+  seq: Date.now(),
+  op,
+  before,
+  after
+});
+```
+
+**Audit Trail**: All operations are logged in `audit_log` table for transparency.
 
 ## Expected System Behavior Summary
-- OpsAgent proposes validated operations
-- Operation Processor validates/executes
-- DB applies changes and records batches
-- Client refreshes UI after apply
+- OpsAgent proposes validated operations with fallback inference
+- Operation Processor validates/executes with full audit trail
+- DB applies changes and records batches for undo
+- Client refreshes UI after apply with correlation tracking
 
 ## Client-Side Implementation
 - API integration in `apps/web/flutter_app/lib/api.dart`
 - SSE handling and updates in `assistant_panel.dart`
+- Support for thinking display and correlation ID tracking
 
 ## Server-Side Pipeline
 - OpsAgent tool-calling in `apps/server/llm/ops_agent.js`
 - MCP server tools in `apps/server/mcp/mcp_server.js`
 - Operation processing in `apps/server/operations/*`
+- Batch recording in `apps/server/utils/batch_recorder.js`
 
 ## Integration Points
 - Database schema: `apps/server/database/schema.sql`
 - Idempotency/audit tables used for robustness
+- Correlation ID tracking throughout the pipeline

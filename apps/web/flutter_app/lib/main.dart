@@ -530,13 +530,9 @@ class _HomePageState extends State<HomePage> {
   bool assistantShowDiff = false;
   // Thinking state for assistant responses
   String? assistantThinking;
-  bool assistantShowThinking = false;
+  bool assistantShowThinking = false; // persisted
   int? assistantStreamingIndex;
-  // Clarify state: question and structured options/selection
-  String? _pendingClarifyQuestion;
-  List<Map<String, dynamic>> _pendingClarifyOptions = const [];
-  final Set<int> _clarifySelectedIds = <int>{};
-  String? _clarifySelectedDate;
+  // Clarify flow removed; handled by conversational chat
   String _progressStage = '';
   String? _lastCorrelationId;
   int _progressValid = 0;
@@ -544,6 +540,8 @@ class _HomePageState extends State<HomePage> {
   DateTime? _progressStart;
   // Pending smooth-scroll target (YYYY-MM-DD) for Day view
   String? _pendingScrollYmd;
+
+  // merged into the later initState below
 
   // Quick-add controllers
   final TextEditingController _qaTaskTitle = TextEditingController();
@@ -572,6 +570,11 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    // Restore thinking toggle
+    try {
+      final v = storage.getItem('assistantShowThinking');
+      if (v == '1') assistantShowThinking = true;
+    } catch (_) {}
     // Restore persisted main tab if available
     try {
       final saved = storage.getItem('mainTab') ?? '';
@@ -2197,26 +2200,7 @@ class _HomePageState extends State<HomePage> {
             }
           });
         },
-        onClarify: (q, options) {
-          if (!mounted) return;
-          setState(() {
-            // Replace placeholder with clarify question if emitted
-            if (assistantStreamingIndex != null &&
-                assistantStreamingIndex! >= 0 &&
-                assistantStreamingIndex! < assistantTranscript.length) {
-              assistantTranscript[assistantStreamingIndex!] = {
-                'role': 'assistant',
-                'text': q,
-              };
-            } else {
-              assistantTranscript.add({'role': 'assistant', 'text': q});
-            }
-            _pendingClarifyQuestion = q;
-            _pendingClarifyOptions = options;
-            _clarifySelectedIds.clear();
-            _clarifySelectedDate = null;
-          });
-        },
+        // Clarify flow removed; Mr. Assister will ask follow-ups in chat
 
         onStage: (st) {
           if (!mounted) return;
@@ -2272,6 +2256,12 @@ class _HomePageState extends State<HomePage> {
             });
             _progressValid = validCount;
             _progressInvalid = invalidCount;
+          });
+        },
+        onThinking: (th) {
+          if (!mounted) return;
+          setState(() {
+            assistantThinking = th;
           });
         },
       );
@@ -2332,10 +2322,10 @@ class _HomePageState extends State<HomePage> {
         assistantShowDiff = false;
         assistantThinking = thinking;
         assistantShowThinking = false;
-        _pendingClarifyQuestion = null;
-        _pendingClarifyOptions = const [];
-        _clarifySelectedIds.clear();
-        _clarifySelectedDate = null;
+        try {
+          storage.setItem('assistantShowThinking', assistantShowThinking ? '1' : '0');
+        } catch (_) {}
+        // Clarify state removed
         _progressStage = '';
         _progressValid = 0;
         _progressInvalid = 0;
@@ -2798,36 +2788,7 @@ class _HomePageState extends State<HomePage> {
                                           crossAxisAlignment:
                                               CrossAxisAlignment.start,
                                           children: [
-                                            Padding(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                horizontal: 16,
-                                                vertical: 8,
-                                              ),
-                                              child: SegmentedButton<ViewMode>(
-                                                segments: const [
-                                                  ButtonSegment(
-                                                      value: ViewMode.day,
-                                                    label: Text('Day'),
-                                                  ),
-                                                  ButtonSegment(
-                                                      value: ViewMode.week,
-                                                    label: Text('Week'),
-                                                  ),
-                                                  ButtonSegment(
-                                                      value: ViewMode.month,
-                                                    label: Text('Month'),
-                                                  ),
-                                                ],
-                                                selected: {view},
-                                                onSelectionChanged: (s) async {
-                                                  setState(() {
-                                                    view = s.first;
-                                                  });
-                                                  await _refreshAll();
-                                                },
-                                              ),
-                                            ),
+                                            // Moved segmented control into CompactSubheader.leadingControls
                                             CompactSubheader(
                                               dateLabel: anchor,
                                               onPrev: _goPrev,
@@ -2934,6 +2895,31 @@ class _HomePageState extends State<HomePage> {
                                                 });
                                                 _removeSearchOverlay();
                                               },
+                                              leadingControls: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Padding(
+                                                    padding: const EdgeInsets.symmetric(
+                                                      horizontal: 16,
+                                                      vertical: 8,
+                                                    ),
+                                                    child: SegmentedButton<ViewMode>(
+                                                      segments: const [
+                                                        ButtonSegment(value: ViewMode.day, label: Text('Day')),
+                                                        ButtonSegment(value: ViewMode.week, label: Text('Week')),
+                                                        ButtonSegment(value: ViewMode.month, label: Text('Month')),
+                                                      ],
+                                                      selected: {view},
+                                                      onSelectionChanged: (s) async {
+                                                        setState(() {
+                                                          view = s.first;
+                                                        });
+                                                        await _refreshAll();
+                                                      },
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
                                             ),
                                           ],
                                         ),
@@ -3028,41 +3014,21 @@ class _HomePageState extends State<HomePage> {
                                                 assistantOpsChecked = [];
                                                 assistantOpPreviews.clear();
                                               }),
-                                              clarifyQuestion:
-                                                  _pendingClarifyQuestion,
-                                              clarifyOptions:
-                                                  _pendingClarifyOptions,
-                                              onToggleClarifyId: (id) =>
-                                                  setState(() {
-                                                    if (_clarifySelectedIds
-                                                        .contains(id)) {
-                                                      _clarifySelectedIds
-                                                          .remove(id);
-                                                } else {
-                                                      _clarifySelectedIds.add(
-                                                        id,
-                                                      );
-                                                }
-                                              }),
-                                              onSelectClarifyDate: (d) =>
-                                                  setState(() {
-                                                _clarifySelectedDate = d;
-                                              }),
                                               progressStage: _progressStage,
                                               progressValid: _progressValid,
                                               progressInvalid: _progressInvalid,
                                               progressStart: _progressStart,
                                               todayYmd: ymd(DateTime.now()),
-                                              selectedClarifyIds:
-                                                  _clarifySelectedIds,
-                                              selectedClarifyDate:
-                                                  _clarifySelectedDate,
                                               thinking: assistantThinking,
                                               showThinking:
                                                   assistantShowThinking,
                                               onToggleThinking: () => setState(
-                                                () => assistantShowThinking =
-                                                    !assistantShowThinking,
+                                                () {
+                                                  assistantShowThinking = !assistantShowThinking;
+                                                  try {
+                                                    storage.setItem('assistantShowThinking', assistantShowThinking ? '1' : '0');
+                                                  } catch (_) {}
+                                                },
                                               ),
                                             ),
                                           ),

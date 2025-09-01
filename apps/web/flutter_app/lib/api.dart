@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'dart:async';
 import 'util/sse.dart' as sse;
+import 'util/storage.dart' as storage;
 import 'dart:convert';
 
 String _computeApiBase() {
@@ -128,7 +129,6 @@ Future<Map<String, dynamic>> assistantMessage(
   List<Map<String, String>> transcript = const [],
   bool streamSummary = false,
   void Function(String text)? onSummary,
-  void Function(String question, List<Map<String, dynamic>> options)? onClarify,
   Map<String, dynamic>? clientContext,
   void Function(String stage)? onStage,
   void Function(
@@ -140,6 +140,7 @@ Future<Map<String, dynamic>> assistantMessage(
   )?
   onOps,
   void Function(String correlationId)? onTraceId,
+  void Function(String thinking)? onThinking,
 }) async {
   if (!streamSummary) {
     final res = await api.post(
@@ -153,16 +154,10 @@ Future<Map<String, dynamic>> assistantMessage(
       },
     );
     final map = Map<String, dynamic>.from(res.data);
-    // Surface correlationId on non-streaming path, if provided
     try {
       final cid = (map['correlationId'] as String?) ?? '';
       if (cid.isNotEmpty && onTraceId != null) onTraceId(cid);
     } catch (_) {}
-    if (onClarify != null &&
-        map['requiresClarification'] == true &&
-        map['question'] is String) {
-      onClarify(map['question'] as String, const <Map<String, dynamic>>[]);
-    }
     // Surface ops and summary similar to SSE path when handlers provided
     try {
       if (onOps != null) {
@@ -188,6 +183,10 @@ Future<Map<String, dynamic>> assistantMessage(
         if (text.isNotEmpty) onSummary(text);
       }
     } catch (_) {}
+    try {
+      final th = (map['thinking'] as String?) ?? '';
+      if (th.isNotEmpty && onThinking != null) onThinking(th);
+    } catch (_) {}
     return map;
   }
   // Flutter Web: use EventSource via platform abstraction; non-web falls back to POST
@@ -204,6 +203,12 @@ Future<Map<String, dynamic>> assistantMessage(
   final completer = Completer<Map<String, dynamic>>();
   try {
     Map<String, dynamic>? result;
+    // Track latest streamed values so final result reflects what UI saw during SSE
+    String _lastText = '';
+    String _lastThinking = '';
+    String _lastCorrelationId = '';
+    List<Map<String, dynamic>> _lastOps = const <Map<String, dynamic>>[];
+    List<Map<String, dynamic>> _lastPreviews = const <Map<String, dynamic>>[];
     final close = sse.startSse(
       uri: uri,
       onEvent: (event, data) {
@@ -212,18 +217,12 @@ Future<Map<String, dynamic>> assistantMessage(
           // Emit correlationId ASAP for any event that carries it
           try {
             final cid = (obj['correlationId'] as String?) ?? '';
-            if (cid.isNotEmpty && onTraceId != null) onTraceId(cid);
-          } catch (_) {}
-          if (event == 'clarify') {
-            if (onClarify != null) {
-              final q = (obj['question'] as String?) ?? '';
-              final optsRaw = obj['options'];
-              final opts = (optsRaw is List)
-                ? optsRaw.map((e) => Map<String, dynamic>.from(e)).toList()
-                : const <Map<String, dynamic>>[];
-              if (q.isNotEmpty) onClarify(q, opts);
+            if (cid.isNotEmpty) {
+              _lastCorrelationId = cid;
+              if (onTraceId != null) onTraceId(cid);
             }
-          } else if (event == 'stage') {
+          } catch (_) {}
+          if (event == 'stage') {
             if (onStage != null) {
               final st = (obj['stage'] as String?) ?? '';
               if (st.isNotEmpty) onStage(st);
@@ -249,20 +248,42 @@ Future<Map<String, dynamic>> assistantMessage(
               final previews = (previewsRaw is List)
                   ? previewsRaw.map((e) => Map<String, dynamic>.from(e)).toList()
                   : const <Map<String, dynamic>>[];
+              _lastOps = ops;
+              _lastPreviews = previews;
               onOps(ops, version, validCount, invalidCount, previews);
             }
           } else if (event == 'summary') {
             if (onSummary != null) {
               final text = (obj['text'] as String?) ?? '';
-              if (text.isNotEmpty) onSummary(text);
+              if (text.isNotEmpty) {
+                _lastText = text;
+                onSummary(text);
+              }
             }
+            try {
+              final th = (obj['thinking'] as String?) ?? '';
+              if (th.isNotEmpty) {
+                _lastThinking = th;
+                if (onThinking != null) onThinking(th);
+              }
+            } catch (_) {}
           } else if (event == 'result') {
             result = Map<String, dynamic>.from(obj);
           }
         } catch (_) {}
       },
       onDone: () {
-        completer.complete(result ?? {'text': '', 'operations': []});
+        // If server did not emit a terminal 'result', synthesize one from last streamed values
+        if (result == null) {
+          result = {
+            'text': _lastText,
+            'operations': _lastOps,
+            'previews': _lastPreviews,
+            'thinking': _lastThinking,
+            if (_lastCorrelationId.isNotEmpty) 'correlationId': _lastCorrelationId,
+          };
+        }
+        completer.complete(result!);
       },
       onError: () async {
         // Fallback to non-streaming POST on SSE error
@@ -301,6 +322,11 @@ Future<Map<String, dynamic>> assistantMessage(
               onOps(ops, version, validCount, invalidCount, previews);
             }
           } catch (_) {}
+          // Surface thinking on POST fallback as well
+          try {
+            final th = (map['thinking'] as String?) ?? '';
+            if (th.isNotEmpty && onThinking != null) onThinking(th);
+          } catch (_) {}
           completer.complete(map);
         } catch (e) {
           completer.completeError(Exception('sse_error'));
@@ -326,6 +352,10 @@ Future<Map<String, dynamic>> assistantMessage(
     try {
       final cid = (map['correlationId'] as String?) ?? '';
       if (cid.isNotEmpty) onTraceId?.call(cid);
+    } catch (_) {}
+    try {
+      final th = (map['thinking'] as String?) ?? '';
+      if (th.isNotEmpty && onThinking != null) onThinking(th);
     } catch (_) {}
     return map;
   }
@@ -437,6 +467,8 @@ Future<Map<String, dynamic>> callMCPTool(
   Map<String, dynamic> arguments, {
   String? correlationId,
 }) async {
+  // Read token from storage (web: localStorage; non-web: in-memory stub)
+  final String? mcpToken = storage.getItem('MCP_SHARED_SECRET');
   final res = await api.post(
     '/api/mcp/tools/call',
     data: {
@@ -445,6 +477,9 @@ Future<Map<String, dynamic>> callMCPTool(
     },
     options: Options(headers: {
       if (correlationId != null) 'x-correlation-id': correlationId,
+      // Attach MCP shared secret if present in browser localStorage
+      // The actual value should be configured via app settings during dev
+      if (mcpToken != null && mcpToken.isNotEmpty) 'x-mcp-token': mcpToken,
     }),
   );
   return Map<String, dynamic>.from(res.data);

@@ -66,8 +66,6 @@ This glossary defines key terms and concepts used throughout the Task/Event App 
 
 ### Entity Types
 
-
-
 **Context**: Categorization field for tasks and events. Values: 'school', 'personal', 'work' with 'personal' as default.
 
 - **Usage**: Filter and organize items by life area
@@ -76,7 +74,7 @@ This glossary defines key terms and concepts used throughout the Task/Event App 
 
 ### Communication Protocols
 
-**SSE events**: Streaming assistant emits `stage`, `ops`, `summary`, periodic `heartbeat`, and `done` (no `clarify`/`result` in current flow).
+**SSE events**: Streaming assistant emits `stage`, `ops`, `summary`, periodic `heartbeat`, and `done`. The `ops` event includes `previews` for operation previews.
 
 - **Usage**: Real-time communication between server and client during assistant interactions
 - **Example**: `stage: "executing"` followed by `ops: [...]` with operations

@@ -19,10 +19,7 @@ CloseFn startSse({
     } catch (_) {}
   }
 
-  es.addEventListener(
-    'clarify',
-    (e) => handleMessage(e as html.MessageEvent, 'clarify'),
-  );
+  // Clarify event removed
   es.addEventListener(
     'stage',
     (e) => handleMessage(e as html.MessageEvent, 'stage'),

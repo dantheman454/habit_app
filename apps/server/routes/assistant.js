@@ -104,7 +104,7 @@ router.post('/api/assistant/message', async (req, res) => {
             invalid: Array.isArray(oa.notes?.errors) ? oa.notes.errors.length : 0,
             kinds: Array.isArray(oa.operations) ? Array.from(new Set(oa.operations.map(o => o.kind))) : []
           };
-          console.log('[Assistant] propose summary', dbg);
+          console.log('[Assistant] response', dbg);
           try { logIO('assistant_ops_summary', { model: 'ops_agent', prompt: JSON.stringify({ message, transcript }), output: JSON.stringify(dbg), meta: { correlationId } }); } catch {}
         } catch {}
       }
@@ -118,16 +118,7 @@ router.post('/api/assistant/message', async (req, res) => {
     let previews = [];
     try { previews = await buildPreviews(oa.operations); } catch {}
     if (DEBUG) {
-      try {
-        console.log('[Assistant] response', {
-          correlationId,
-          text: summaryText,
-          validCount,
-          invalidCount,
-          sampleOp: (Array.isArray(oa.operations) && oa.operations[0]) ? oa.operations[0] : null
-        });
-        try { logIO('assistant_response', { model: 'ops_agent', prompt: JSON.stringify({ message }), output: JSON.stringify({ text: summaryText, validCount, invalidCount }), meta: { correlationId } }); } catch {}
-      } catch {}
+      try { logIO('assistant_response', { model: 'ops_agent', prompt: JSON.stringify({ message }), output: JSON.stringify({ text: summaryText, validCount, invalidCount }), meta: { correlationId } }); } catch {}
     }
     return res.json({ text: summaryText, steps: oa.steps, operations: oa.operations, tools: oa.tools, notes: oa.notes, correlationId, validCount, invalidCount, thinking: oa.thinking, previews });
   } catch (err) {
@@ -154,37 +145,39 @@ router.get('/api/assistant/message/stream', async (req, res) => {
     try { clearInterval(__heartbeat); } catch {}
     __heartbeat = setInterval(() => { try { send('heartbeat', JSON.stringify({ t: Date.now(), correlationId })); } catch {} }, 10000);
 
-    // Single-call path (hard-enabled)
-    send('stage', JSON.stringify({ stage: 'act', correlationId }));
-    let oa;
+    // Local ops agent (Ollama-backed) streaming
     try {
-      oa = await runOpsAgentToolCalling({ taskBrief: message.trim(), where: {}, transcript, timezone: TIMEZONE, operationProcessor });
-    } catch (err) {
-      const fallbackText = await (async () => { try { return await runChat({ instruction: message.trim(), transcript, timezone: TIMEZONE }); } catch { return 'Sorry, I could not process that right now.'; } })();
-      send('summary', JSON.stringify({ text: fallbackText, operations: [], correlationId }));
+      send('stage', JSON.stringify({ stage: 'act', correlationId }));
+      let oa;
+      try {
+        oa = await runOpsAgentToolCalling({ taskBrief: message.trim(), where: {}, transcript, timezone: TIMEZONE, operationProcessor });
+      } catch (err) {
+        const fallbackText = await (async () => { try { return await runChat({ instruction: message.trim(), transcript, timezone: TIMEZONE }); } catch { return 'Sorry, I could not process that right now.'; } })();
+        send('summary', JSON.stringify({ text: fallbackText, operations: [], correlationId }));
+        send('done', JSON.stringify({ correlationId }));
+        res.end();
+        return;
+      }
+      const summaryText = ensureSummaryText(oa.text, oa.operations, oa.notes);
+      const validCount = Array.isArray(oa.operations) ? oa.operations.length : 0;
+      const invalidCount = Array.isArray(oa.notes?.errors) ? oa.notes.errors.length : 0;
+      let previews = [];
+      try { previews = await buildPreviews(oa.operations); } catch {}
+      send('ops', JSON.stringify({
+        operations: oa.operations,
+        version: 3,
+        validCount,
+        invalidCount,
+        correlationId,
+        previews
+      }));
+      send('summary', JSON.stringify({ text: summaryText, steps: oa.steps, operations: oa.operations, tools: oa.tools, notes: oa.notes, correlationId, thinking: oa.thinking }));
       send('done', JSON.stringify({ correlationId }));
       res.end();
-      return;
+    } catch (err) {
+      try { clearInterval(__heartbeat); } catch {}
+      try { res.end(); } catch {}
     }
-    const summaryText = ensureSummaryText(oa.text, oa.operations, oa.notes);
-    const validCount = Array.isArray(oa.operations) ? oa.operations.length : 0;
-    const invalidCount = Array.isArray(oa.notes?.errors) ? oa.notes.errors.length : 0;
-    
-    // Send ops event before summary
-    let previews = [];
-    try { previews = await buildPreviews(oa.operations); } catch {}
-    send('ops', JSON.stringify({
-      operations: oa.operations,
-      version: 3,
-      validCount,
-      invalidCount,
-      correlationId,
-      previews
-    }));
-    
-    send('summary', JSON.stringify({ text: summaryText, steps: oa.steps, operations: oa.operations, tools: oa.tools, notes: oa.notes, correlationId, thinking: oa.thinking }));
-    send('done', JSON.stringify({ correlationId }));
-    res.end();
   } catch (err) {
     try { clearInterval(__heartbeat); } catch {}
     try { res.end(); } catch {}

@@ -21,6 +21,7 @@ Get done asap:
     -Clean up UI 
         *Make sure notes on events and tasks work properly
             >Add/Update/Delete ALL fields for each (make a checklist)
+            >Marking done/undone and skip functionality
         *get searchbar working
         *Clean up header; Make it cleaner and less cluttered (show completed and the context filters should be together; views and date toggle together; search bar should be less prominent but easily accessible)
         **Make the tasks more visually distinct and better?
@@ -40,7 +41,9 @@ Get done asap:
 
 Next:
     -Get assistant pipeline working for basic chats about events and tasks (maybe basic functions??)
-        *Simplify/solidify pipeline and take out the different model constants
+        *SIMPLIFY!!!!/solidify pipeline and take out the different model constants
+        *Fix the context issue(s)
+            >More than three chats causes '000000...0000' due to context overflow??
         *Use attention sinks in the context; these models dump attention to the first tokens
         *Make sure context and prompting is solid; Make sure it doesn't get fed same context twice!!!! Track if the context has been put already
         *Choose between normal qwen3 and coder version (leaning towards coding just for accuracy?)

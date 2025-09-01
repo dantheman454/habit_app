@@ -193,17 +193,10 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
     {
       "message": "string (required)",
       "transcript": "Array (optional)",
-      "options": {
-        "clarify": {
-          "selection": {
-            "ids": [1, 2, 3],
-            "date": "2024-01-15"
-          }
-        }
-      }
+      "options": {}
     }
     ```
-  - **Response**: `{ text, operations, steps, tools, notes, correlationId }`
+  - **Response**: `{ text, operations, steps, tools, notes, correlationId, validCount, invalidCount, thinking, previews }`
   - **Location**: `apps/server/routes/assistant.js`
 
 **Assistant Message (SSE Stream)**
@@ -238,6 +231,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 
 **Execute Tool**
 - **POST** `/api/mcp/tools/call`
+  - **Headers**: `x-mcp-token` (required), `x-correlation-id` (optional)
   - **Body**:
     ```json
     {
@@ -261,8 +255,6 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 - If repeating, `scheduledFor` anchor required
 - `startTime` and `endTime` must be valid `HH:MM` format (canonical 24h)
 - Cross‑midnight allowed: `endTime` may be less than `startTime` (wrap to next day)
-
- 
 
 **General Validation**:
 - All dates must be `YYYY-MM-DD` format
@@ -293,7 +285,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 - `searchUnified(query, { scope?, completed?, statusTask?, limit?, cancelToken? })` → `List<dynamic>`
 
 **Assistant Operations**:
-- `assistantMessage(message, { transcript?, streamSummary?, onSummary?, onClarify?, onStage?, onOps? })` → `Map<String, dynamic>`
+- `assistantMessage(message, { transcript?, streamSummary?, onSummary?, onStage?, onOps?, onThinking?, onTraceId? })` → `Map<String, dynamic>`
 - `applyOperationsMCP(operations)` → `List<Map<String, dynamic>>`
 - `dryRunOperationsMCP(operations)` → `List<Map<String, dynamic>>`
 
@@ -340,6 +332,12 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 - `invalid_where_repeating` - Where clause repeating filter is invalid
 - `invalid_operations` - Operations array is invalid
 - `create_failed` - Event creation failed
+- `update_failed` - Update operation failed
+- `delete_failed` - Delete operation failed
+- `search_failed` - Search operation failed
+- `db_error` - Database operation failed
+- `assistant_failure` - Assistant processing failed
+- `not_supported` - Operation not supported
 
 **HTTP Status Codes**:
 - `200` - Success
@@ -347,6 +345,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 - `400` - Bad request (validation errors)
 - `404` - Not found
 - `500` - Internal server error
+- `502` - Bad gateway (assistant failure)
 
 ### Types
 

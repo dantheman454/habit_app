@@ -41,11 +41,7 @@ class AssistantPanel extends StatelessWidget {
   final VoidCallback onSend;
   final String Function(dynamic op)? opLabel;
   final VoidCallback? onClearChat;
-  // Clarify UI
-  final String? clarifyQuestion;
-  final List<Map<String, dynamic>> clarifyOptions;
-  final void Function(int id)? onToggleClarifyId;
-  final void Function(String? date)? onSelectClarifyDate;
+  // Clarify UI removed; handled by conversational chat
   // Progress stage label
   final String? progressStage;
   // Optional progress metadata
@@ -54,9 +50,7 @@ class AssistantPanel extends StatelessWidget {
   final DateTime? progressStart;
   // Helper for date quick-selects
   final String? todayYmd;
-  // Selected clarify state for UI reflection
-  final Set<int>? selectedClarifyIds;
-  final String? selectedClarifyDate;
+  // Clarify selection removed
   // Thinking data for optional display
   final String? thinking;
   final bool showThinking;
@@ -78,18 +72,12 @@ class AssistantPanel extends StatelessWidget {
     required this.onSend,
     this.opLabel,
     this.onClearChat,
-    this.clarifyQuestion,
-    this.clarifyOptions = const [],
-    this.onToggleClarifyId,
-    this.onSelectClarifyDate,
     
     this.progressStage,
   this.progressValid,
   this.progressInvalid,
   this.progressStart,
     this.todayYmd,
-    this.selectedClarifyIds,
-    this.selectedClarifyDate,
     this.thinking,
     this.showThinking = false,
     this.onToggleThinking,
@@ -162,14 +150,18 @@ class AssistantPanel extends StatelessWidget {
                 if (onToggleThinking != null)
                   Padding(
                     padding: const EdgeInsets.only(right: 4),
-                    child: TextButton.icon(
-                      onPressed: onToggleThinking,
-                      icon: Icon(
-                        showThinking ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                        size: 16,
-                      ),
-                      label: Text(showThinking ? 'Hide thinking' : 'Show thinking'),
-                    ),
+                    child: narrowHeader
+                        ? IconButton(
+                            tooltip: showThinking ? 'Hide thinking' : 'Show thinking',
+                            onPressed: onToggleThinking,
+                            icon: Icon(showThinking ? Icons.visibility_off_outlined : Icons.visibility_outlined, size: 18),
+                            visualDensity: VisualDensity.compact,
+                          )
+                        : TextButton.icon(
+                            onPressed: onToggleThinking,
+                            icon: Icon(showThinking ? Icons.visibility_off_outlined : Icons.visibility_outlined, size: 16),
+                            label: Text(showThinking ? 'Hide thinking' : 'Show thinking'),
+                          ),
                   ),
                 if (onClearChat != null)
                   (
@@ -196,14 +188,29 @@ class AssistantPanel extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
               children: [
                 for (final turn in transcript) _buildTurnBubble(context, turn),
-                if ((clarifyQuestion != null && clarifyQuestion!.isNotEmpty) ||
-                    clarifyOptions.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  _buildClarifySection(context),
-                ],
+                // Clarify section removed
                 if (sending) _buildTypingBubble(context),
                 if (sending && (progressStage != null && progressStage!.isNotEmpty))
                   _buildProgress(context),
+                if (showThinking && (thinking != null && thinking!.trim().isNotEmpty)) ...[
+                  const SizedBox(height: 8),
+                  _SectionHeader(title: 'Thinking'),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surface,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: Theme.of(context).dividerColor),
+                    ),
+                    child: SelectableText(
+                      thinking!,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ],
                 if (operations.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   _SectionHeader(
@@ -381,7 +388,21 @@ class AssistantPanel extends StatelessWidget {
             color: bg,
             borderRadius: BorderRadius.circular(8),
           ),
-          child: Text(_parseLLMResponse(turn['text'] ?? ''), style: TextStyle(color: fg)),
+          child: isUser
+              ? Text(_parseLLMResponse(turn['text'] ?? ''), style: TextStyle(color: fg))
+              : Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.smart_toy_outlined, size: 16),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _parseLLMResponse(turn['text'] ?? ''),
+                        style: TextStyle(color: fg),
+                      ),
+                    ),
+                  ],
+                ),
         ),
       ),
     );
@@ -724,68 +745,7 @@ class AssistantPanel extends StatelessWidget {
     );
   }
 
-  Widget _buildClarifySection(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      decoration: BoxDecoration(
-  color: theme.colorScheme.surfaceContainerHighest.withAlpha((0.4 * 255).round()),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (clarifyQuestion != null && clarifyQuestion!.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: Text(
-                clarifyQuestion!,
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-            ),
-          if (clarifyOptions.isNotEmpty)
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                for (final o in clarifyOptions)
-                  FilterChip(
-                    label: Text(
-                      '#${o['id']} ${o['title']}${o['scheduledFor'] == null ? '' : ' @${o['scheduledFor']}'}',
-                    ),
-                    selected: (selectedClarifyIds ?? const <int>{}).contains(
-                      o['id'] as int,
-                    ),
-                    onSelected: (_) =>
-                        onToggleClarifyId?.call((o['id'] as int)),
-                  ),
-              ],
-            ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              OutlinedButton.icon(
-                icon: const Icon(Icons.today, size: 16),
-                onPressed: () => onSelectClarifyDate?.call(todayYmd),
-                label: Text(
-                  'Today${(selectedClarifyDate != null && selectedClarifyDate == todayYmd) ? ' ✓' : ''}',
-                ),
-              ),
-              OutlinedButton.icon(
-                icon: const Icon(Icons.calendar_today, size: 16),
-                onPressed: () => onSelectClarifyDate?.call(null),
-                label: Text(
-                  'Unscheduled${(selectedClarifyDate == null) ? ' ✓' : ''}',
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
+  // Clarify section removed
 }
 
 class _InlineDiffSnippet extends StatefulWidget {
