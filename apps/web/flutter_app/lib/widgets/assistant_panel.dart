@@ -418,7 +418,7 @@ class AssistantPanel extends StatelessWidget {
         (m['action'] ?? m['op'] ?? 'create').toString(),
         (m['id'] ?? '').toString(),
         (m['scheduledFor'] ?? '').toString(),
-        (m['timeOfDay'] ?? m['startTime'] ?? '').toString(),
+        (m['startTime'] ?? '').toString(),
         (m['title'] ?? '').toString(),
         (m['status'] ?? '').toString(),
         (m['occurrenceDate'] ?? '').toString(),
@@ -831,7 +831,7 @@ class _InlineDiffSnippetState extends State<_InlineDiffSnippet> {
     final beforeTitle = before != null ? fmt(before['title']) : null;
     final beforeNotes = before != null ? fmt(before['notes']) : null;
     final beforeDate = before != null ? fmt(before['scheduledFor']) : null;
-    final beforeStart = before != null ? fmt(before['timeOfDay'] ?? before['startTime']) : null;
+    final beforeStart = before != null ? fmt(before['startTime']) : null;
     final beforeEnd = before != null ? fmt(before['endTime']) : null;
     final beforeLocation = before != null ? fmt(before['location']) : null;
     final beforeRecurType = before != null ? fmt(getNested(before, ['recurrence', 'type'])) : null;
@@ -840,7 +840,7 @@ class _InlineDiffSnippetState extends State<_InlineDiffSnippet> {
     addRow('Title', beforeTitle, getAfter('title'));
     addRow('Notes', beforeNotes, getAfter('notes'));
     addRow('Date', beforeDate, getAfter('scheduledFor'));
-    addRow('Start', beforeStart, getAfter('timeOfDay'));
+    addRow('Start', beforeStart, getAfter('startTime'));
     addRow('End', beforeEnd, getAfter('endTime'));
     addRow('Location', beforeLocation, getAfter('location'));
     // Recurrence shown as two fields when present

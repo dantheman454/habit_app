@@ -60,10 +60,6 @@ function randomTitle() {
   return `${randomChoice(verbs)} ${randomChoice(objs)}`;
 }
 
-function randomTaskTimeOrNull() {
-  const opts = [null, '08:00', '10:00', '12:00', '15:00', '18:00'];
-  return randomChoice(opts);
-}
 
 function pickDateWithinNextTwoWeeks() {
   const today = new Date();
@@ -86,8 +82,8 @@ function bootstrapSchema(db) {
 function seedTasks(db, count) {
   const nowIso = new Date().toISOString();
   const insert = db.prepare(`
-  INSERT INTO tasks(title, notes, scheduled_for, time_of_day, status, recurrence, completed_dates, skipped_dates, context, created_at, updated_at)
-  VALUES (@title, @notes, @scheduled_for, @time_of_day, @status, @recurrence, @completed_dates, @skipped_dates, @context, @created_at, @updated_at)
+  INSERT INTO tasks(title, notes, scheduled_for, status, recurrence, completed_dates, skipped_dates, context, created_at, updated_at)
+  VALUES (@title, @notes, @scheduled_for, @status, @recurrence, @completed_dates, @skipped_dates, @context, @created_at, @updated_at)
   `);
   const tx = db.transaction(() => {
     for (let i = 0; i < count; i++) {
@@ -97,7 +93,6 @@ function seedTasks(db, count) {
         title: randomTitle(),
         notes: '',
         scheduled_for: scheduledFor,
-        time_of_day: randomTaskTimeOrNull(),
         status: 'pending',
         recurrence: JSON.stringify(rec),
         completed_dates: null,

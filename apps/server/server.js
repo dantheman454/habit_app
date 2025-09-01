@@ -10,7 +10,7 @@ import { fileURLToPath } from 'url';
 import db from './database/DbService.js';
 import app, { setOperationProcessor } from './app.js';
 import { ymdInTimeZone, weekRangeFromToday } from './utils/date.js';
-import { isYmdString, isValidTimeOfDay, isValidRecurrence } from './utils/recurrence.js';
+import { isYmdString, isValidRecurrence } from './utils/recurrence.js';
 import { filterTasksByWhere as filterTasksByWhereUtil, filterItemsByWhere as filterItemsByWhereUtil, getAggregatesFromDb as getAggregatesFromDbUtil } from './utils/filters.js';
 import { logIO, mkCorrelationId } from './llm/logging.js';
 import { batchRecorder } from './utils/batch_recorder.js';
@@ -105,8 +105,8 @@ try {
 
 // --- Normalization helpers (forward-compatible defaults) ---
 
-function createTaskDb({ title, notes = '', scheduledFor = null, timeOfDay = null, recurrence = undefined, context = 'personal' }) {
-  return db.createTask({ title, notes, scheduledFor, timeOfDay, recurrence: recurrence || { type: 'none' }, status: 'pending', context });
+function createTaskDb({ title, notes = '', scheduledFor = null, recurrence = undefined, context = 'personal' }) {
+  return db.createTask({ title, notes, scheduledFor, recurrence: recurrence || { type: 'none' }, status: 'pending', context });
 }
 
 function findTaskById(id) { return db.getTaskById(parseInt(id, 10)); }
@@ -305,7 +305,7 @@ app.post('/api/assistant/undo_last', async (req, res) => {
           if (op.title !== undefined) inverseOp.title = before.title;
           if (op.notes !== undefined) inverseOp.notes = before.notes;
           if (op.scheduledFor !== undefined) inverseOp.scheduledFor = before.scheduledFor;
-          if (op.timeOfDay !== undefined) inverseOp.timeOfDay = before.timeOfDay;
+          // tasks are all-day; no time-of-day inverse fields
           if (op.recurrence !== undefined) inverseOp.recurrence = before.recurrence;
           if (op.context !== undefined) inverseOp.context = before.context;
           if (op.status !== undefined) inverseOp.status = before.status;
@@ -318,7 +318,7 @@ app.post('/api/assistant/undo_last', async (req, res) => {
           inverseOp.title = before.title;
           inverseOp.notes = before.notes;
           inverseOp.scheduledFor = before.scheduledFor;
-          inverseOp.timeOfDay = before.timeOfDay;
+          // tasks are all-day; no time-of-day inverse fields
           inverseOp.recurrence = before.recurrence;
           inverseOp.context = before.context;
           if (op.kind === 'task') inverseOp.status = before.status;

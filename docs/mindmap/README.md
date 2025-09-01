@@ -2,6 +2,31 @@
 
 This hub aligns the docs with the current implementation. It's the quickest path to the right code and concepts. Diagrams use Mermaid; we reference functions/sections instead of line numbers to reduce churn.
 
+### Quick Bearings & Entrypoints
+
+- Purpose: Local habit/task and event app with Express server, SQLite, Flutter web client, and an assistant pipeline (Ollama) proposing validated MCP operations.
+- Server entrypoint: `apps/server/server.js` (`npm start`), health at `/health`. Serves built Flutter web from `apps/web/flutter_app/build/web`.
+- Client build: `cd apps/web/flutter_app && flutter build web` (output served by Express).
+- Data: SQLite at `data/app.db`; schema at `apps/server/database/schema.sql`.
+- Ops/Assistant: MCP tools and operation processor in `apps/server/operations/*`; assistant pipeline in `apps/server/llm/*`.
+- Quick start: see repo root `README.md`.
+
+### Active Migration
+
+- Migration complete: Tasks are all-day; events retain times. See `../migration_remove_task_time.md` for historical steps.
+
+#### Migration Progress (current)
+
+- Server behavior aligned to all-day tasks (non-breaking):
+  - `routes/schedule.js`: Sort events by `startTime`; always place tasks after events for the same date.
+  - `routes/search.js`: Ignore task time-of-day in scoring/sorting; only boost events with `startTime`.
+  - `database/DbService.js`: `listTasks()` no longer orders by `time_of_day`.
+- Validation: Full server test suite passes after these changes.
+- Next (breaking, to be done on a branch):
+  - Drop `time_of_day` from schema + remove `timeOfDay` from DbService create/update/map.
+  - Remove `timeOfDay` from task routes, operation schemas/executors, assistant LLM context/prompts.
+  - Update seed scripts; then client (Flutter) model/UI; adjust tests; grep gate.
+
 ### System overview
 
 ```mermaid

@@ -126,24 +126,22 @@ class _WeekViewState extends State<WeekView> {
 
   List<Map<String, dynamic>> _interleaveByTime(List<Map<String, dynamic>> events, List<Map<String, dynamic>> tasks) {
     final List<Map<String, dynamic>> items = [];
-    // Tasks first, without time labels (upper bar semantics)
-    for (final t in tasks) {
-      items.add({
-        ...t,
-        'kind': 'task',
-        // Force tasks to appear before timed events regardless of timeOfDay
-        'startMinutes': -1,
-        // Hide times for tasks in week view
-        'timeLabel': '',
-      });
-    }
-    // Then events, sorted by start time
+    // Events first, sorted by start time
     for (final e in events) {
       items.add({
         ...e,
         'kind': 'event',
-        'startMinutes': _parseMinutes(e['startTime'] ?? e['timeOfDay']),
+        'startMinutes': _parseMinutes(e['startTime']),
         'timeLabel': _formatTimeRange(e['startTime'], e['endTime']),
+      });
+    }
+    // Then tasks, without time labels; push after any event by assigning a large sort key
+    for (final t in tasks) {
+      items.add({
+        ...t,
+        'kind': 'task',
+        'startMinutes': 24 * 60 + 1,
+        'timeLabel': '',
       });
     }
     items.sort((a, b) => (a['startMinutes'] as int).compareTo(b['startMinutes'] as int));

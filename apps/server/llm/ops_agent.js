@@ -92,7 +92,7 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
     });
   });
 
-  const system = 'You are an operations executor for a tasks/events app. Use provided tools precisely.\n\nFields map (strict):\n- Tasks: date -> scheduledFor; time -> timeOfDay; status -> status; DO NOT use startTime/endTime.\n- Events: date -> scheduledFor; start -> startTime; end -> endTime; DO NOT use timeOfDay.\n\nDisambiguation rules:\n- Prefer IDs from focused.candidates when present.\n- When matching by title, compare case-insensitively (ignore punctuation/extra whitespace) using indexes.task_by_title_ci and indexes.event_by_title_ci.\n- Cross-check matches with indexes.id_to_kind and indexes.id_to_title to avoid mixing task vs event.\n- For instructions like "update X to HH:MM", set timeOfDay for tasks or startTime for events accordingly.\n- Never invent IDs; if still ambiguous after candidates/indexes, return a concise clarify question.\n\nValidation: Validate dates (YYYY-MM-DD) and times (HH:MM). Keep operations under 20 total. Output MUST be a single JSON object, no code fences, no extra text.';
+  const system = 'You are an operations executor for a tasks/events app. Use provided tools precisely.\n\nFields map (strict):\n- Tasks: date -> scheduledFor; status -> status.\n- Events: date -> scheduledFor; start -> startTime; end -> endTime.\n\nDisambiguation rules:\n- Prefer IDs from focused.candidates when present.\n- When matching by title, compare case-insensitively (ignore punctuation/extra whitespace) using indexes.task_by_title_ci and indexes.event_by_title_ci.\n- Cross-check matches with indexes.id_to_kind and indexes.id_to_title to avoid mixing task vs event.\n- Never invent IDs; if still ambiguous after candidates/indexes, return a concise clarify question.\n\nValidation: Validate dates (YYYY-MM-DD) and times (HH:MM). Keep operations under 20 total. Output MUST be a single JSON object, no code fences, no extra text.';
   const user = `Task: ${instruction}\nWhere: ${JSON.stringify(where)}\nFocused Context:\n${contextJson}\nRecent Conversation:\n${convo}`;
 
   const prompt = createQwenToolPrompt({ system, user, tools: operationTools });
@@ -191,10 +191,7 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
           for (const [k,v] of Object.entries(parsedArgs.data)) { if (parsedArgs[k] === undefined) parsedArgs[k] = v; }
           delete parsedArgs.data;
         }
-        const timeAliases = ['time','scheduledTime','scheduledForTime','startTime'];
-        for (const alias of timeAliases) {
-          if (parsedArgs[alias] && !parsedArgs.timeOfDay) { parsedArgs.timeOfDay = parsedArgs[alias]; delete parsedArgs[alias]; }
-        }
+        // tasks are all-day: ignore any time aliases for task.update
       }
 
       const op = toolCallToOperation(name, parsedArgs);
@@ -208,7 +205,7 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
       annotations.push({ op, errors: validation.errors || [] });
       
       if (validation.valid) {
-        const key = [op.kind, op.action, op.id, op.scheduledFor || '', op.timeOfDay || op.startTime || '', op.title || '', op.status || '', op.occurrenceDate || ''].join('|');
+        const key = [op.kind, op.action, op.id, op.scheduledFor || '', op.startTime || '', op.title || '', op.status || '', op.occurrenceDate || ''].join('|');
         if (!executedKeys.has(key)) {
           executedKeys.add(key);
           proposedOps.push(op);
@@ -240,9 +237,9 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
       const lower = instruction.toLowerCase();
       const isActionable = ['update','change','modify','set','reschedule'].some(w => lower.includes(w));
       if (isActionable) {
-        // Try to extract a time like HH:MM
+        // Try to extract a time like HH:MM (for events only)
         const m = instruction.match(/\b([01]\d|2[0-3]):[0-5]\d\b/);
-        const timeOfDay = m ? m[0] : null;
+        const inferredTime = m ? m[0] : null;
         // Choose target: prefer focused candidates, then explicit where.id, then title matching
         let targetId = null;
         let targetKind = 'task';
@@ -306,14 +303,10 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
           } catch {}
         }
         
-        if (targetId && (timeOfDay || lower.includes('time'))) {
+        if (targetId && (inferredTime || lower.includes('time'))) {
           const inferred = { kind: targetKind, action: 'update', id: targetId };
-          if (timeOfDay) {
-            if (targetKind === 'task') {
-              inferred.timeOfDay = timeOfDay;
-            } else if (targetKind === 'event') {
-              inferred.startTime = timeOfDay;
-            }
+          if (inferredTime && targetKind === 'event') {
+            inferred.startTime = inferredTime;
           }
           // Validate and include if valid
           const type = operationProcessor.inferOperationType(inferred);

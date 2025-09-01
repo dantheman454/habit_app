@@ -26,7 +26,7 @@ function isValidTimeOfDay(value) {
 }
 ```
 - **Pattern**: `^([01]\d|2[0-3]):[0-5]\d$` (canonical 24h HH:MM, 00:00-23:59)
-- **Usage**: `timeOfDay`, `startTime`, `endTime`
+- **Usage**: `startTime`, `endTime` (events only). Tasks are all-day.
 - **Null handling**: Returns `true` for null/undefined (all-day items)
 - **Location**: `apps/server/utils/recurrence.js`
 
@@ -169,7 +169,7 @@ Batch recording captures per-op before/after for undo. Idempotency table caches 
 
 ### Error Messages Catalog (selected)
 
-- `invalid_title`, `missing_recurrence`, `invalid_notes`, `invalid_scheduledFor`, `invalid_timeOfDay`, `invalid_recurrence`, `invalid_status`, `missing_or_invalid_id`, `bulk_operations_removed`, `invalid_occurrenceDate`, `invalid_context`, `update_failed`, `delete_failed`, `search_failed`, `db_error`, `assistant_failure`, `not_supported`.
+- `invalid_title`, `missing_recurrence`, `invalid_notes`, `invalid_scheduledFor`, `invalid_recurrence`, `invalid_status`, `missing_or_invalid_id`, `bulk_operations_removed`, `invalid_occurrenceDate`, `invalid_context`, `update_failed`, `delete_failed`, `search_failed`, `db_error`, `assistant_failure`, `not_supported`.
 
 
 

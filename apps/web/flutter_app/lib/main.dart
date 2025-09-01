@@ -52,7 +52,7 @@ class Task {
   String notes;
   String? kind; // 'task'|'event' for unified schedule rows
   String? scheduledFor; // YYYY-MM-DD or null
-  String? timeOfDay; // canonical 24h HH:MM or null
+  String? startTime; // canonical 24h HH:MM or null (for events)
   String? endTime; // canonical 24h HH:MM or null (for events)
   String? priority; // low|medium|high
   bool completed;
@@ -60,6 +60,7 @@ class Task {
   Map<String, dynamic>? recurrence; // {type,...}
   int? masterId; // present on expanded occurrences
   String? context; // 'school'|'personal'|'work'
+  String? location; // for events
   final String createdAt;
   String updatedAt;
 
@@ -69,7 +70,7 @@ class Task {
     required this.notes,
     this.kind,
     required this.scheduledFor,
-    required this.timeOfDay,
+    this.startTime,
     this.endTime,
     this.priority,
     required this.completed,
@@ -77,6 +78,7 @@ class Task {
     required this.recurrence,
     required this.masterId,
     required this.context,
+    this.location,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -87,7 +89,7 @@ class Task {
     notes: j['notes'] as String? ?? '',
     kind: j['kind'] as String?,
     scheduledFor: j['scheduledFor'] as String?,
-    timeOfDay: ((j['timeOfDay'] as String?) ?? (j['startTime'] as String?)),
+    startTime: j['startTime'] as String?,
     endTime: j['endTime'] as String?,
     priority: j['priority'] as String?,
     completed: j['completed'] as bool? ?? false,
@@ -95,6 +97,7 @@ class Task {
     recurrence: j['recurrence'] as Map<String, dynamic>?,
     masterId: j['masterId'] as int?,
     context: j['context'] as String?,
+    location: j['location'] as String?,
     createdAt: j['createdAt'] as String? ?? '',
     updatedAt: j['updatedAt'] as String? ?? '',
   );
@@ -111,7 +114,7 @@ class LlmOperation {
   final String? scheduledFor;
   final String? priority;
   final bool? completed;
-  final String? timeOfDay; // canonical 24h HH:MM or null
+  
   // Event-specific optional fields
   final String? startTime; // canonical 24h HH:MM
   final String? endTime; // canonical 24h HH:MM
@@ -129,7 +132,7 @@ class LlmOperation {
     this.scheduledFor,
     this.priority,
     this.completed,
-    this.timeOfDay,
+    
     this.startTime,
     this.endTime,
     this.location,
@@ -157,7 +160,7 @@ class LlmOperation {
     notes: j['notes'] as String?,
     scheduledFor: j['scheduledFor'] as String?,
     completed: j['completed'] as bool?,
-    timeOfDay: j['timeOfDay'] as String?,
+    
     startTime: j['startTime'] as String?,
     endTime: j['endTime'] as String?,
     location: j['location'] as String?,
@@ -175,7 +178,7 @@ class LlmOperation {
     if (notes != null) 'notes': notes,
     if (scheduledFor != null) 'scheduledFor': scheduledFor,
     if (completed != null) 'completed': completed,
-    if (timeOfDay != null) 'timeOfDay': timeOfDay,
+    
     if (startTime != null) 'startTime': startTime,
     if (endTime != null) 'endTime': endTime,
     if (location != null) 'location': location,
@@ -545,7 +548,6 @@ class _HomePageState extends State<HomePage> {
 
   // Quick-add controllers
   final TextEditingController _qaTaskTitle = TextEditingController();
-  final TextEditingController _qaTaskTime = TextEditingController();
   final TextEditingController _qaTaskDate = TextEditingController();
   final TextEditingController _qaTaskNotes = TextEditingController();
   final TextEditingController _qaTaskInterval = TextEditingController();
@@ -605,7 +607,7 @@ class _HomePageState extends State<HomePage> {
     if (_addingQuick) return;
     final title = _qaTaskTitle.text.trim();
     final date = _qaTaskDate.text.trim();
-    final time = _qaTaskTime.text.trim();
+    final time = '';
     final notes = _qaTaskNotes.text.trim();
 
     if (title.isEmpty) {
@@ -654,14 +656,12 @@ class _HomePageState extends State<HomePage> {
         'title': title,
         'notes': notes,
         'scheduledFor': scheduledFor,
-        'timeOfDay': (parsedTime == null || time.isEmpty) ? null : parsedTime,
         'recurrence': recurrence,
         'context': selectedContext ?? _qaSelectedContext ?? 'personal',
       });
       if (!mounted) return;
       setState(() {
         _qaTaskTitle.clear();
-        _qaTaskTime.clear();
         _qaTaskDate.clear();
         _qaTaskNotes.clear();
         _qaTaskInterval.clear();
@@ -734,6 +734,13 @@ class _HomePageState extends State<HomePage> {
       );
       return;
     }
+    // Reject end-only input
+    if (start.isEmpty && end.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a start time.')),
+      );
+      return;
+    }
 
     // Validate start ≤ end time if both are provided
     // Default end = start + 1h when start set and end empty
@@ -780,8 +787,10 @@ class _HomePageState extends State<HomePage> {
         'title': title,
         'notes': notes,
         'scheduledFor': scheduledFor,
-        'startTime': (parsedStart == null || start.isEmpty) ? null : parsedStart,
-        'endTime': (localEnd24 == null || (end.isNotEmpty && parsedEnd == null)) ? null : localEnd24,
+        'startTime': parsedStart,
+        'endTime': (parsedStart != null)
+            ? (localEnd24)
+            : (parsedEnd ?? null),
         'location': location.isEmpty ? null : location,
         'recurrence': recurrence,
         'context': selectedContext ?? _qaSelectedContext ?? 'personal',
@@ -847,7 +856,6 @@ class _HomePageState extends State<HomePage> {
     _searchFocus.dispose();
     _removeSearchOverlay();
     _qaTaskTitle.dispose();
-    _qaTaskTime.dispose();
     _qaTaskDate.dispose();
     _qaTaskNotes.dispose();
     _qaTaskInterval.dispose();
@@ -954,11 +962,11 @@ class _HomePageState extends State<HomePage> {
           'id': t.id,
           'title': t.title,
           'scheduledFor': t.scheduledFor,
-          'startTime': t.timeOfDay, // unified model uses timeOfDay for start
+          'startTime': t.startTime,
           'endTime': t.endTime,
           'notes': t.notes,
           'completed': t.completed,
-          'location': null,
+          'location': t.location,
           'context': t.context,
         });
       }
@@ -975,11 +983,11 @@ class _HomePageState extends State<HomePage> {
         try {
           final bool isResolved =
               ((t.status == 'completed') || (t.status == 'skipped'));
-          if (!isResolved && t.scheduledFor != null && t.timeOfDay != null) {
+          if (!isResolved && t.scheduledFor != null) {
             final todayYmd = ymd(DateTime.now());
             final viewingToday = (anchor == todayYmd);
             if (viewingToday && t.scheduledFor == todayYmd) {
-              final parts = (t.timeOfDay ?? '').split(':');
+              final parts = ''.split(':');
               if (parts.length == 2) {
                 final now = DateTime.now();
                 final hh = int.tryParse(parts[0]) ?? 0;
@@ -995,7 +1003,7 @@ class _HomePageState extends State<HomePage> {
           'id': t.id,
           'title': t.title,
           'scheduledFor': t.scheduledFor,
-          'timeOfDay': t.timeOfDay,
+          
           'completed': t.completed,
           'status': t.status,
           'notes': t.notes,
@@ -1054,16 +1062,7 @@ class _HomePageState extends State<HomePage> {
         cancelToken: _searchCancelToken,
         limit: 30,
       );
-      final items = raw.map((e) {
-        final m = Map<String, dynamic>.from(e);
-        // Normalize event times for unified rendering
-        if ((m['kind'] as String?) == 'event' &&
-            m['startTime'] != null &&
-            m['timeOfDay'] == null) {
-          m['timeOfDay'] = m['startTime'];
-        }
-        return Task.fromJson(m);
-      }).toList();
+      final items = raw.map((e) => Task.fromJson(Map<String, dynamic>.from(e))).toList();
       setState(() {
         searchResults = items;
         _searching = false;
@@ -1722,12 +1721,22 @@ class _HomePageState extends State<HomePage> {
     } catch (_) {}
   }
 
+  Future<void> _deleteItem(Task t) async {
+    try {
+      if (t.kind == 'event') {
+        await api.deleteEvent(t.id);
+      } else {
+        await api.deleteTask(t.id);
+      }
+    } catch (_) {}
+  }
+
 
   Future<void> _editTask(Task t) async {
     final titleCtrl = TextEditingController(text: t.title);
     final notesCtrl = TextEditingController(text: t.notes);
     final dateCtrl = TextEditingController(text: t.scheduledFor ?? '');
-    final timeCtrl = TextEditingController(text: t.timeOfDay ?? '');
+    final timeCtrl = TextEditingController(text: '');
     final intervalCtrl = TextEditingController(
       text: (t.recurrence != null && t.recurrence!['intervalDays'] != null)
           ? '${t.recurrence!['intervalDays']}'
@@ -1738,7 +1747,7 @@ class _HomePageState extends State<HomePage> {
         ? (t.recurrence!['type'] as String)
         : 'none';
     String selectedContext = t.context ?? 'personal';
-    final ok = await showDialog<bool>(
+    final ok = await showDialog<dynamic>(
       context: context,
       builder: (c) => StatefulBuilder(
         builder: (c, setDlgState) {
@@ -1763,7 +1772,7 @@ class _HomePageState extends State<HomePage> {
                       labelText: 'Scheduled (YYYY-MM-DD)',
                     ),
                   ),
-                  TimeField(controller: timeCtrl, label: 'Time'),
+                  // Tasks are all-day; no time input
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
                     value: selectedContext,
@@ -1831,6 +1840,11 @@ class _HomePageState extends State<HomePage> {
                 onPressed: () => Navigator.pop(c, false),
                 child: const Text('Cancel'),
               ),
+              TextButton(
+                onPressed: () => Navigator.pop(c, 'delete'),
+                style: TextButton.styleFrom(foregroundColor: Colors.red),
+                child: const Text('Delete'),
+              ),
               FilledButton(
                 onPressed: () => Navigator.pop(c, true),
                 child: const Text('Save'),
@@ -1840,6 +1854,15 @@ class _HomePageState extends State<HomePage> {
         },
       ),
     );
+    if (ok == 'delete') {
+      try {
+        await api.deleteTask(t.id);
+        await _refreshAll();
+      } catch (e) {
+        setState(() => message = 'Delete failed: $e');
+      }
+      return;
+    }
     if (ok != true) return;
 
     final patch = <String, dynamic>{};
@@ -1853,9 +1876,7 @@ class _HomePageState extends State<HomePage> {
     }
 
     final time = timeCtrl.text.trim();
-    if ((time.isEmpty ? null : time) != (t.timeOfDay)) {
-      patch['timeOfDay'] = time.isEmpty ? null : time;
-    }
+    // tasks are all-day; ignore time edits
     // Recurrence
     final existingType =
         (t.recurrence != null && t.recurrence!['type'] is String)
@@ -1932,7 +1953,9 @@ class _HomePageState extends State<HomePage> {
     final titleCtrl = TextEditingController(text: t.title);
     final notesCtrl = TextEditingController(text: t.notes);
     final dateCtrl = TextEditingController(text: t.scheduledFor ?? '');
-    final startCtrl = TextEditingController(text: t.timeOfDay ?? '');
+    final startCtrl = TextEditingController(
+      text: originalEventData?['startTime'] ?? '',
+    );
     final endCtrl = TextEditingController(
       text: originalEventData?['endTime'] ?? '',
     );
@@ -2060,7 +2083,7 @@ class _HomePageState extends State<HomePage> {
     );
     if (ok == 'delete') {
       try {
-        await _deleteTask(t);
+        await _deleteItem(t);
         await _refreshAll();
       } catch (e) {
         setState(() => message = 'Delete failed: $e');
@@ -2090,8 +2113,30 @@ class _HomePageState extends State<HomePage> {
       );
       return;
     }
-    patch['startTime'] = (parsedStart == null || start.isEmpty) ? null : parsedStart;
-    patch['endTime'] = (parsedEnd == null || end.isEmpty) ? null : parsedEnd;
+    // time rules
+    if (start.isEmpty && end.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a start time.')),
+      );
+      return;
+    }
+
+    String currStart = (originalEventData?['startTime'] as String?) ?? '';
+    String currEnd = (originalEventData?['endTime'] as String?) ?? '';
+    String? nextStart = parsedStart;
+    String? nextEnd = parsedEnd;
+
+    if (start.isNotEmpty && end.isEmpty) {
+      final res = AmericanTimeFormat.addOneHour(parsedStart!);
+      nextEnd = res.hhmm;
+    }
+    if (start.isEmpty && end.isEmpty) {
+      nextStart = null;
+      nextEnd = null;
+    }
+
+    if (nextStart != currStart) patch['startTime'] = nextStart;
+    if (nextEnd != currEnd) patch['endTime'] = nextEnd;
     patch['location'] = locationCtrl.text.trim().isEmpty
         ? null
         : locationCtrl.text.trim();
@@ -2440,16 +2485,9 @@ class _HomePageState extends State<HomePage> {
     final sorted = Map.fromEntries(
       map.entries.toList()..sort((a, b) => a.key.compareTo(b.key)),
     );
-    // Sort within each date by timeOfDay ascending, nulls first
+    // Sort within each date by id ascending (tasks have no time)
     for (final e in sorted.entries) {
-      e.value.sort((a, b) {
-        final at = a.timeOfDay ?? '';
-        final bt = b.timeOfDay ?? '';
-        if (at.isEmpty && bt.isEmpty) return 0;
-        if (at.isEmpty) return -1;
-        if (bt.isEmpty) return 1;
-        return at.compareTo(bt);
-      });
+      e.value.sort((a, b) => a.id.compareTo(b.id));
     }
     return sorted;
   }
@@ -2508,14 +2546,7 @@ class _HomePageState extends State<HomePage> {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TimeField(controller: _qaTaskTime, label: 'Time'),
-                      ),
-                      const SizedBox(width: 8),
-                    ],
-                  ),
+                  // Tasks are all-day; no time input
                   const SizedBox(height: 8),
                   TextField(
                     controller: _qaTaskNotes,
@@ -3098,8 +3129,7 @@ class _HomePageState extends State<HomePage> {
             'id': t.id,
             'title': t.title,
             'scheduledFor': t.scheduledFor,
-            'timeOfDay': t.timeOfDay,
-            'startTime': t.timeOfDay,
+            'startTime': null,
             'completed': t.completed,
             'context': t.context,
           });
@@ -3164,7 +3194,6 @@ class _HomePageState extends State<HomePage> {
           'id': t.id,
           'title': t.title,
           'scheduledFor': t.scheduledFor,
-          'timeOfDay': t.timeOfDay,
           'completed': t.completed,
           'status': t.status,
           'context': t.context,
@@ -3446,16 +3475,8 @@ class _HomePageState extends State<HomePage> {
   ) {
     final ymdStr = ymd(d);
     final items = (groupedByDate[ymdStr] ?? const <Task>[]);
-    // sort by timeOfDay (nulls first)
-    final sorted = items.toList()
-      ..sort((a, b) {
-        final at = a.timeOfDay ?? '';
-        final bt = b.timeOfDay ?? '';
-        if (at.isEmpty && bt.isEmpty) return 0;
-        if (at.isEmpty) return -1;
-        if (bt.isEmpty) return 1;
-        return at.compareTo(bt);
-      });
+    // sort by id (tasks have no time)
+    final sorted = items.toList()..sort((a, b) => a.id.compareTo(b.id));
     final maxToShow = 3;
     final more = sorted.length > maxToShow ? (sorted.length - maxToShow) : 0;
     final isToday = ymdStr == ymd(DateTime.now());
@@ -3519,8 +3540,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _monthItemChip(Task t) {
-    final time = t.timeOfDay;
-    final label = (time == null || time.isEmpty) ? t.title : '$time ${t.title}';
+    final label = t.title;
 
     // Context-based colors
     final contextColor = t.context != null
@@ -3708,11 +3728,11 @@ class _HomePageState extends State<HomePage> {
       final bool isResolved = (t.kind == 'task')
           ? ((t.status == 'completed') || (t.status == 'skipped'))
           : t.completed;
-      if (!isResolved && t.scheduledFor != null && t.timeOfDay != null) {
+      if (!isResolved && t.scheduledFor != null) {
         final todayYmd = ymd(DateTime.now());
         final viewingToday = (anchor == todayYmd);
         if (viewingToday && t.scheduledFor == todayYmd) {
-          final parts = (t.timeOfDay ?? '').split(':');
+          final parts = ''.split(':');
           if (parts.length == 2) {
             final now = DateTime.now();
             final hh = int.tryParse(parts[0]) ?? 0;
@@ -3728,7 +3748,6 @@ class _HomePageState extends State<HomePage> {
       'title': t.title,
       'notes': t.notes,
       'kind': t.kind,
-      'timeOfDay': t.timeOfDay,
       'status': t.status,
       'completed': (t.kind == 'task') ? (t.status == 'completed') : t.completed,
       'overdue': isOverdue,
@@ -3747,7 +3766,7 @@ class _HomePageState extends State<HomePage> {
         onToggleCompleted: () => _toggleCompleted(t),
         onToggleSkipped: (t.kind == 'task') ? () => _toggleSkip(t) : null,
         onEdit: () => (t.kind == 'event') ? _editEvent(t) : _editTask(t),
-        onDelete: () => _deleteTask(t),
+        onDelete: () => _deleteItem(t),
         highlighted: _highlightedId == t.id,
         extraBadge: extraBadge,
         onTitleEdited: (newTitle) async {
@@ -3773,23 +3792,29 @@ class _HomePageState extends State<HomePage> {
         onTimeEdited: (newTime) async {
           try {
             if (t.kind == 'event') {
-              // For events, map to startTime if only single time shown in list
-              await api.updateEvent(t.id, {
-                'startTime': newTime,
+              // For events, map to startTime; if no end, set end = start + 1h
+              final parsed = AmericanTimeFormat.parseFlexible(newTime ?? '');
+              if (parsed == null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Enter valid time, e.g., 1:00 PM.')),
+                );
+                return;
+              }
+              final patch = <String, dynamic>{
+                'startTime': parsed,
                 'recurrence': t.recurrence ?? {'type': 'none'},
-              });
+              };
+              final hadEnd = ((t.endTime ?? '').toString().isNotEmpty);
+              if (!hadEnd) {
+                final res = AmericanTimeFormat.addOneHour(parsed);
+                patch['endTime'] = res.hhmm;
+              }
+              await api.updateEvent(t.id, patch);
               setState(() {
-                t.timeOfDay = newTime;
+                // no change to task fields here
               });
             } else {
-              await api.callMCPTool('update_task', {
-                'id': t.id,
-                'timeOfDay': newTime,
-                'recurrence': t.recurrence ?? {'type': 'none'},
-              });
-              setState(() {
-                t.timeOfDay = newTime;
-              });
+              // tasks are all-day; ignore time edits
             }
           } catch (_) {}
         },

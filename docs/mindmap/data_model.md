@@ -12,7 +12,7 @@ This document specifies the Task/Event schemas, recurrence semantics, occurrence
 - **FTS5**: Full-text search with automatic triggers
 
 **Core Tables**:
-- `tasks(id, title, notes, scheduled_for, time_of_day, status, recurrence TEXT(JSON), completed_dates TEXT(JSON), skipped_dates TEXT(JSON), context, created_at, updated_at)`
+- `tasks(id, title, notes, scheduled_for, status, recurrence TEXT(JSON), completed_dates TEXT(JSON), skipped_dates TEXT(JSON), context, created_at, updated_at)`
 - `events(id, title, notes, scheduled_for, start_time, end_time, location, completed INTEGER, recurrence TEXT(JSON), completed_dates TEXT(JSON), context, created_at, updated_at)`
 
 **Supporting Tables**:
@@ -36,7 +36,7 @@ interface Task {
   title: string;                                 // Required, non-empty
   notes: string;                                 // Optional, defaults to ''
   scheduledFor: string | null;                   // YYYY-MM-DD or null for backlog
-  timeOfDay: string | null;                      // canonical 24h HH:MM or null (all-day)
+  
   status: 'pending' | 'completed' | 'skipped';   // Required, defaults to 'pending'
   recurrence: Recurrence;                        // Required JSON object
   completedDates: string[] | null;               // YYYY-MM-DD array for repeating
@@ -54,7 +54,7 @@ interface Task {
 - `recurrence NOT NULL DEFAULT '{"type":"none"}'` - Recurrence required with default
 
 **Normalization Rules**:
-- Default `timeOfDay` to null for all-day items
+ 
 - Ensure `recurrence` object with `type` field
 - Default `until` to null when absent (no expansion cap)
 - For repeating items: ensure `completedDates`/`skippedDates` arrays exist
@@ -89,7 +89,7 @@ interface Event {
 
 **Flutter Model Notes**:
 - The Flutter `Task` class includes additional fields: `kind`, `endTime`, `priority`, `masterId`
-- The `timeOfDay` field in Flutter can also hold `startTime` values for unified schedule views
+- Tasks are all-day and have no time field; events use `startTime`/`endTime`
 - The `LlmOperation` class includes both `op` (legacy) and `kind`/`action` (V3) fields for backward compatibility
 
 ### Recurrence System
@@ -163,7 +163,6 @@ function expandTaskOccurrences(task, fromDate, toDate) {
         title: task.title,
         notes: task.notes,
         scheduledFor: dateStr,
-        timeOfDay: task.timeOfDay,
         completed: !!occCompleted,
         status: occCompleted ? 'completed' : (occSkipped ? 'skipped' : 'pending'),
         recurrence: task.recurrence,

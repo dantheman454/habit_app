@@ -20,11 +20,11 @@ Keep in mind:
 Get done asap:   
     -Clean up UI 
         *Make sure notes on events and tasks work properly
-            >Add/Update/Delete ALL fields for each (make a checklist)
-            >Marking done/undone and skip functionality
+        *Add/Update/Delete ALL fields for each (make a checklist)
+        *Marking done/undone and skip functionality
+
         *get searchbar working
         *Clean up header; Make it cleaner and less cluttered (show completed and the context filters should be together; views and date toggle together; search bar should be less prominent but easily accessible)
-        **Make the tasks more visually distinct and better?
         *fix it from being so snappy when deleting tasks or going between tabs
 
     -Clean up legacy code and unused imports
@@ -42,6 +42,7 @@ Get done asap:
 Next:
     -Get assistant pipeline working for basic chats about events and tasks (maybe basic functions??)
         *SIMPLIFY!!!!/solidify pipeline and take out the different model constants
+        *Look into pydanticAI framework
         *Fix the context issue(s)
             >More than three chats causes '000000...0000' due to context overflow??
         *Use attention sinks in the context; these models dump attention to the first tokens

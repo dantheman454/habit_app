@@ -9,7 +9,6 @@ describe('OperationValidators', () => {
         title: 'Test Task',
         notes: 'Test notes',
         scheduledFor: '2025-08-18',
-        timeOfDay: '14:30',
         recurrence: { type: 'none' }
       };
       
@@ -59,16 +58,7 @@ describe('OperationValidators', () => {
       assert(result.errors.some(e => e.includes('valid date')));
     });
     
-    test('should reject invalid time format', () => {
-      const op = {
-        title: 'Test Task',
-        timeOfDay: '25:00'
-      };
-      
-      const result = OperationValidators.taskCreate(op);
-      assert.strictEqual(result.valid, false);
-      assert(result.errors.some(e => e.includes('valid time')));
-    });
+    // Validators ignore unknown fields; tasks have no time-of-day field
   });
   
   describe('taskUpdate', () => {

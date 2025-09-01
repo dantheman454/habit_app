@@ -6,7 +6,6 @@ CREATE TABLE IF NOT EXISTS tasks (
   title TEXT NOT NULL,
   notes TEXT NOT NULL DEFAULT '',
   scheduled_for TEXT NULL,
-  time_of_day TEXT NULL,
   status TEXT NOT NULL CHECK(status IN ('pending','completed','skipped')) DEFAULT 'pending',
   recurrence TEXT NOT NULL DEFAULT '{"type":"none"}',
   completed_dates TEXT NULL,
@@ -24,15 +23,12 @@ CREATE TABLE IF NOT EXISTS events (
   start_time TEXT NULL,
   end_time TEXT NULL,
   location TEXT NULL,
-  completed INTEGER NOT NULL DEFAULT 0,
   recurrence TEXT NOT NULL DEFAULT '{"type":"none"}',
-  completed_dates TEXT NULL,
   context TEXT CHECK(context IN ('school', 'personal', 'work')) DEFAULT 'personal',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
 
--- goals and related link tables removed during migration
 
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

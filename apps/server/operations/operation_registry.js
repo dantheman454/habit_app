@@ -66,7 +66,6 @@ export class OperationRegistry {
           title: { type: 'string', minLength: 1, maxLength: 255 },
           notes: { type: 'string' },
           scheduledFor: { type: 'string', format: 'date' },
-          timeOfDay: { type: 'string', pattern: '^([01]?[0-9]|2[0-3]):[0-5][0-9]$' },
           recurrence: {
             type: 'object',
             properties: {
@@ -89,7 +88,6 @@ export class OperationRegistry {
           title: { type: 'string', minLength: 1, maxLength: 255 },
           notes: { type: 'string' },
           scheduledFor: { type: 'string', format: 'date' },
-          timeOfDay: { type: 'string', pattern: '^([01]?[0-9]|2[0-3]):[0-5][0-9]$' },
           recurrence: {
             type: 'object',
             properties: {
@@ -195,17 +193,7 @@ export class OperationRegistry {
               title: 'Buy groceries'
             }
           },
-          {
-            description: 'Task with scheduling',
-            operation: {
-              kind: 'task',
-              action: 'create',
-              title: 'Team meeting',
-              scheduledFor: '2025-08-20',
-              timeOfDay: '14:30',
-              recurrence: { type: 'weekly' }
-            }
-          }
+          
         ]
       },
       'task_update': {

@@ -237,7 +237,6 @@ export function buildFocusedContext(where = {}, { timezone = DEFAULT_TZ } = {}) 
       title: t.title,
       notes: t.notes ?? '',
       scheduledFor: t.scheduledFor ?? null,
-      timeOfDay: t.timeOfDay ?? null,
       status: t.status ?? (t.completed ? 'completed' : 'pending'),
       recurrence: t.recurrence || { type: 'none' },
       context: t.context ?? 'personal',
@@ -296,7 +295,6 @@ export function buildQAContext({ timezone = DEFAULT_TZ } = {}) {
       title: t.title,
       notes: t.notes ?? '',
       scheduledFor: t.scheduledFor ?? null,
-      timeOfDay: t.timeOfDay ?? null,
       status: t.status ?? (t.completed ? 'completed' : 'pending'),
       recurrence: t.recurrence || { type: 'none' },
       context: t.context ?? 'personal'

@@ -113,24 +113,24 @@ class _MonthViewState extends State<MonthView> {
 
   List<_PreviewItem> _interleavedTopFive(List<Map<String, dynamic>> events, List<Map<String, dynamic>> tasks) {
     final List<_PreviewItem> items = [];
-    // Tasks first, without time labels
-    for (final t in tasks) {
-      items.add(_PreviewItem(
-        title: (t['title'] ?? '').toString(),
-        kind: 'task',
-        startMinutes: -1, // ensure tasks sort before events
-        timeLabel: '',
-        notes: (t['notes'] ?? '').toString(),
-      ));
-    }
-    // Then events, with time labels
+    // Events first, ordered by start time
     for (final e in events) {
       items.add(_PreviewItem(
         title: (e['title'] ?? '').toString(),
         kind: 'event',
-        startMinutes: _parseMinutes(e['startTime'] ?? e['timeOfDay']),
+        startMinutes: _parseMinutes(e['startTime']),
         timeLabel: _formatTimeRange(e['startTime'], e['endTime']),
         notes: (e['notes'] ?? '').toString(),
+      ));
+    }
+    // Then tasks, without time labels; push after any event by assigning a large startMinutes
+    for (final t in tasks) {
+      items.add(_PreviewItem(
+        title: (t['title'] ?? '').toString(),
+        kind: 'task',
+        startMinutes: 24 * 60 + 1,
+        timeLabel: '',
+        notes: (t['notes'] ?? '').toString(),
       ));
     }
     items.sort((a, b) => (a.startMinutes).compareTo(b.startMinutes));
@@ -139,26 +139,26 @@ class _MonthViewState extends State<MonthView> {
 
   List<_PreviewItem> _interleaved(List<Map<String, dynamic>> events, List<Map<String, dynamic>> tasks) {
     final List<_PreviewItem> items = [];
-    // Tasks first, without time labels
-    for (final t in tasks) {
-      items.add(_PreviewItem(
-        title: (t['title'] ?? '').toString(),
-        kind: 'task',
-        startMinutes: -1,
-        timeLabel: '',
-        notes: (t['notes'] ?? '').toString(),
-        contextValue: (t['context'] ?? '').toString(),
-      ));
-    }
-    // Then events with time labels
+    // Events first, ordered by start time
     for (final e in events) {
       items.add(_PreviewItem(
         title: (e['title'] ?? '').toString(),
         kind: 'event',
-        startMinutes: _parseMinutes(e['startTime'] ?? e['timeOfDay']),
+        startMinutes: _parseMinutes(e['startTime']),
         timeLabel: _formatTimeRange(e['startTime'], e['endTime']),
         notes: (e['notes'] ?? '').toString(),
         contextValue: (e['context'] ?? '').toString(),
+      ));
+    }
+    // Then tasks, without time labels; push after any event
+    for (final t in tasks) {
+      items.add(_PreviewItem(
+        title: (t['title'] ?? '').toString(),
+        kind: 'task',
+        startMinutes: 24 * 60 + 1,
+        timeLabel: '',
+        notes: (t['notes'] ?? '').toString(),
+        contextValue: (t['context'] ?? '').toString(),
       ));
     }
     items.sort((a, b) => (a.startMinutes).compareTo(b.startMinutes));

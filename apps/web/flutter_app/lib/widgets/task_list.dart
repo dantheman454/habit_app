@@ -119,7 +119,7 @@ class TaskList extends StatelessWidget {
   }
 
   Widget _timeChip(BuildContext context, Map<String, dynamic> item) {
-    final time = AmericanTimeFormat.to12h((item['timeOfDay'] ?? '').toString());
+    final time = '';
     if (time.isEmpty) return const SizedBox.shrink();
     
     // Check if task is overdue

@@ -85,15 +85,9 @@ router.post('/api/events', (req, res) => {
 });
 
 router.get('/api/events', (req, res) => {
-  const { from, to, completed, context } = req.query;
+  const { from, to, context } = req.query;
   if (from !== undefined && !isYmdString(from)) return res.status(400).json({ error: 'invalid_from' });
   if (to !== undefined && !isYmdString(to)) return res.status(400).json({ error: 'invalid_to' });
-  let completedBool;
-  if (completed !== undefined) {
-    if (completed === 'true' || completed === true) completedBool = true;
-    else if (completed === 'false' || completed === false) completedBool = false;
-    else return res.status(400).json({ error: 'invalid_completed' });
-  }
   if (context !== undefined && !['school','personal','work'].includes(String(context))) return res.status(400).json({ error: 'invalid_context' });
   try {
     const fromDate = from ? parseYMD(from) : null;
@@ -114,7 +108,6 @@ router.get('/api/events', (req, res) => {
           return true;
         });
       }
-      if (completedBool !== undefined) items = items.filter(e => e.completed === completedBool);
       if (context !== undefined) items = items.filter(e => String(e.context) === String(context));
       const sorted = items.slice().sort((a, b) => {
         const sfa = String(a.scheduledFor || '');
@@ -175,11 +168,10 @@ router.get('/api/events/:id', (req, res) => {
 router.patch('/api/events/:id', (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
-  const { title, notes, scheduledFor, startTime, endTime, location, completed, recurrence, context } = req.body || {};
+  const { title, notes, scheduledFor, startTime, endTime, location, recurrence, context } = req.body || {};
   if (title !== undefined && typeof title !== 'string') return res.status(400).json({ error: 'invalid_title' });
   if (notes !== undefined && typeof notes !== 'string') return res.status(400).json({ error: 'invalid_notes' });
   if (!(scheduledFor === undefined || scheduledFor === null || isYmdString(scheduledFor))) return res.status(400).json({ error: 'invalid_scheduledFor' });
-  if (completed !== undefined && typeof completed !== 'boolean') return res.status(400).json({ error: 'invalid_completed' });
   if (startTime !== undefined && !(startTime === null || /^([01]\d|2[0-3]):[0-5]\d$/.test(String(startTime)))) return res.status(400).json({ error: 'invalid_start_time' });
   if (endTime !== undefined && !(endTime === null || /^([01]\d|2[0-3]):[0-5]\d$/.test(String(endTime)))) return res.status(400).json({ error: 'invalid_end_time' });
   if (recurrence !== undefined && typeof recurrence !== 'object') return res.status(400).json({ error: 'invalid_recurrence' });
@@ -189,7 +181,7 @@ router.patch('/api/events/:id', (req, res) => {
     if (!(anchor !== null && isYmdString(anchor))) return res.status(400).json({ error: 'missing_anchor_for_recurrence' });
   }
   try {
-    const ev = db.updateEvent(id, { title, notes, scheduledFor, startTime, endTime, location, completed, recurrence, context });
+    const ev = db.updateEvent(id, { title, notes, scheduledFor, startTime, endTime, location, recurrence, context });
     return res.json({ event: ev });
   } catch (e) {
     const msg = String(e && e.message ? e.message : e);
@@ -213,16 +205,10 @@ router.get('/api/events/search', (req, res) => {
   const qRaw = String(req.query.query || '');
   const q = qRaw.trim();
   if (q.length === 0) return res.status(400).json({ error: 'invalid_query' });
-  let completedBool;
-  if (req.query.completed !== undefined) {
-    if (req.query.completed === 'true' || req.query.completed === true) completedBool = true;
-    else if (req.query.completed === 'false' || req.query.completed === false) completedBool = false;
-    else return res.status(400).json({ error: 'invalid_completed' });
-  }
   const context = (req.query.context === undefined) ? undefined : String(req.query.context);
   if (context !== undefined && !['school','personal','work'].includes(context)) return res.status(400).json({ error: 'invalid_context' });
   try {
-    let items = db.searchEvents({ q, completed: completedBool, context });
+    let items = db.searchEvents({ q, context });
     if (q.length < 2) {
       const ql = q.toLowerCase();
       items = items.filter(e => String(e.title || '').toLowerCase().includes(ql) || String(e.notes || '').toLowerCase().includes(ql) || String(e.location || '').toLowerCase().includes(ql));

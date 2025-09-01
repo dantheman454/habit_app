@@ -16,7 +16,6 @@ erDiagram
         string title
         string notes
         string scheduled_for "YYYY-MM-DD or NULL"
-        string time_of_day "HH:MM (24h) or NULL"
         string status "pending|completed|skipped"
         string recurrence "JSON"
         string completed_dates "JSON or NULL"

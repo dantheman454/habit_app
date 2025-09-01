@@ -25,7 +25,6 @@ function expandTaskOccurrences(task, fromDate, toDate) {
         title: task.title,
         notes: task.notes,
         scheduledFor: dateStr,
-        timeOfDay: task.timeOfDay,
         completed: !!occCompleted,
         status: occCompleted ? 'completed' : (occSkipped ? 'skipped' : 'pending'),
         recurrence: task.recurrence,
@@ -121,7 +120,6 @@ router.get('/api/schedule', (req, res) => {
               notes: t.notes,
               scheduledFor: t.scheduledFor,
               status: t.status,
-              timeOfDay: t.timeOfDay ?? null,
               recurrence: t.recurrence,
               context: t.context,
               createdAt: t.createdAt,
@@ -161,13 +159,12 @@ router.get('/api/schedule', (req, res) => {
         const isRepeating = (e.recurrence && e.recurrence.type && e.recurrence.type !== 'none');
         if (isRepeating) {
           for (const occ of expandEventOccurrences(e, fromDate, toDate)) {
-            if (completedBool === undefined || occ.completed === completedBool) {
+            // Ignore completed filter for events
               pushEventOrSplit({ kind: 'event', ...occ });
-            }
           }
         } else {
           const ed = e.scheduledFor ? parseYMD(e.scheduledFor) : null;
-          if (inRange(ed) && (completedBool === undefined || e.completed === completedBool)) {
+          if (inRange(ed)) {
             pushEventOrSplit({
               kind: 'event',
               id: e.id,
@@ -193,14 +190,24 @@ router.get('/api/schedule', (req, res) => {
       const da = String(a.scheduledFor || '');
       const dbs = String(b.scheduledFor || '');
       if (da !== dbs) return da.localeCompare(dbs);
-      const ta = (a.kind === 'event') ? (a.startTime || '') : (a.timeOfDay || '');
-      const tb = (b.kind === 'event') ? (b.startTime || '') : (b.timeOfDay || '');
-      if (ta === '' && tb !== '') return -1;
-      if (ta !== '' && tb === '') return 1;
-      if (ta !== tb) return ta.localeCompare(tb);
-      const ka = kindOrder[a.kind] ?? 99;
-      const kb = kindOrder[b.kind] ?? 99;
-      if (ka !== kb) return ka - kb;
+
+      const aIsEvent = a.kind === 'event';
+      const bIsEvent = b.kind === 'event';
+
+      // If both are events, sort by startTime then id
+      if (aIsEvent && bIsEvent) {
+        const sta = String(a.startTime || '');
+        const stb = String(b.startTime || '');
+        if (sta !== stb) return sta.localeCompare(stb);
+        return (a.id || 0) - (b.id || 0);
+      }
+
+      // Ensure events come before tasks for the same date
+      if (aIsEvent !== bIsEvent) {
+        return (aIsEvent ? 0 : 1) - (bIsEvent ? 0 : 1);
+      }
+
+      // For tasks (or unknown kinds), ignore any time fields and sort by id
       return (a.id || 0) - (b.id || 0);
     });
 

@@ -92,10 +92,10 @@ This glossary defines key terms and concepts used throughout the Task/Event App 
 
 **Time formats**: 
 - **Dates**: `YYYY-MM-DD` format (e.g., "2024-01-15")
-- **Times**: `timeOfDay`, `startTime`, `endTime` are canonical 24h `HH:MM` or null (e.g., "14:30" or null for all-day); events may wrap across midnight
+- **Times**: `startTime`, `endTime` are canonical 24h `HH:MM` or null; events may wrap across midnight. Tasks are all-day and have no time.
 
-- **Usage**: Standardized format for all date/time fields
-- **Example**: `scheduledFor: "2024-01-15", timeOfDay: "09:00"`
+- **Usage**: Standardized format for date/time fields
+- **Example**: Task → `scheduledFor: "2024-01-15"`; Event → `startTime: "09:00"`
 - **Reference**: See [Backend Algorithms](./backend_algorithms.md#primitive-validators) for validation
 
 **Recurrence**: `{ type: 'none'|'daily'|'weekdays'|'weekly'|'every_n_days', intervalDays?, until? }`; for repeating, anchor required and `until` may be null (no cap).

@@ -52,7 +52,7 @@ function buildOpKey(op) {
       op.action || op.op || 'create',
       op.id || '',
       op.scheduledFor || '',
-      op.timeOfDay || op.startTime || '',
+      op.startTime || '',
       op.title || '',
       op.status || '',
       op.occurrenceDate || ''

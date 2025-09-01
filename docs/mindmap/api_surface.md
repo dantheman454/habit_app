@@ -58,7 +58,6 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
       "title": "string (required)",
       "notes": "string (optional)",
       "scheduledFor": "YYYY-MM-DD|null (optional)",
-      "timeOfDay": "HH:MM|null (optional, canonical 24h)",
       "recurrence": {
         "type": "none|daily|weekdays|weekly|every_n_days (required)",
         "intervalDays": "number>=1 (for every_n_days)",
@@ -82,7 +81,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 
 **Update Task**
 - **PATCH** `/api/tasks/:id`
-  - **Body**: Partial update with any of: `title?`, `notes?`, `scheduledFor?`, `status?`, `timeOfDay?`, `recurrence?`, `context?`
+  - **Body**: Partial update with any of: `title?`, `notes?`, `scheduledFor?`, `status?`, `recurrence?`, `context?`
   - **Validation**: `recurrence` object required on update; if repeating, anchor date must exist
   - **Response**: `{ task: Task }`
   - **Example**:
@@ -302,7 +301,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 - `missing_recurrence` - Recurrence object is required
 - `invalid_notes` - Notes field is invalid
 - `invalid_scheduledFor` - Date format is invalid
-- `invalid_timeOfDay` - Time format is invalid
+ 
 - `invalid_start_time` - Start time format is invalid (events)
 - `invalid_end_time` - End time format is invalid (events)
 - `invalid_recurrence` - Recurrence object is malformed
@@ -367,7 +366,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
   title?: string,
   notes?: string,
   scheduledFor?: string | null,
-  timeOfDay?: string | null, // For tasks
+  
   startTime?: string | null, // For events
   endTime?: string | null,   // For events
   location?: string | null,  // For events

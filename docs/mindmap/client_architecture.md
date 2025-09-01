@@ -343,13 +343,13 @@ Future<void> _updateTaskStatus(int taskId, String status) async {
 }
 
 // Create new task
-Future<void> _createTask(String title, {String? notes, String? scheduledFor, String? timeOfDay}) async {
+Future<void> _createTask(String title, {String? notes, String? scheduledFor}) async {
   try {
     await api.createTask({
       'title': title,
       'notes': notes ?? '',
       'scheduledFor': scheduledFor,
-      'timeOfDay': timeOfDay,
+      
       'recurrence': {'type': 'none'}, // Default to non-repeating
       'context': selectedContext ?? 'personal',
     });
@@ -648,8 +648,9 @@ Widget _buildUnifiedSchedule() {
 
 int _compareItems(Task a, Task b) {
   // 1. Sort by time (nulls first)
-  final timeA = a.timeOfDay;
-  final timeB = b.timeOfDay;
+  // tasks are all-day; ignore time fields
+  final timeA = '';
+  final timeB = '';
   if (timeA == null && timeB != null) return -1;
   if (timeA != null && timeB == null) return 1;
   if (timeA != null && timeB != null) {

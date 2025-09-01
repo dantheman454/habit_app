@@ -9,7 +9,6 @@ export class OperationExecutors {
         title: op.title,
         notes: String(op.notes || ''),
         scheduledFor: op.scheduledFor || null,
-        timeOfDay: op.timeOfDay || null,
         recurrence: op.recurrence || { type: 'none' },
         // Preserve client-provided context; Db layer defaults to 'personal' when absent
         context: op.context
@@ -28,7 +27,6 @@ export class OperationExecutors {
       if (op.title !== undefined) updateData.title = op.title;
       if (op.notes !== undefined) updateData.notes = op.notes;
       if (op.scheduledFor !== undefined) updateData.scheduledFor = op.scheduledFor;
-      if (op.timeOfDay !== undefined) updateData.timeOfDay = op.timeOfDay;
       if (op.recurrence !== undefined) updateData.recurrence = op.recurrence;
       
       const task = await this.db.updateTask(op.id, updateData);

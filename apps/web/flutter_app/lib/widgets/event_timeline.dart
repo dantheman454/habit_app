@@ -198,8 +198,7 @@ class EventTimeline extends StatelessWidget {
           ? raw['id'] as int
           : int.tryParse('${raw['id']}') ?? -1;
       final String title = (raw['title'] ?? '').toString();
-      final String? startStr =
-          (raw['startTime'] ?? raw['timeOfDay']) as String?;
+      final String? startStr = raw['startTime'] as String?;
       final String? endStr = raw['endTime'] as String?;
       final String? context = raw['context'] as String?;
       int startM = _parseHm(startStr, minHour);

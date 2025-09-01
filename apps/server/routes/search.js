@@ -40,8 +40,8 @@ router.get('/api/search', (req, res) => {
       let s = 0;
       const overdue = ((rec.status ? (rec.status !== 'completed' && rec.status !== 'skipped') : !rec.completed) && rec.scheduledFor && String(rec.scheduledFor) < String(todayY));
       if (overdue) s += 0.5;
-      const hasTime = !!(rec.timeOfDay || rec.startTime);
-      if (hasTime) s += 0.05;
+      // Only boost events that have a start time; tasks are all-day and should not be boosted by time
+      if (rec.kind === 'event' && !!rec.startTime) s += 0.05;
       return s;
     };
 
@@ -58,14 +58,13 @@ router.get('/api/search', (req, res) => {
         notes: t.notes,
         scheduledFor: t.scheduledFor,
         status: t.status,
-        timeOfDay: t.timeOfDay ?? null,
         context: t.context,
         createdAt: t.createdAt,
         updatedAt: t.updatedAt,
       })));
     }
     if (wantEvents) {
-      let items = db.searchEvents({ q, completed: completedBool, context });
+      let items = db.searchEvents({ q, context });
       if (q.length < 2) {
         const ql = q.toLowerCase();
         items = items.filter(e => String(e.title || '').toLowerCase().includes(ql) || String(e.notes || '').toLowerCase().includes(ql) || String(e.location || '').toLowerCase().includes(ql));
@@ -87,13 +86,26 @@ router.get('/api/search', (req, res) => {
     }
 
     const scored = out.map(r => ({ r, s: boosterScore(r) }))
-      .sort((a, b) => (
-        b.s - a.s ||
-        String(a.r.scheduledFor || '').localeCompare(String(b.r.scheduledFor || '')) ||
-        // time compare (events startTime vs tasks timeOfDay)
-        (String((a.r.startTime || a.r.timeOfDay || '')) || '').localeCompare(String((b.r.startTime || b.r.timeOfDay || '')) || '') ||
-        ((a.r.id || 0) - (b.r.id || 0))
-      ))
+      .sort((a, b) => {
+        // Primary: booster score (desc)
+        if (b.s !== a.s) return b.s - a.s;
+        // Secondary: date asc
+        const da = String(a.r.scheduledFor || '');
+        const dbs = String(b.r.scheduledFor || '');
+        if (da !== dbs) return da.localeCompare(dbs);
+        // Tertiary: for events only, sort by startTime; tasks ignore time
+        const aIsEvent = a.r.kind === 'event';
+        const bIsEvent = b.r.kind === 'event';
+        if (aIsEvent && bIsEvent) {
+          const sta = String(a.r.startTime || '');
+          const stb = String(b.r.startTime || '');
+          if (sta !== stb) return sta.localeCompare(stb);
+        }
+        // Ensure events come before tasks when otherwise equal
+        if (aIsEvent !== bIsEvent) return aIsEvent ? -1 : 1;
+        // Finally: id asc
+        return (a.r.id || 0) - (b.r.id || 0);
+      })
       .slice(0, limit)
       .map(x => x.r);
     return res.json({ items: scored });

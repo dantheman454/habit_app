@@ -2,7 +2,7 @@ import { Router } from 'express';
 import Ajv from 'ajv';
 import db from '../database/DbService.js';
 import { ymd, parseYMD, ymdInTimeZone } from '../utils/date.js';
-import { isYmdString, isValidTimeOfDay, isValidRecurrence, expandOccurrences } from '../utils/recurrence.js';
+import { isYmdString, isValidRecurrence, expandOccurrences } from '../utils/recurrence.js';
 
 const router = Router();
 const ajv = new Ajv({ allErrors: true });
@@ -13,7 +13,6 @@ const taskCreateSchema = {
     title: { type: 'string', minLength: 1, maxLength: 255 },
     notes: { type: 'string' },
     scheduledFor: { anyOf: [ { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' }, { type: 'null' } ] },
-    timeOfDay: { anyOf: [ { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }, { type: 'null' } ] },
     recurrence: {
       type: 'object',
       properties: {
@@ -30,8 +29,8 @@ const taskCreateSchema = {
 };
 const validateTaskCreate = ajv.compile(taskCreateSchema);
 
-function createTaskDb({ title, notes = '', scheduledFor = null, timeOfDay = null, recurrence = undefined, context = 'personal' }) {
-  return db.createTask({ title, notes, scheduledFor, timeOfDay, recurrence: recurrence || { type: 'none' }, status: 'pending', context });
+function createTaskDb({ title, notes = '', scheduledFor = null, recurrence = undefined, context = 'personal' }) {
+  return db.createTask({ title, notes, scheduledFor, recurrence: recurrence || { type: 'none' }, status: 'pending', context });
 }
 
 function findTaskById(id) { return db.getTaskById(parseInt(id, 10)); }
@@ -41,7 +40,7 @@ const TIMEZONE = process.env.TZ_NAME || 'America/New_York';
 router.post('/api/tasks', (req, res) => {
   const ok = validateTaskCreate(req.body || {});
   if (!ok) return res.status(400).json({ error: 'invalid_body' });
-  const { title, notes, scheduledFor, timeOfDay, recurrence, context } = req.body || {};
+  const { title, notes, scheduledFor, recurrence, context } = req.body || {};
   if (typeof title !== 'string' || title.trim() === '') {
     return res.status(400).json({ error: 'invalid_title' });
   }
@@ -54,9 +53,7 @@ router.post('/api/tasks', (req, res) => {
   if (!(scheduledFor === undefined || scheduledFor === null || isYmdString(scheduledFor))) {
     return res.status(400).json({ error: 'invalid_scheduledFor' });
   }
-  if (!isValidTimeOfDay(timeOfDay === '' ? null : timeOfDay)) {
-    return res.status(400).json({ error: 'invalid_timeOfDay' });
-  }
+  // tasks are all-day; no time-of-day validation
   if (!isValidRecurrence(recurrence)) {
     return res.status(400).json({ error: 'invalid_recurrence' });
   }
@@ -69,7 +66,7 @@ router.post('/api/tasks', (req, res) => {
     return res.status(400).json({ error: 'invalid_context' });
   }
 
-  const task = createTaskDb({ title: title.trim(), notes: notes || '', scheduledFor: scheduledFor ?? null, timeOfDay: (timeOfDay === '' ? null : timeOfDay) ?? null, recurrence: recurrence, context: context || 'personal' });
+  const task = createTaskDb({ title: title.trim(), notes: notes || '', scheduledFor: scheduledFor ?? null, recurrence: recurrence, context: context || 'personal' });
   res.json({ task });
 });
 
@@ -196,10 +193,7 @@ router.patch('/api/tasks/:id', (req, res) => {
     }
     t.scheduledFor = body.scheduledFor;
   }
-  if (body.timeOfDay !== undefined) {
-    if (!isValidTimeOfDay(body.timeOfDay === '' ? null : body.timeOfDay)) return res.status(400).json({ error: 'invalid_timeOfDay' });
-    t.timeOfDay = (body.timeOfDay === '' ? null : body.timeOfDay);
-  }
+  // tasks are all-day; ignore any time-related fields in patch
   if (body.recurrence !== undefined) {
     if (!isValidRecurrence(body.recurrence)) return res.status(400).json({ error: 'invalid_recurrence' });
     if (body.recurrence && body.recurrence.type && body.recurrence.type !== 'none') {

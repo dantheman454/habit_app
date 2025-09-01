@@ -35,8 +35,7 @@ class DayView extends StatelessWidget {
 
     // Normalize events: timed vs all-day
     for (final e in events) {
-      final hasStart = ((e['startTime'] ?? '') as String).toString().isNotEmpty ||
-          ((e['timeOfDay'] ?? '') as String).toString().isNotEmpty;
+      final hasStart = ((e['startTime'] ?? '') as String).toString().isNotEmpty;
       if (hasStart) {
         timedUnified.add(e);
       } else {
@@ -44,7 +43,7 @@ class DayView extends StatelessWidget {
       }
     }
 
-    // Normalize tasks: always render in All Day (never on timeline), even if timeOfDay is set
+    // Normalize tasks: always render in All Day (never on timeline)
     for (final t in tasks) {
       allDayTasks.add(t);
     }
@@ -66,7 +65,7 @@ class DayView extends StatelessWidget {
         }
         int? earliest;
         for (final itm in timedUnified) {
-          final start = ((itm['startTime'] ?? itm['timeOfDay']) as String?) ?? '';
+          final start = ((itm['startTime']) as String?) ?? '';
           final mins = parseHmToMinutes(start);
           if (earliest == null || mins < earliest) {
             earliest = mins;
@@ -225,16 +224,7 @@ class _AllDayTaskRow extends StatelessWidget {
       subtitle: ((item['notes'] ?? '').toString().trim().isEmpty)
           ? null
           : Text((item['notes'] ?? '').toString(), maxLines: 1, overflow: TextOverflow.ellipsis),
-      trailing: PopupMenuButton<String>(
-        onSelected: (v) {
-          if (v == 'edit' && onEdit != null) onEdit!(id);
-          if (v == 'delete' && onDelete != null) onDelete!(id);
-        },
-        itemBuilder: (context) => const [
-          PopupMenuItem(value: 'edit', child: Text('Edit')),
-          PopupMenuItem(value: 'delete', child: Text('Delete')),
-        ],
-      ),
+      onTap: onEdit == null ? null : () => onEdit!(id),
     );
   }
 }

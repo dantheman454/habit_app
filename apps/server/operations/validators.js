@@ -18,9 +18,7 @@ export class OperationValidators {
       errors.push('scheduledFor must be a valid date in YYYY-MM-DD format');
     }
     
-    if (op.timeOfDay && !OperationValidators.isValidTime(op.timeOfDay)) {
-      errors.push('timeOfDay must be a valid time in HH:MM format');
-    }
+    // tasks are all-day; time-of-day fields are not part of the schema
     
     if (op.recurrence && !OperationValidators.isValidRecurrence(op.recurrence)) {
       errors.push('recurrence must be a valid recurrence object');
@@ -63,9 +61,7 @@ export class OperationValidators {
       errors.push('scheduledFor must be a valid date in YYYY-MM-DD format');
     }
     
-    if (op.timeOfDay !== undefined && !OperationValidators.isValidTime(op.timeOfDay)) {
-      errors.push('timeOfDay must be a valid time in HH:MM format');
-    }
+    // tasks are all-day; time-of-day fields are not part of the schema
     
     if (op.recurrence !== undefined && !OperationValidators.isValidRecurrence(op.recurrence)) {
       errors.push('recurrence must be a valid recurrence object');
