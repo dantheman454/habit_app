@@ -19,10 +19,6 @@ Keep in mind:
 
 Get done asap:   
     -Clean up UI 
-        *Make sure notes on events and tasks work properly
-        *Add/Update/Delete ALL fields for each (make a checklist)
-        *Marking done/undone and skip functionality
-
         *get searchbar working
         *Clean up header; Make it cleaner and less cluttered (show completed and the context filters should be together; views and date toggle together; search bar should be less prominent but easily accessible)
         *fix it from being so snappy when deleting tasks or going between tabs

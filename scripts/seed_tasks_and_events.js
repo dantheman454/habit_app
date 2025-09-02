@@ -130,8 +130,8 @@ function randomLocation() {
 function seedEvents(db, count) {
   const nowIso = new Date().toISOString();
   const insert = db.prepare(`
-  INSERT INTO events(title, notes, scheduled_for, start_time, end_time, location, completed, recurrence, completed_dates, context, created_at, updated_at)
-  VALUES (@title, @notes, @scheduled_for, @start_time, @end_time, @location, @completed, @recurrence, @completed_dates, @context, @created_at, @updated_at)
+  INSERT INTO events(title, notes, scheduled_for, start_time, end_time, location, recurrence, context, created_at, updated_at)
+  VALUES (@title, @notes, @scheduled_for, @start_time, @end_time, @location, @recurrence, @context, @created_at, @updated_at)
   `);
   const tx = db.transaction(() => {
     for (let i = 0; i < count; i++) {
@@ -145,9 +145,7 @@ function seedEvents(db, count) {
         start_time: start,
         end_time: end,
         location: randomLocation(),
-        completed: 0,
         recurrence: JSON.stringify(rec),
-        completed_dates: null,
         context: randomContext(),
         created_at: nowIso,
         updated_at: nowIso,

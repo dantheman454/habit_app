@@ -55,7 +55,7 @@ class CompactSubheader extends StatelessWidget {
     return Material(
       color: Theme.of(context).colorScheme.surface,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         child: LayoutBuilder(
           builder: (ctx, cons) {
             final isNarrow = cons.maxWidth < 1280; // desktop-only breakpoint
@@ -66,6 +66,7 @@ class CompactSubheader extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     IconButton(
+                      visualDensity: VisualDensity.compact,
                       icon: const Icon(Icons.chevron_left),
                       tooltip: 'Previous',
                       onPressed: onPrev,
@@ -81,6 +82,7 @@ class CompactSubheader extends StatelessWidget {
                       ),
                     ),
                     IconButton(
+                      visualDensity: VisualDensity.compact,
                       icon: const Icon(Icons.chevron_right),
                       tooltip: 'Next',
                       onPressed: onNext,
@@ -103,9 +105,9 @@ class CompactSubheader extends StatelessWidget {
                   const SizedBox(width: 12),
                 ],
 
-                // Context selector (single-choice)
-                Flexible(
-                  fit: FlexFit.tight,
+                // Context selector (single-choice), allow intrinsic width to prevent clipping
+                ConstrainedBox(
+                  constraints: const BoxConstraints(minWidth: 0),
                   child: Align(
                     alignment: Alignment.centerLeft,
                     child: ContextFilter(
@@ -142,20 +144,17 @@ class CompactSubheader extends StatelessWidget {
                     ),
                   ),
 
-                // Inline Show Completed (wide only)
+                // Inline Show Completed (wide only): icon-only toggle
                 if (!isNarrow)
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.check_circle_outline, size: 16),
-                      const SizedBox(width: 8),
-                      const Text('Show Completed'),
-                      const SizedBox(width: 8),
-                      Switch(
-                        value: showCompleted,
-                        onChanged: onShowCompletedChanged,
-                      ),
-                    ],
+                  Tooltip(
+                    message: showCompleted ? 'Hide completed' : 'Show completed',
+                    child: IconButton(
+                      visualDensity: VisualDensity.compact,
+                      isSelected: showCompleted,
+                      selectedIcon: const Icon(Icons.checklist, size: 20),
+                      icon: const Icon(Icons.checklist_rtl, size: 20),
+                      onPressed: () => onShowCompletedChanged(!showCompleted),
+                    ),
                   ),
 
                 // Kebab overflow (narrow): exposes Show Completed toggle and Search

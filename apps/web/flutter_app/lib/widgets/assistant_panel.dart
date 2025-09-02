@@ -148,41 +148,33 @@ class AssistantPanel extends StatelessWidget {
                 ),
                 const Spacer(),
                 if (onToggleThinking != null)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 4),
-                    child: narrowHeader
-                        ? IconButton(
-                            tooltip: showThinking ? 'Hide thinking' : 'Show thinking',
-                            onPressed: onToggleThinking,
-                            icon: Icon(showThinking ? Icons.visibility_off_outlined : Icons.visibility_outlined, size: 18),
-                            visualDensity: VisualDensity.compact,
-                          )
-                        : TextButton.icon(
-                            onPressed: onToggleThinking,
-                            icon: Icon(showThinking ? Icons.visibility_off_outlined : Icons.visibility_outlined, size: 16),
-                            label: Text(showThinking ? 'Hide thinking' : 'Show thinking'),
-                          ),
+                  Tooltip(
+                    message: showThinking ? 'Hide thinking' : 'Show thinking',
+                    child: IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: onToggleThinking,
+                      icon: Icon(showThinking ? Icons.visibility_off_outlined : Icons.visibility_outlined, size: 18),
+                    ),
                   ),
                 if (onClearChat != null)
-                  (
-                    narrowHeader
-                      ? Tooltip(
-                          message: 'Clear',
-                          child: IconButton(
-                            onPressed: onClearChat,
-                            icon: const Icon(Icons.clear_all, size: 18),
-                            visualDensity: VisualDensity.compact,
-                          ),
-                        )
-                      : TextButton.icon(
-                          onPressed: onClearChat,
-                          icon: const Icon(Icons.clear_all, size: 16),
-                          label: const Text('Clear'),
-                        )
+                  Tooltip(
+                    message: 'Clear',
+                    child: IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: onClearChat,
+                      icon: const Icon(Icons.clear_all, size: 18),
+                    ),
                   ),
               ],
             ),
           ),
+          // Progress just under header (sticky)
+          if (sending && (progressStage != null && progressStage!.isNotEmpty))
+            Material(
+              color: Theme.of(context).colorScheme.surface,
+              child: _buildProgress(context),
+            ),
+
           Expanded(
             child: ListView(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
@@ -190,8 +182,7 @@ class AssistantPanel extends StatelessWidget {
                 for (final turn in transcript) _buildTurnBubble(context, turn),
                 // Clarify section removed
                 if (sending) _buildTypingBubble(context),
-                if (sending && (progressStage != null && progressStage!.isNotEmpty))
-                  _buildProgress(context),
+                // progress no longer here
                 if (showThinking && (thinking != null && thinking!.trim().isNotEmpty)) ...[
                   const SizedBox(height: 8),
                   _SectionHeader(title: 'Thinking'),
@@ -348,16 +339,11 @@ class AssistantPanel extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                FilledButton(
+                IconButton.filled(
                   onPressed: sending ? null : onSend,
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 18,
-                      vertical: 12,
-                    ),
-                    shape: const StadiumBorder(),
-                  ),
-                  child: const Text('Send'),
+                  visualDensity: VisualDensity.compact,
+                  tooltip: 'Send',
+                  icon: const Icon(Icons.rocket_launch),
                 ),
               ],
             ),

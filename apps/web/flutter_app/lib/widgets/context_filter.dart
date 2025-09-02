@@ -13,60 +13,74 @@ class ContextFilter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        _contextChip('All', null, Icons.public),
-        _contextChip('School', 'school', Icons.school),
-        _contextChip('Personal', 'personal', Icons.person),
-        _contextChip('Work', 'work', Icons.work),
-      ],
+    final _ContextKind selected = _toKind(selectedContext);
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: SegmentedButton<_ContextKind>(
+        segments: const [
+          ButtonSegment<_ContextKind>(
+            value: _ContextKind.all,
+            label: SizedBox.shrink(),
+            icon: Tooltip(message: 'All', child: Icon(Icons.public, size: 16)),
+          ),
+          ButtonSegment<_ContextKind>(
+            value: _ContextKind.school,
+            label: SizedBox.shrink(),
+            icon: Tooltip(message: 'School', child: Icon(Icons.school, size: 16)),
+          ),
+          ButtonSegment<_ContextKind>(
+            value: _ContextKind.personal,
+            label: SizedBox.shrink(),
+            icon: Tooltip(message: 'Personal', child: Icon(Icons.person, size: 16)),
+          ),
+          ButtonSegment<_ContextKind>(
+            value: _ContextKind.work,
+            label: SizedBox.shrink(),
+            icon: Tooltip(message: 'Work', child: Icon(Icons.work, size: 16)),
+          ),
+        ],
+        selected: <_ContextKind>{selected},
+        onSelectionChanged: (s) => onChanged(_toStringValue(s.first)),
+        style: const ButtonStyle(
+          visualDensity: VisualDensity.compact,
+          padding: WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 8, vertical: 4)),
+          minimumSize: WidgetStatePropertyAll(Size(36, 28)),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        showSelectedIcon: false,
+        multiSelectionEnabled: false,
+        emptySelectionAllowed: false,
+      ),
     );
   }
 
-  Widget _contextChip(String label, String? contextValue, IconData icon) {
-    final isSelected = selectedContext == contextValue;
-    final color = contextValue != null ? ContextColors.getContextColor(contextValue) : Colors.grey.shade600;
-    
-    return Builder(
-      builder: (context) => InkWell(
-        onTap: () => onChanged(contextValue),
-        borderRadius: BorderRadius.circular(20),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: ContextColors.getContextButtonColor(contextValue, isSelected),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: isSelected
-                  ? color
-                  : Colors.grey.shade300,
-              width: 1,
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                icon,
-                size: 16,
-                color: Colors.black87,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: TextStyle(
-                  color: Colors.black87,
-                  fontSize: 14,
-                  fontWeight: isSelected ? FontWeight.w500 : FontWeight.normal,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+  // SegmentedButton helpers
+}
+
+enum _ContextKind { all, school, personal, work }
+
+_ContextKind _toKind(String? value) {
+  switch (value) {
+    case 'school':
+      return _ContextKind.school;
+    case 'personal':
+      return _ContextKind.personal;
+    case 'work':
+      return _ContextKind.work;
+    default:
+      return _ContextKind.all;
+  }
+}
+
+String? _toStringValue(_ContextKind k) {
+  switch (k) {
+    case _ContextKind.school:
+      return 'school';
+    case _ContextKind.personal:
+      return 'personal';
+    case _ContextKind.work:
+      return 'work';
+    case _ContextKind.all:
+      return null;
   }
 }

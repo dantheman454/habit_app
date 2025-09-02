@@ -1,3 +1,7 @@
+What problems does this solve?
+-task/event managemnet
+-habit/goal tracking
+
 Vision:
 -Make a virtual seceratary to go over calendar and ask for vision to then put into concrete tasks
 -Help tie actual tasks/events to overall habits/goals
