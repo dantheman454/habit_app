@@ -285,167 +285,6 @@ class DateNavigation extends StatelessWidget {
   }
 }
 
-class FilterBar extends StatelessWidget {
-  final ViewMode currentView;
-  final void Function(ViewMode) onViewChanged;
-  final VoidCallback? onDatePrev;
-  final VoidCallback? onDateNext;
-  final VoidCallback? onDateToday;
-  final String currentDate;
-
-  final String? selectedContext;
-  final void Function(String?) onContextChanged;
-  final bool showCompleted;
-  final void Function(bool) onShowCompletedChanged;
-
-  const FilterBar({
-    super.key,
-    required this.currentView,
-    required this.onViewChanged,
-    this.onDatePrev,
-    this.onDateNext,
-    this.onDateToday,
-    required this.currentDate,
-
-    required this.selectedContext,
-    required this.onContextChanged,
-    required this.showCompleted,
-    required this.onShowCompletedChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 400),
-      curve: Curves.easeOutCubic,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerLow,
-        border: Border(
-          bottom: BorderSide(
-            color: Theme.of(context).colorScheme.outlineVariant,
-            width: 1,
-          ),
-        ),
-      ),
-      child: Column(
-        children: [
-          // Primary filters row
-          Row(
-            children: [
-              // View mode filters
-              SegmentedButton<ViewMode>(
-                segments: const [
-                  ButtonSegment(value: ViewMode.day, label: Text('Day')),
-                  ButtonSegment(value: ViewMode.week, label: Text('Week')),
-                  ButtonSegment(value: ViewMode.month, label: Text('Month')),
-                ],
-                selected: {currentView},
-                onSelectionChanged: (s) => onViewChanged(s.first),
-              ),
-
-              const SizedBox(width: 16),
-
-              // Date navigation
-              if (onDatePrev != null &&
-                  onDateNext != null &&
-                  onDateToday != null)
-                DateNavigation(
-                  onPrev: onDatePrev!,
-                  onNext: onDateNext!,
-                  onToday: onDateToday!,
-                  currentDate: currentDate,
-                ),
-
-              const Spacer(),
-            ],
-          ),
-
-          const SizedBox(height: 8),
-
-          // Secondary filters row
-          Row(
-            children: [
-              // Context filters
-              _buildContextFilters(context),
-
-              const Spacer(),
-
-              // Show completed toggle
-              Row(
-                children: [
-                  const Icon(Icons.check_circle_outline, size: 16),
-                  const SizedBox(width: 8),
-                  const Text('Show Completed'),
-                  const SizedBox(width: 8),
-                  Switch(
-                    value: showCompleted,
-                    onChanged: onShowCompletedChanged,
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildContextFilters(BuildContext context) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 4,
-      children: [
-        _buildContextChip('All', null, Icons.public, context),
-        _buildContextChip('School', 'school', Icons.school, context),
-        _buildContextChip('Personal', 'personal', Icons.person, context),
-        _buildContextChip('Work', 'work', Icons.work, context),
-      ],
-    );
-  }
-
-  Widget _buildContextChip(
-    String label,
-    String? contextValue,
-    IconData icon,
-    BuildContext context,
-  ) {
-    final active = selectedContext == contextValue;
-    return AnimatedScale(
-      duration: const Duration(milliseconds: 200),
-      scale: active ? 1.05 : 1.0,
-      child: FilterChip(
-        label: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              size: 16,
-              color: Colors.black87,
-            ), // Always black for contrast
-            const SizedBox(width: 4),
-            Text(
-              label,
-              style: const TextStyle(color: Colors.black87),
-            ), // Always black for contrast
-          ],
-        ),
-        selected: active,
-        onSelected: (_) => onContextChanged(contextValue),
-        backgroundColor: ContextColors.getContextButtonColor(
-          contextValue,
-          false,
-        ), // Always colored background
-        selectedColor: ContextColors.getContextButtonColor(
-          contextValue,
-          true,
-        ), // Full color when selected
-        checkmarkColor: Colors.black87, // Black checkmark for contrast
-      ),
-    );
-  }
-}
-
 DateRange rangeForView(String anchor, ViewMode view) {
   final a = parseYmd(anchor);
   if (view == ViewMode.day) {
@@ -560,9 +399,6 @@ class _HomePageState extends State<HomePage> {
   final TextEditingController _qaEventNotes = TextEditingController();
   final TextEditingController _qaEventInterval = TextEditingController();
 
-  // Habit quick-add removed
-
-  // Goals quick-add removed
   bool _addingQuick = false;
 
   // FAB dialog state variables
@@ -598,29 +434,19 @@ class _HomePageState extends State<HomePage> {
     _searchContext = selectedContext;
   }
 
-  bool _isValidTime(String s) {
-    if (s.trim().isEmpty) return true;
-    return AmericanTimeFormat.parseFlexible(s) != null;
-  }
+  // _isValidTime helper removed; tasks are all-day in current UI
 
   Future<void> _submitQuickAddTask({String? selectedContext}) async {
     if (_addingQuick) return;
     final title = _qaTaskTitle.text.trim();
     final date = _qaTaskDate.text.trim();
-    final time = '';
+    // tasks are all-day; time string intentionally unused
     final notes = _qaTaskNotes.text.trim();
 
     if (title.isEmpty) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Please enter a title.')));
-      return;
-    }
-    final parsedTime = AmericanTimeFormat.parseFlexible(time);
-    if (time.isNotEmpty && parsedTime == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter a valid time, e.g., 1:00 PM.')),
-      );
       return;
     }
 
@@ -745,11 +571,9 @@ class _HomePageState extends State<HomePage> {
     // Validate start ≤ end time if both are provided
     // Default end = start + 1h when start set and end empty
     String? localEnd24 = parsedEnd;
-    bool endWrapped = false;
     if ((parsedStart != null) && (end.trim().isEmpty)) {
       final res = AmericanTimeFormat.addOneHour(parsedStart);
       localEnd24 = res.hhmm;
-      endWrapped = res.wrapped;
       setState(() {
         _qaEventEnd.text = localEnd24!; // show canonical in controller; TimeField displays 12h
       });
@@ -788,9 +612,7 @@ class _HomePageState extends State<HomePage> {
         'notes': notes,
         'scheduledFor': scheduledFor,
         'startTime': parsedStart,
-        'endTime': (parsedStart != null)
-            ? (localEnd24)
-            : (parsedEnd ?? null),
+        'endTime': (parsedStart != null) ? localEnd24 : parsedEnd,
         'location': location.isEmpty ? null : location,
         'recurrence': recurrence,
         'context': selectedContext ?? _qaSelectedContext ?? 'personal',
@@ -1736,7 +1558,7 @@ class _HomePageState extends State<HomePage> {
     final titleCtrl = TextEditingController(text: t.title);
     final notesCtrl = TextEditingController(text: t.notes);
     final dateCtrl = TextEditingController(text: t.scheduledFor ?? '');
-    final timeCtrl = TextEditingController(text: '');
+    // No time field for tasks in current UI
     final intervalCtrl = TextEditingController(
       text: (t.recurrence != null && t.recurrence!['intervalDays'] != null)
           ? '${t.recurrence!['intervalDays']}'
@@ -1875,7 +1697,7 @@ class _HomePageState extends State<HomePage> {
       patch['scheduledFor'] = normalized;
     }
 
-    final time = timeCtrl.text.trim();
+    // tasks are all-day; ignore time field from editor
     // tasks are all-day; ignore time edits
     // Recurrence
     final existingType =

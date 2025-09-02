@@ -120,15 +120,6 @@ class AssistantPanel extends StatelessWidget {
           return defaultOpLabel(like);
         };
 
-    // Responsive header tweaks
-    final bool narrowHeader = () {
-      try {
-        return MediaQuery.of(context).size.width < 320;
-      } catch (_) {
-        return false;
-      }
-    }();
-
     return Container(
       color: Theme.of(
         context,

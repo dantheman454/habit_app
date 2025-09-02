@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../util/context_colors.dart';
-import '../util/time_format.dart';
 import 'expandable_text.dart';
 
 class TaskRow extends StatelessWidget {
@@ -132,9 +131,7 @@ class TaskRow extends StatelessWidget {
                             ),
                           ),
                         ),
-                        if (false) ...[
-                          const SizedBox(width: 8),
-                        ],
+                        // Spacer kept minimal; removed dead always-false block
                       ],
                     ),
                     if (task['notes'] != null && (task['notes'] as String).isNotEmpty)

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../util/context_colors.dart';
 
 class ContextFilter extends StatelessWidget {
   final String? selectedContext; // 'school', 'personal', 'work', null for 'all'

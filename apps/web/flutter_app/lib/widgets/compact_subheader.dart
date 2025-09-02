@@ -58,7 +58,122 @@ class CompactSubheader extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         child: LayoutBuilder(
           builder: (ctx, cons) {
-            final isNarrow = cons.maxWidth < 1280; // desktop-only breakpoint
+            // Compute simple responsiveness thresholds
+            // Narrow when layout width is below 1024
+            final bool showCompletedLabel = cons.maxWidth >= 900;
+            if (cons.maxWidth < 1024) {
+              return Row(
+                children: [
+                  // Date controls
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        icon: const Icon(Icons.chevron_left),
+                        tooltip: 'Previous',
+                        onPressed: onPrev,
+                      ),
+                      AnimatedSwitcher(
+                        duration: AppAnim.medium,
+                        switchInCurve: AppAnim.easeOut,
+                        switchOutCurve: AppAnim.easeIn,
+                        child: Text(
+                          dateLabel,
+                          key: ValueKey(dateLabel),
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                      ),
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        icon: const Icon(Icons.chevron_right),
+                        tooltip: 'Next',
+                        onPressed: onNext,
+                      ),
+                      const SizedBox(width: 4),
+                      if (onToday != null)
+                        TextButton.icon(
+                          icon: const Icon(Icons.today, size: 18),
+                          label: const Text('Today'),
+                          onPressed: onToday,
+                        ),
+                    ],
+                  ),
+
+                  const SizedBox(width: 12),
+
+                  if (leadingControls != null) ...[
+                    leadingControls!,
+                    const SizedBox(width: 12),
+                  ],
+
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(minWidth: 0),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: ContextFilter(
+                        key: ValueKey(selectedContext ?? 'all'),
+                        selectedContext: selectedContext,
+                        onChanged: onContextChanged,
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(width: 8),
+
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (showCompletedLabel) const SizedBox(width: 8),
+                      if (showCompletedLabel) const Text('Show completed'),
+                      if (showCompletedLabel) const SizedBox(width: 6),
+                      Tooltip(
+                        message: 'Show completed',
+                        child: Switch(
+                          value: showCompleted,
+                          onChanged: onShowCompletedChanged,
+                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const Spacer(),
+
+                  if (searchController != null)
+                    IconButton(
+                      tooltip: 'Search',
+                      icon: const Icon(Icons.search),
+                      onPressed: () {
+                        showDialog(
+                          context: context,
+                          builder: (dCtx) {
+                            return AlertDialog(
+                              title: const Text('Search'),
+                              content: GlobalSearchField(
+                                controller: searchController!,
+                                focusNode: searchFocus ?? FocusNode(),
+                                link: searchLink ?? LayerLink(),
+                                searching: searching,
+                                onChanged: onSearchChanged ?? (_) {},
+                                onFocusChange: null,
+                                onKeyEvent: onSearchKeyEvent,
+                                onClear: onSearchClear,
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.of(dCtx).pop(),
+                                  child: const Text('Close'),
+                                ),
+                              ],
+                            );
+                          },
+                        );
+                      },
+                    ),
+                ],
+              );
+            }
             return Row(
               children: [
                 // Date controls
@@ -120,113 +235,63 @@ class CompactSubheader extends StatelessWidget {
 
                 const SizedBox(width: 8),
 
-                const SizedBox(width: 8),
+                // Labeled Show Completed switch next to ContextFilter
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (showCompletedLabel) const SizedBox(width: 8),
+                    if (showCompletedLabel) const Text('Show completed'),
+                    if (showCompletedLabel) const SizedBox(width: 6),
+                    Tooltip(
+                      message: 'Show completed',
+                      child: Switch(
+                        value: showCompleted,
+                        onChanged: onShowCompletedChanged,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                  ],
+                ),
 
                 // Spacer before right-side controls
                 const Spacer(),
 
-                // Inline Search (wide only)
-                if (!isNarrow &&
-                    searchController != null &&
-                    searchFocus != null &&
-                    searchLink != null)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 12),
-                    child: GlobalSearchField(
-                      controller: searchController!,
-                      focusNode: searchFocus!,
-                      link: searchLink!,
-                      searching: searching,
-                      onChanged: onSearchChanged ?? (_) {},
-                      onFocusChange: onSearchFocusChange,
-                      onKeyEvent: onSearchKeyEvent,
-                      onClear: onSearchClear,
-                    ),
-                  ),
-
-                // Inline Show Completed (wide only): icon-only toggle
-                if (!isNarrow)
-                  Tooltip(
-                    message: showCompleted ? 'Hide completed' : 'Show completed',
-                    child: IconButton(
-                      visualDensity: VisualDensity.compact,
-                      isSelected: showCompleted,
-                      selectedIcon: const Icon(Icons.checklist, size: 20),
-                      icon: const Icon(Icons.checklist_rtl, size: 20),
-                      onPressed: () => onShowCompletedChanged(!showCompleted),
-                    ),
-                  ),
-
-                // Kebab overflow (narrow): exposes Show Completed toggle and Search
-                if (isNarrow)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 4),
-                    child: PopupMenuButton<int>(
-                      tooltip: 'More options',
-                      icon: const Icon(Icons.more_vert),
-                      onSelected: (v) {
-                        if (v == 1) {
-                          onShowCompletedChanged(!showCompleted);
-                        } else if (v == 2) {
-                          if (searchController != null) {
-                            showDialog(
-                              context: context,
-                              builder: (dCtx) {
-                                return AlertDialog(
-                                  title: const Text('Search'),
-                                  content: GlobalSearchField(
-                                    controller: searchController!,
-                                    focusNode: searchFocus ?? FocusNode(),
-                                    link: searchLink ?? LayerLink(),
-                                    searching: searching,
-                                    // In-dialog: do not trigger overlay show
-                                    onChanged: onSearchChanged ?? (_) {},
-                                    onFocusChange: null,
-                                    onKeyEvent: onSearchKeyEvent,
-                                    onClear: onSearchClear,
-                                  ),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () => Navigator.of(dCtx).pop(),
-                                      child: const Text('Close'),
-                                    ),
-                                  ],
-                                );
-                              },
-                            );
-                          }
-                        }
-                      },
-                      itemBuilder: (ctx) => [
-                        PopupMenuItem<int>(
-                          value: 1,
-                          child: Row(
-                            children: [
-                              Checkbox(
-                                value: showCompleted,
-                                onChanged: (_) {
-                                  Navigator.of(ctx).pop();
-                                  onShowCompletedChanged(!showCompleted);
-                                },
-                                materialTapTargetSize:
-                                    MaterialTapTargetSize.shrinkWrap,
-                              ),
-                              const SizedBox(width: 8),
-                              const Text('Show Completed'),
-                            ],
-                          ),
-                        ),
-                        if (searchController != null)
-                          const PopupMenuItem<int>(
-                            value: 2,
-                            child: ListTile(
-                              leading: Icon(Icons.search),
-                              title: Text('Search'),
+                // Search icon (opens dialog with GlobalSearchField)
+                if (searchController != null)
+                  IconButton(
+                    tooltip: 'Search',
+                    icon: const Icon(Icons.search),
+                    onPressed: () {
+                      showDialog(
+                        context: context,
+                        builder: (dCtx) {
+                          return AlertDialog(
+                            title: const Text('Search'),
+                            content: GlobalSearchField(
+                              controller: searchController!,
+                              focusNode: searchFocus ?? FocusNode(),
+                              link: searchLink ?? LayerLink(),
+                              searching: searching,
+                              onChanged: onSearchChanged ?? (_) {},
+                              onFocusChange: null,
+                              onKeyEvent: onSearchKeyEvent,
+                              onClear: onSearchClear,
                             ),
-                          ),
-                      ],
-                    ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.of(dCtx).pop(),
+                                child: const Text('Close'),
+                              ),
+                            ],
+                          );
+                        },
+                      );
+                    },
                   ),
+
+                // Icon-only toggle removed in favor of labeled switch near ContextFilter
+
+                // Kebab removed (no remaining items)
               ],
             );
           },

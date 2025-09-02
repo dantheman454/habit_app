@@ -85,21 +85,3 @@ export function parseQwenResponse(response) {
 export function getQwenFinalResponse(parsedResponse) {
   return parsedResponse.final || '';
 }
-
-/**
- * Convert legacy Harmony prompt to Qwen ChatML format
- * @param {Object} harmonyPrompt - Legacy Harmony prompt structure
- * @returns {string} ChatML formatted prompt
- */
-export function convertHarmonyToQwen(harmonyPrompt) {
-  const { system, developer, user, assistant } = harmonyPrompt;
-  
-  // Combine system and developer content
-  const systemContent = developer ? `${system}\n\n${developer}` : system;
-  
-  return createQwenPrompt({
-    system: systemContent,
-    user,
-    assistant
-  });
-}
