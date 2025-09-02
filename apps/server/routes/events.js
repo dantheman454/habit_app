@@ -71,12 +71,15 @@ router.post('/api/events', (req, res) => {
   if (!ok) return res.status(400).json({ error: 'invalid_body' });
   const { title, notes, scheduledFor, startTime, endTime, location, recurrence, context } = req.body || {};
   if (typeof title !== 'string' || title.trim() === '') return res.status(400).json({ error: 'invalid_title' });
+  if (scheduledFor !== undefined && scheduledFor !== null) {
+    if (!isYmdString(scheduledFor) || parseYMD(scheduledFor) === null) return res.status(400).json({ error: 'invalid_scheduledFor' });
+  }
   if (startTime !== undefined && !(startTime === null || /^([01]\d|2[0-3]):[0-5]\d$/.test(String(startTime)))) return res.status(400).json({ error: 'invalid_start_time' });
   if (endTime !== undefined && !(endTime === null || /^([01]\d|2[0-3]):[0-5]\d$/.test(String(endTime)))) return res.status(400).json({ error: 'invalid_end_time' });
   if (context !== undefined && !['school','personal','work'].includes(String(context))) return res.status(400).json({ error: 'invalid_context' });
   const rec = (recurrence && typeof recurrence === 'object') ? recurrence : { type: 'none' };
   if (rec.type && rec.type !== 'none') {
-    if (!(scheduledFor && isYmdString(scheduledFor))) return res.status(400).json({ error: 'missing_anchor_for_recurrence' });
+    if (!(scheduledFor && isYmdString(scheduledFor) && parseYMD(scheduledFor) !== null)) return res.status(400).json({ error: 'missing_anchor_for_recurrence' });
   }
   try {
     const ev = db.createEvent({ title: title.trim(), notes: notes || '', scheduledFor: scheduledFor ?? null, startTime: startTime ?? null, endTime: endTime ?? null, location: location ?? null, recurrence: rec, completed: false, context: context || 'personal' });
@@ -92,6 +95,8 @@ router.get('/api/events', (req, res) => {
   try {
     const fromDate = from ? parseYMD(from) : null;
     const toDate = to ? parseYMD(to) : null;
+    if (from !== undefined && fromDate === null) return res.status(400).json({ error: 'invalid_from' });
+    if (to !== undefined && toDate === null) return res.status(400).json({ error: 'invalid_to' });
     let items = db.listEvents({ from: null, to: null, completed: null }).filter(e => e.scheduledFor !== null);
     const doExpand = !!(fromDate && toDate);
     if (!doExpand) {
@@ -157,50 +162,6 @@ router.get('/api/events', (req, res) => {
   } catch (e) { return res.status(500).json({ error: 'db_error' }); }
 });
 
-router.get('/api/events/:id', (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
-  const ev = db.getEventById(id);
-  if (!ev) return res.status(404).json({ error: 'not_found' });
-  return res.json({ event: ev });
-});
-
-router.patch('/api/events/:id', (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
-  const { title, notes, scheduledFor, startTime, endTime, location, recurrence, context } = req.body || {};
-  if (title !== undefined && typeof title !== 'string') return res.status(400).json({ error: 'invalid_title' });
-  if (notes !== undefined && typeof notes !== 'string') return res.status(400).json({ error: 'invalid_notes' });
-  if (!(scheduledFor === undefined || scheduledFor === null || isYmdString(scheduledFor))) return res.status(400).json({ error: 'invalid_scheduledFor' });
-  if (startTime !== undefined && !(startTime === null || /^([01]\d|2[0-3]):[0-5]\d$/.test(String(startTime)))) return res.status(400).json({ error: 'invalid_start_time' });
-  if (endTime !== undefined && !(endTime === null || /^([01]\d|2[0-3]):[0-5]\d$/.test(String(endTime)))) return res.status(400).json({ error: 'invalid_end_time' });
-  if (recurrence !== undefined && typeof recurrence !== 'object') return res.status(400).json({ error: 'invalid_recurrence' });
-  if (context !== undefined && !['school','personal','work'].includes(String(context))) return res.status(400).json({ error: 'invalid_context' });
-  if (recurrence && recurrence.type && recurrence.type !== 'none') {
-    const anchor = (scheduledFor !== undefined) ? scheduledFor : (db.getEventById(id)?.scheduledFor ?? null);
-    if (!(anchor !== null && isYmdString(anchor))) return res.status(400).json({ error: 'missing_anchor_for_recurrence' });
-  }
-  try {
-    const ev = db.updateEvent(id, { title, notes, scheduledFor, startTime, endTime, location, recurrence, context });
-    return res.json({ event: ev });
-  } catch (e) {
-    const msg = String(e && e.message ? e.message : e);
-    if (msg === 'not_found') return res.status(404).json({ error: 'not_found' });
-    return res.status(500).json({ error: 'update_failed' });
-  }
-});
-
-router.patch('/api/events/:id/occurrence', (req, res) => {
-  return res.status(400).json({ error: 'not_supported' });
-});
-
-router.delete('/api/events/:id', (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
-  try { db.deleteEvent(id); return res.json({ ok: true }); }
-  catch { return res.status(500).json({ error: 'delete_failed' }); }
-});
-
 router.get('/api/events/search', (req, res) => {
   const qRaw = String(req.query.query || '');
   const q = qRaw.trim();
@@ -227,6 +188,50 @@ router.get('/api/events/search', (req, res) => {
   } catch (e) {
     return res.status(500).json({ error: 'search_failed' });
   }
+});
+
+router.get('/api/events/:id', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
+  const ev = db.getEventById(id);
+  if (!ev) return res.status(404).json({ error: 'not_found' });
+  return res.json({ event: ev });
+});
+
+router.patch('/api/events/:id', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
+  const { title, notes, scheduledFor, startTime, endTime, location, recurrence, context } = req.body || {};
+  if (title !== undefined && typeof title !== 'string') return res.status(400).json({ error: 'invalid_title' });
+  if (notes !== undefined && typeof notes !== 'string') return res.status(400).json({ error: 'invalid_notes' });
+  if (!(scheduledFor === undefined || scheduledFor === null || (isYmdString(scheduledFor) && parseYMD(scheduledFor) !== null))) return res.status(400).json({ error: 'invalid_scheduledFor' });
+  if (startTime !== undefined && !(startTime === null || /^([01]\d|2[0-3]):[0-5]\d$/.test(String(startTime)))) return res.status(400).json({ error: 'invalid_start_time' });
+  if (endTime !== undefined && !(endTime === null || /^([01]\d|2[0-3]):[0-5]\d$/.test(String(endTime)))) return res.status(400).json({ error: 'invalid_end_time' });
+  if (recurrence !== undefined && typeof recurrence !== 'object') return res.status(400).json({ error: 'invalid_recurrence' });
+  if (context !== undefined && !['school','personal','work'].includes(String(context))) return res.status(400).json({ error: 'invalid_context' });
+  if (recurrence && recurrence.type && recurrence.type !== 'none') {
+    const anchor = (scheduledFor !== undefined) ? scheduledFor : (db.getEventById(id)?.scheduledFor ?? null);
+    if (!(anchor !== null && isYmdString(anchor) && parseYMD(anchor) !== null)) return res.status(400).json({ error: 'missing_anchor_for_recurrence' });
+  }
+  try {
+    const ev = db.updateEvent(id, { title, notes, scheduledFor, startTime, endTime, location, recurrence, context });
+    return res.json({ event: ev });
+  } catch (e) {
+    const msg = String(e && e.message ? e.message : e);
+    if (msg === 'not_found') return res.status(404).json({ error: 'not_found' });
+    return res.status(500).json({ error: 'update_failed' });
+  }
+});
+
+router.patch('/api/events/:id/occurrence', (req, res) => {
+  return res.status(400).json({ error: 'not_supported' });
+});
+
+router.delete('/api/events/:id', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
+  try { db.deleteEvent(id); return res.json({ ok: true }); }
+  catch { return res.status(500).json({ error: 'delete_failed' }); }
 });
 
 export default router;

@@ -50,15 +50,17 @@ router.post('/api/tasks', (req, res) => {
   if (notes !== undefined && typeof notes !== 'string') {
     return res.status(400).json({ error: 'invalid_notes' });
   }
-  if (!(scheduledFor === undefined || scheduledFor === null || isYmdString(scheduledFor))) {
-    return res.status(400).json({ error: 'invalid_scheduledFor' });
+  if (scheduledFor !== undefined && scheduledFor !== null) {
+    if (!isYmdString(scheduledFor) || parseYMD(scheduledFor) === null) {
+      return res.status(400).json({ error: 'invalid_scheduledFor' });
+    }
   }
   // tasks are all-day; no time-of-day validation
   if (!isValidRecurrence(recurrence)) {
     return res.status(400).json({ error: 'invalid_recurrence' });
   }
   if (recurrence && recurrence.type && recurrence.type !== 'none') {
-    if (!(scheduledFor !== null && isYmdString(scheduledFor))) {
+    if (!(scheduledFor !== null && isYmdString(scheduledFor) && parseYMD(scheduledFor) !== null)) {
       return res.status(400).json({ error: 'missing_anchor_for_recurrence' });
     }
   }
@@ -85,6 +87,8 @@ router.get('/api/tasks', (req, res) => {
 
   const fromDate = from ? parseYMD(from) : null;
   const toDate = to ? parseYMD(to) : null;
+  if (from !== undefined && fromDate === null) return res.status(400).json({ error: 'invalid_from' });
+  if (to !== undefined && toDate === null) return res.status(400).json({ error: 'invalid_to' });
 
   let items = db.listTasks({ from: null, to: null, status: status || null }).filter(t => t.scheduledFor !== null);
   if (completedBool !== undefined) items = items.filter(t => t.completed === completedBool);
@@ -187,9 +191,9 @@ router.patch('/api/tasks/:id', (req, res) => {
     t.notes = body.notes;
   }
   if (body.scheduledFor !== undefined) {
-    if (!(body.scheduledFor === null || isYmdString(body.scheduledFor))) return res.status(400).json({ error: 'invalid_scheduledFor' });
+    if (!(body.scheduledFor === null || (isYmdString(body.scheduledFor) && parseYMD(body.scheduledFor) !== null))) return res.status(400).json({ error: 'invalid_scheduledFor' });
     if (t.recurrence && t.recurrence.type && t.recurrence.type !== 'none') {
-      if (!(body.scheduledFor !== null && isYmdString(body.scheduledFor))) return res.status(400).json({ error: 'missing_anchor_for_recurrence' });
+      if (!(body.scheduledFor !== null && isYmdString(body.scheduledFor) && parseYMD(body.scheduledFor) !== null)) return res.status(400).json({ error: 'missing_anchor_for_recurrence' });
     }
     t.scheduledFor = body.scheduledFor;
   }
@@ -198,7 +202,7 @@ router.patch('/api/tasks/:id', (req, res) => {
     if (!isValidRecurrence(body.recurrence)) return res.status(400).json({ error: 'invalid_recurrence' });
     if (body.recurrence && body.recurrence.type && body.recurrence.type !== 'none') {
       const anchor = (body.scheduledFor !== undefined) ? body.scheduledFor : t.scheduledFor;
-      if (!(anchor !== null && isYmdString(anchor))) return res.status(400).json({ error: 'missing_anchor_for_recurrence' });
+      if (!(anchor !== null && isYmdString(anchor) && parseYMD(anchor) !== null)) return res.status(400).json({ error: 'missing_anchor_for_recurrence' });
     }
     t.recurrence = { ...(t.recurrence || {}), ...body.recurrence };
   }
@@ -217,7 +221,9 @@ router.patch('/api/tasks/:id/occurrence', (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid_id' });
   const occurrenceDate = String(req.body?.occurrenceDate || '');
-  if (!isYmdString(occurrenceDate)) return res.status(400).json({ error: 'invalid_occurrenceDate' });
+  if (!isYmdString(occurrenceDate) || parseYMD(occurrenceDate) === null) {
+    return res.status(400).json({ error: 'invalid_occurrenceDate' });
+  }
   const task = findTaskById(id);
   if (!task) return res.status(404).json({ error: 'not_found' });
   let status = req.body?.status;
@@ -231,7 +237,11 @@ router.patch('/api/tasks/:id/occurrence', (req, res) => {
   try {
     const updated = db.setTaskOccurrenceStatus({ id, occurrenceDate, status });
     return res.json({ task: updated });
-  } catch (e) { return res.status(500).json({ error: 'update_failed' }); }
+  } catch (e) {
+    const msg = String(e && e.message ? e.message : e);
+    if (msg === 'not_repeating') return res.status(400).json({ error: 'not_repeating' });
+    return res.status(500).json({ error: 'update_failed' });
+  }
 });
 
 router.delete('/api/tasks/:id', (req, res) => {

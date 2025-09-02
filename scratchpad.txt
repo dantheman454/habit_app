@@ -59,6 +59,10 @@ Next:
 
 
 Long term:
+-Better utilize memory for project development!!!
+    >Keep guide files 
+    >Set up project protocals for Cursor to auto follow
+    >Play around with different prompts to see what works best (qualitativly and qualitativly)
 -Scratchpad for Mr Assister
 -ask mitchell if I could fine tune models on the dgx (figure out best way to do this)
 -kaizen journal integration somehow?
