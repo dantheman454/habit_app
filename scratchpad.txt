@@ -22,10 +22,8 @@ Get done asap:
         *get searchbar working and cleaner
         *Clean up header
         *fix it from being so snappy when deleting tasks or going between tabs
-
     -Clean up legacy code and unused imports
         >Remove harmony prompting and Qwen specific functionality
-        >
     -Delete and remake the unit tests
     -SCAN FOR ANY BACKDOORS/EVIL CODE PATTERNS
     -Look into licenses of anything this project uses 

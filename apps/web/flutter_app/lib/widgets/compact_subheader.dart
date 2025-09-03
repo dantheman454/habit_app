@@ -147,23 +147,45 @@ class CompactSubheader extends StatelessWidget {
                       onPressed: () {
                         showDialog(
                           context: context,
+                          barrierDismissible: true,
                           builder: (dCtx) {
-                            return AlertDialog(
-                              title: const Text('Search'),
-                              content: GlobalSearchField(
-                                controller: searchController!,
-                                focusNode: searchFocus ?? FocusNode(),
-                                link: searchLink ?? LayerLink(),
-                                searching: searching,
-                                onChanged: onSearchChanged ?? (_) {},
-                                onFocusChange: null,
-                                onKeyEvent: onSearchKeyEvent,
-                                onClear: onSearchClear,
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.of(dCtx).pop(),
-                                  child: const Text('Close'),
+                            return Stack(
+                              children: [
+                                Positioned.fill(
+                                  child: GestureDetector(
+                                    onTap: () => Navigator.of(dCtx).pop(),
+                                  ),
+                                ),
+                                Align(
+                                  alignment: Alignment.topCenter,
+                                  child: SafeArea(
+                                    child: Padding(
+                                      padding: const EdgeInsets.only(top: 64),
+                                      child: Material(
+                                        color: Theme.of(context).colorScheme.surface,
+                                        elevation: 8,
+                                        borderRadius: BorderRadius.circular(12),
+                                        clipBehavior: Clip.antiAlias,
+                                        child: ConstrainedBox(
+                                          constraints: const BoxConstraints(maxWidth: 560),
+                                          child: Padding(
+                                            padding: const EdgeInsets.all(12),
+                                            child: GlobalSearchField(
+                                              controller: searchController!,
+                                              focusNode: searchFocus ?? FocusNode(),
+                                              link: searchLink ?? LayerLink(),
+                                              searching: searching,
+                                              onChanged: onSearchChanged ?? (_) {},
+                                              onFocusChange: onSearchFocusChange,
+                                              onKeyEvent: onSearchKeyEvent,
+                                              onClear: onSearchClear,
+                                              autofocus: true,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
                                 ),
                               ],
                             );
@@ -264,23 +286,45 @@ class CompactSubheader extends StatelessWidget {
                     onPressed: () {
                       showDialog(
                         context: context,
+                        barrierDismissible: true,
                         builder: (dCtx) {
-                          return AlertDialog(
-                            title: const Text('Search'),
-                            content: GlobalSearchField(
-                              controller: searchController!,
-                              focusNode: searchFocus ?? FocusNode(),
-                              link: searchLink ?? LayerLink(),
-                              searching: searching,
-                              onChanged: onSearchChanged ?? (_) {},
-                              onFocusChange: null,
-                              onKeyEvent: onSearchKeyEvent,
-                              onClear: onSearchClear,
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.of(dCtx).pop(),
-                                child: const Text('Close'),
+                          return Stack(
+                            children: [
+                              Positioned.fill(
+                                child: GestureDetector(
+                                  onTap: () => Navigator.of(dCtx).pop(),
+                                ),
+                              ),
+                              Align(
+                                alignment: Alignment.topCenter,
+                                child: SafeArea(
+                                  child: Padding(
+                                    padding: const EdgeInsets.only(top: 64),
+                                    child: Material(
+                                      color: Theme.of(context).colorScheme.surface,
+                                      elevation: 8,
+                                      borderRadius: BorderRadius.circular(12),
+                                      clipBehavior: Clip.antiAlias,
+                                      child: ConstrainedBox(
+                                        constraints: const BoxConstraints(maxWidth: 560),
+                                        child: Padding(
+                                          padding: const EdgeInsets.all(12),
+                                          child: GlobalSearchField(
+                                            controller: searchController!,
+                                            focusNode: searchFocus ?? FocusNode(),
+                                            link: searchLink ?? LayerLink(),
+                                            searching: searching,
+                                            onChanged: onSearchChanged ?? (_) {},
+                                            onFocusChange: onSearchFocusChange,
+                                            onKeyEvent: onSearchKeyEvent,
+                                            onClear: onSearchClear,
+                                            autofocus: true,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
                               ),
                             ],
                           );

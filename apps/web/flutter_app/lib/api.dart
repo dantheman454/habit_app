@@ -73,10 +73,6 @@ Future<List<dynamic>> searchTasks(
 // Unified search (server-side merge of tasks + events; habits optional later)
 Future<List<dynamic>> searchUnified(
   String q, {
-  String scope = 'all', // 'task' | 'event' | 'all'
-  bool? completed, // applies to events only
-  String? statusTask, // applies to tasks only
-  String? context, // 'school' | 'personal' | 'work' | null for 'all'
   CancelToken? cancelToken,
   int? limit,
 }) async {
@@ -84,10 +80,6 @@ Future<List<dynamic>> searchUnified(
     '/api/search',
     queryParameters: {
       'q': q,
-      if (scope.isNotEmpty) 'scope': scope,
-      if (completed != null) 'completed': completed.toString(),
-      if (statusTask != null) 'status_task': statusTask,
-      if (context != null) 'context': context,
       if (limit != null) 'limit': limit,
     },
     cancelToken: cancelToken,

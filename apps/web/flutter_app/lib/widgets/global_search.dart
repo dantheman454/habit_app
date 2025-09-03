@@ -10,6 +10,7 @@ class GlobalSearchField extends StatelessWidget {
   final void Function(bool)? onFocusChange;
   final KeyEventResult Function(FocusNode, KeyEvent)? onKeyEvent;
   final VoidCallback? onClear;
+  final bool autofocus; // NEW
 
   const GlobalSearchField({
     super.key,
@@ -21,6 +22,7 @@ class GlobalSearchField extends StatelessWidget {
     this.onFocusChange,
     this.onKeyEvent,
     this.onClear,
+    this.autofocus = false, // NEW default
   });
 
   @override
@@ -37,6 +39,7 @@ class GlobalSearchField extends StatelessWidget {
           onKeyEvent: onKeyEvent,
           child: TextField(
             controller: controller,
+            autofocus: autofocus, // NEW
             decoration: InputDecoration(
               prefixIcon: const Icon(Icons.search),
               hintText: 'Search',

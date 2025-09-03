@@ -327,19 +327,15 @@ class _HomePageState extends State<HomePage> {
   int _searchHoverIndex = -1;
   bool _searching = false;
   int? _highlightedId;
-
-  // Search filter state
-  String _searchScope = 'all'; // 'all', 'task', 'event'
-  String? _searchContext; // null for 'all', or 'personal', 'work', 'school'
-  String _searchStatusTask = 'pending'; // 'pending', 'completed', 'skipped'
-  bool?
-  _searchCompleted; // null for 'all', true for completed, false for incomplete
+  // Search filter state removed
 
   // Today highlight animation state
   bool _todayPulseActive = false;
 
   // Map of row keys for ensureVisible
   final Map<int, GlobalKey> _rowKeys = {};
+  int? _pendingScrollKeyId; // row key target after navigation (occurrence-aware)
+  int? _pendingScrollBaseId; // base id from search result for matching after refresh
 
   MainView mainView = MainView.tasks;
 
@@ -430,8 +426,7 @@ class _HomePageState extends State<HomePage> {
       setState(() => loading = false);
     }
 
-    // Initialize search context
-    _searchContext = selectedContext;
+    // Search filters removed
   }
 
   // _isValidTime helper removed; tasks are all-day in current UI
@@ -857,7 +852,7 @@ class _HomePageState extends State<HomePage> {
           'status': status,
         });
       }
-      setState(() => _searchStatusTask = status);
+      // Search filter state removed; no-op update
       await _refreshAll();
     } catch (_) {}
   }
@@ -877,16 +872,14 @@ class _HomePageState extends State<HomePage> {
       setState(() => _searching = true);
       final raw = await api.searchUnified(
         q,
-        scope: _searchScope,
-        completed: _searchCompleted ?? (showCompleted ? null : false),
-        statusTask: _searchStatusTask,
-        context: _searchContext,
         cancelToken: _searchCancelToken,
         limit: 30,
       );
       final items = raw.map((e) => Task.fromJson(Map<String, dynamic>.from(e))).toList();
+      // Client trusts server to enforce substring for q length >= 2
+      final itemsFiltered = items;
       setState(() {
-        searchResults = items;
+        searchResults = itemsFiltered;
         _searching = false;
       });
       _showSearchOverlayIfNeeded();
@@ -906,57 +899,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // Search filter chip functions
-  void _setSearchScope(String scope) {
-    setState(() => _searchScope = scope);
-    _runSearch(searchCtrl.text);
-  }
-
-  void _setSearchContext(String? context) {
-    setState(() => _searchContext = context);
-    // Sync context
-    if (selectedContext != context) {
-      selectedContext = context;
-      _refreshAll();
-    }
-    _runSearch(searchCtrl.text);
-  }
-
-  void _setSearchStatusTask(String status) {
-    setState(() => _searchStatusTask = status);
-    _runSearch(searchCtrl.text);
-  }
-
-  void _setSearchCompleted(bool? completed) {
-    setState(() => _searchCompleted = completed);
-    _runSearch(searchCtrl.text);
-  }
-
-  void _resetSearchFilters() {
-    setState(() {
-      _searchScope = 'all';
-      _searchContext = selectedContext;
-      _searchStatusTask = 'pending';
-      _searchCompleted = null;
-    });
-    _runSearch(searchCtrl.text);
-  }
-
-  Widget _buildFilterChip(String label, bool selected, VoidCallback onTap) {
-    return FilterChip(
-      label: Text(label),
-      selected: selected,
-      onSelected: (_) => onTap(),
-      backgroundColor: Colors.transparent,
-      selectedColor: Theme.of(context).colorScheme.primaryContainer,
-      checkmarkColor: Theme.of(context).colorScheme.onPrimaryContainer,
-      labelStyle: TextStyle(
-        color: selected
-            ? Theme.of(context).colorScheme.onPrimaryContainer
-            : Theme.of(context).colorScheme.onSurface,
-      ),
-    );
-  }
+  // Search filter functions removed
 
   void _showSearchOverlayIfNeeded() {
     if (!_searchFocus.hasFocus || searchCtrl.text.trim().length < 2) {
@@ -1015,135 +958,7 @@ class _HomePageState extends State<HomePage> {
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                // Filter chips
-                                Padding(
-                                  padding: const EdgeInsets.all(12),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      // Scope chips
-                                      Wrap(
-                                        spacing: 6,
-                                        runSpacing: 6,
-                                        children: [
-                                          _buildFilterChip(
-                                            'All',
-                                            _searchScope == 'all',
-                                            () => _setSearchScope('all'),
-                                          ),
-                                          _buildFilterChip(
-                                            'Tasks',
-                                            _searchScope == 'task',
-                                            () => _setSearchScope('task'),
-                                          ),
-                                          _buildFilterChip(
-                                            'Events',
-                                            _searchScope == 'event',
-                                            () => _setSearchScope('event'),
-                                          ),
-                                          _buildFilterChip(
-                                            'Habits',
-                                            false,
-                                            () {},
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 8),
-                                      // Context chips
-                                      Wrap(
-                                        spacing: 6,
-                                        runSpacing: 6,
-                                        children: [
-                                          _buildFilterChip(
-                                            'All ctx',
-                                            _searchContext == null,
-                                            () => _setSearchContext(null),
-                                          ),
-                                          _buildFilterChip(
-                                            'Personal',
-                                            _searchContext == 'personal',
-                                            () => _setSearchContext('personal'),
-                                          ),
-                                          _buildFilterChip(
-                                            'Work',
-                                            _searchContext == 'work',
-                                            () => _setSearchContext('work'),
-                                          ),
-                                          _buildFilterChip(
-                                            'School',
-                                            _searchContext == 'school',
-                                            () => _setSearchContext('school'),
-                                          ),
-                                        ],
-                                      ),
-                                      if (_searchScope == 'task') ...[
-                                        const SizedBox(height: 8),
-                                        // Task status chips (only when scope is task)
-                                        Wrap(
-                                          spacing: 6,
-                                          runSpacing: 6,
-                                          children: [
-                                            _buildFilterChip(
-                                              'Pending',
-                                              _searchStatusTask == 'pending',
-                                              () => _setSearchStatusTask(
-                                                'pending',
-                                              ),
-                                            ),
-                                            _buildFilterChip(
-                                              'Completed',
-                                              _searchStatusTask == 'completed',
-                                              () => _setSearchStatusTask(
-                                                'completed',
-                                              ),
-                                            ),
-                                            _buildFilterChip(
-                                              'Skipped',
-                                              _searchStatusTask == 'skipped',
-                                              () => _setSearchStatusTask(
-                                                'skipped',
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-                                      if (_searchScope == 'event' ||
-                                          _searchScope == 'all') ...[
-                                        const SizedBox(height: 8),
-                                        // Completed status chips (for events)
-                                        Wrap(
-                                          spacing: 6,
-                                          runSpacing: 6,
-                                          children: [
-                                            _buildFilterChip(
-                                              'All',
-                                              _searchCompleted == null,
-                                              () => _setSearchCompleted(null),
-                                            ),
-                                            _buildFilterChip(
-                                              'Completed',
-                                              _searchCompleted == true,
-                                              () => _setSearchCompleted(true),
-                                            ),
-                                            _buildFilterChip(
-                                              'Incomplete',
-                                              _searchCompleted == false,
-                                              () => _setSearchCompleted(false),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-                                      const SizedBox(height: 8),
-                                      // Reset button
-                                      TextButton(
-                                        onPressed: _resetSearchFilters,
-                                        child: const Text('Reset filters'),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const Divider(height: 1),
+                                // Filters removed
                                 // Results
                                 if (_searching && results.isEmpty)
                                   const Padding(
@@ -1441,51 +1256,55 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _selectSearchResult(Task t) async {
     _removeSearchOverlay();
+    try { await Navigator.of(context, rootNavigator: true).maybePop(); } catch (_) {}
     _searchFocus.unfocus();
     searchCtrl.clear();
     setState(() {
       searchResults = [];
       _searchHoverIndex = -1;
     });
-    // Determine list membership
-    // Ensure we're in tasks view and the item type is visible
+    // Ensure correct kind visibility
     if (t.kind == 'event') {
       if (!(mainView == MainView.tasks && _kindFilter.contains('event'))) {
         setState(() {
           mainView = MainView.tasks;
-          // Ensure events are visible (add to filter if not present)
-          if (!_kindFilter.contains('event')) {
-            _kindFilter = <String>{'task', 'event'};
-          }
+          _kindFilter = <String>{'task', 'event'};
         });
         await _refreshAll();
       }
     } else {
-      // treat default as task
       if (!(mainView == MainView.tasks && _kindFilter.contains('task'))) {
         setState(() {
           mainView = MainView.tasks;
-          // Ensure tasks are visible (add to filter if not present)
-          if (!_kindFilter.contains('task')) {
-            _kindFilter = <String>{'task', 'event'};
-          }
+          _kindFilter = <String>{'task', 'event'};
         });
         await _refreshAll();
       }
     }
-    await Future.delayed(Duration.zero);
-    final key = _rowKeys[t.id];
-    if (key != null && key.currentContext != null) {
-      await Scrollable.ensureVisible(
-        key.currentContext!,
-        duration: const Duration(milliseconds: 250),
-      );
-      setState(() => _highlightedId = t.id);
-      await Future.delayed(const Duration(seconds: 1));
-      if (mounted && _highlightedId == t.id) {
-        setState(() => _highlightedId = null);
-      }
+
+    // Unscheduled: close, no navigation; show toast
+    if (t.scheduledFor == null) {
+      try {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Unscheduled item — nothing to navigate to')),
+        );
+      } catch (_) {}
+      return;
     }
+
+    // Compute target row key id (occurrence-aware) when possible
+    final int? keyId = (t.masterId != null && t.scheduledFor != null)
+        ? Object.hashAll([t.masterId, t.scheduledFor])
+        : null;
+
+    setState(() {
+      view = ViewMode.day;
+      anchor = t.scheduledFor!;
+      _pendingScrollYmd = t.scheduledFor!;
+      _pendingScrollKeyId = keyId; // may be null when selecting from search (no masterId provided)
+      _pendingScrollBaseId = t.id; // use to find matching row after refresh
+    });
+    await _refreshAll();
   }
 
   Future<void> _toggleCompleted(Task t) async {
@@ -2676,9 +2495,8 @@ class _HomePageState extends State<HomePage> {
                                                 _showSearchOverlayIfNeeded();
                                               },
                                               onSearchFocusChange: (f) {
-                                                if (!f) {
-                                                  _removeSearchOverlay();
-                                                } else {
+                                                // Keep overlay open on focus loss; rely on outside tap or selection to close
+                                                if (f) {
                                                   _showSearchOverlayIfNeeded();
                                                 }
                                               },
@@ -2736,6 +2554,15 @@ class _HomePageState extends State<HomePage> {
                                                   _selectSearchResult(
                                                     list[idx],
                                                   );
+                                                  return KeyEventResult.handled;
+                                                } else if (event.logicalKey ==
+                                                    LogicalKeyboardKey.escape) {
+                                                  searchCtrl.clear();
+                                                  setState(() {
+                                                    searchResults = [];
+                                                    _searchHoverIndex = -1;
+                                                  });
+                                                  _removeSearchOverlay();
                                                   return KeyEventResult.handled;
                                                 }
                                                 return KeyEventResult.ignored;
@@ -3468,35 +3295,62 @@ class _HomePageState extends State<HomePage> {
     if (_pendingScrollYmd == null) return;
     if (view != ViewMode.day) {
       _pendingScrollYmd = null;
+      _pendingScrollKeyId = null;
+      _pendingScrollBaseId = null;
       return;
     }
-    // Find first item in scheduled matching the target date
     final target = _pendingScrollYmd;
     final idx = scheduled.indexWhere((t) => t.scheduledFor == target);
     if (idx == -1) {
       _pendingScrollYmd = null;
-      return;
-    }
-    final t = scheduled[idx];
-    // Compute row key id the same way as in _buildRow
-    final keyId = (t.masterId != null && t.scheduledFor != null)
-        ? Object.hashAll([t.masterId, t.scheduledFor])
-        : t.id;
-    final key = _rowKeys[keyId];
-    if (key == null) {
-      _pendingScrollYmd = null;
+      _pendingScrollKeyId = null;
+      _pendingScrollBaseId = null;
       return;
     }
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       try {
-        if (key.currentContext != null) {
+        final GlobalKey? key = (_pendingScrollKeyId != null) ? _rowKeys[_pendingScrollKeyId!] : null;
+        if (key?.currentContext != null) {
           await Scrollable.ensureVisible(
-            key.currentContext!,
+            key!.currentContext!,
             duration: const Duration(milliseconds: 300),
           );
+          // Attempt highlight
+          try {
+            final t = scheduled.firstWhere((e) => e.scheduledFor == target);
+            setState(() => _highlightedId = t.id);
+            await Future.delayed(const Duration(seconds: 1));
+            if (mounted && _highlightedId == t.id) setState(() => _highlightedId = null);
+          } catch (_) {}
+        } else {
+          // Try to find by base id (selected id or its master) for the target date
+          final int? baseId = _pendingScrollBaseId;
+          Task? match;
+          if (baseId != null) {
+            try {
+              match = scheduled.firstWhere((e) => e.scheduledFor == target && (e.id == baseId || (e.masterId == baseId)));
+            } catch (_) {}
+          }
+          final Task fallbackT = match ?? scheduled[idx];
+          final fallbackId = (fallbackT.masterId != null && fallbackT.scheduledFor != null)
+              ? Object.hashAll([fallbackT.masterId, fallbackT.scheduledFor])
+              : fallbackT.id;
+          final fk = _rowKeys[fallbackId];
+          if (fk?.currentContext != null) {
+            await Scrollable.ensureVisible(
+              fk!.currentContext!,
+              duration: const Duration(milliseconds: 300),
+            );
+            // Highlight the scrolled row
+            setState(() => _highlightedId = fallbackT.id);
+            await Future.delayed(const Duration(seconds: 1));
+            if (mounted && _highlightedId == fallbackT.id) setState(() => _highlightedId = null);
+          }
         }
       } catch (_) {}
       _pendingScrollYmd = null;
+      _pendingScrollKeyId = null;
+      _pendingScrollBaseId = null;
     });
   }
 

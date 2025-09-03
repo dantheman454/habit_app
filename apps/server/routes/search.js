@@ -46,8 +46,12 @@ router.get('/api/search', (req, res) => {
     };
 
     if (wantTasks) {
-      let items = db.searchTasks({ q, status: status_task, context });
-      if (q.length < 2) {
+      // For substring search, avoid FTS pre-filtering which requires token/prefix
+      // Load a broad set, then apply substring filtering here
+      let items = (q.length >= 2)
+        ? db.searchTasks({ q: '', status: status_task, context })
+        : [];
+      if (q.length >= 2) {
         const ql = q.toLowerCase();
         items = items.filter(t => String(t.title || '').toLowerCase().includes(ql) || String(t.notes || '').toLowerCase().includes(ql));
       }
@@ -64,8 +68,11 @@ router.get('/api/search', (req, res) => {
       })));
     }
     if (wantEvents) {
-      let items = db.searchEvents({ q, context });
-      if (q.length < 2) {
+      // Same approach for events: fetch broad set, then substring filter
+      let items = (q.length >= 2)
+        ? db.searchEvents({ q: '', context })
+        : [];
+      if (q.length >= 2) {
         const ql = q.toLowerCase();
         items = items.filter(e => String(e.title || '').toLowerCase().includes(ql) || String(e.notes || '').toLowerCase().includes(ql) || String(e.location || '').toLowerCase().includes(ql));
       }
