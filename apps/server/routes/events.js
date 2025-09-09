@@ -141,11 +141,8 @@ router.get('/api/events', (req, res) => {
       }
     }
     let out = expanded;
-    if (completedBool !== undefined || context !== undefined) {
-      out = expanded.filter(x => x &&
-        (completedBool === undefined || (typeof x.completed === 'boolean' && x.completed === completedBool)) &&
-        (context === undefined || (typeof x.context === 'string' && x.context === context))
-      );
+    if (context !== undefined) {
+      out = expanded.filter(x => x && (typeof x.context === 'string' && x.context === context));
     }
     out = out.slice().sort((a, b) => {
       const sfa = String(a.scheduledFor || '');

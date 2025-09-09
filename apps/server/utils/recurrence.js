@@ -4,11 +4,7 @@ export function isYmdString(value) {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
-export function isValidTimeOfDay(value) {
-  if (value === null || value === undefined) return true;
-  if (typeof value !== 'string') return false;
-  return /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
-}
+// isValidTimeOfDay removed (unused)
 
 export function isValidRecurrence(rec) {
   if (rec === null || rec === undefined) return true;

@@ -13,11 +13,12 @@ router.get('/api/search', (req, res) => {
   const q = qRaw.trim();
   if (q.length === 0) return res.status(400).json({ error: 'invalid_query' });
   const scope = String(req.query.scope || 'all').toLowerCase();
-  let completedBool;
   if (req.query.completed !== undefined) {
-    if (req.query.completed === 'true' || req.query.completed === true) completedBool = true;
-    else if (req.query.completed === 'false' || req.query.completed === false) completedBool = false;
-    else return res.status(400).json({ error: 'invalid_completed' });
+    if (req.query.completed === 'true' || req.query.completed === true) {
+      // valid
+    } else if (req.query.completed === 'false' || req.query.completed === false) {
+      // valid
+    } else return res.status(400).json({ error: 'invalid_completed' });
   }
   const status_task = (req.query.status_task === undefined) ? undefined : String(req.query.status_task);
   if (status_task !== undefined && !['pending','completed','skipped'].includes(status_task)) return res.status(400).json({ error: 'invalid_status_task' });
@@ -116,7 +117,7 @@ router.get('/api/search', (req, res) => {
       .slice(0, limit)
       .map(x => x.r);
     return res.json({ items: scored });
-  } catch (e) {
+  } catch {
     return res.status(500).json({ error: 'search_failed' });
   }
 });

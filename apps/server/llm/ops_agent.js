@@ -6,44 +6,6 @@ import { mkCorrelationId, logIO } from './logging.js';
 import db from '../database/DbService.js';
 import { OperationRegistry } from '../operations/operation_registry.js';
 
-function detectAmbiguity(taskBrief, context) {
-  const lowerBrief = taskBrief.toLowerCase();
-  const actionWords = ['update', 'change', 'modify', 'complete', 'delete', 'remove', 'set', 'create', 'add'];
-  const hasAction = actionWords.some(word => lowerBrief.includes(word));
-  
-  if (!hasAction) {
-    return { needsClarification: false };
-  }
-  
-  const items = context.focused || [];
-  if (items.length > 1 && !lowerBrief.match(/#\d+/)) {
-    return {
-      needsClarification: true,
-      question: "Which item do you want to work with?",
-      options: items.slice(0, 5).map(item => ({
-        id: item.id,
-        title: item.title,
-        scheduledFor: item.scheduledFor
-      }))
-    };
-  }
-  const titleMatches = items.filter(item => 
-    item.title && lowerBrief.includes(item.title.toLowerCase())
-  );
-  if (titleMatches.length > 1) {
-    return {
-      needsClarification: true,
-      question: "Which item do you mean?",
-      options: titleMatches.map(item => ({
-        id: item.id,
-        title: item.title,
-        scheduledFor: item.scheduledFor
-      }))
-    };
-  }
-  return { needsClarification: false };
-}
-
 export async function runOpsAgent({ taskBrief, where = {}, transcript = [], timezone, operationProcessor } = {}) {
   // Pruned: delegate to tool-calling path for a single consistent execution flow
   return runOpsAgentToolCalling({ taskBrief, where, transcript, timezone, operationProcessor });

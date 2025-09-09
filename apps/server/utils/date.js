@@ -13,9 +13,7 @@ export function parseYMD(ymdStr) {
   return dt;
 }
 
-export function addDays(date, n) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + n);
-}
+// addDays removed (unused)
 
 export function weekRangeFromToday(tz) {
   const now = new Date();

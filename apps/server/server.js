@@ -7,32 +7,16 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { spawn } from 'child_process';
 import db from './database/DbService.js';
 import app, { setOperationProcessor } from './app.js';
-import { ymdInTimeZone, weekRangeFromToday } from './utils/date.js';
-import { isYmdString, isValidRecurrence } from './utils/recurrence.js';
-import { filterTasksByWhere as filterTasksByWhereUtil, filterItemsByWhere as filterItemsByWhereUtil, getAggregatesFromDb as getAggregatesFromDbUtil } from './utils/filters.js';
+import { ymdInTimeZone } from './utils/date.js';
+import { filterTasksByWhere as filterTasksByWhereUtil, getAggregatesFromDb as getAggregatesFromDbUtil } from './utils/filters.js';
 import { logIO, mkCorrelationId } from './llm/logging.js';
 import { batchRecorder } from './utils/batch_recorder.js';
 
 // Add response filtering middleware
-function filterLLMResponse(data) {
-  if (typeof data === 'string') {
-    try {
-      const parsed = JSON.parse(data);
-      // Remove sensitive fields from client responses
-      const filtered = { ...parsed };
-      delete filtered.context;
-      delete filtered.created_at;
-      delete filtered.model;
-      delete filtered.done_reason;
-      return JSON.stringify(filtered);
-    } catch {
-      return data;
-    }
-  }
-  return data;
-}
+// filterLLMResponse removed (unused)
 import { HabitusMCPServer } from './mcp/mcp_server.js';
 import { OperationProcessor } from './operations/operation_processor.js';
 import { OperationRegistry } from './operations/operation_registry.js';
@@ -62,9 +46,7 @@ const TIMEZONE = process.env.TZ_NAME || 'America/New_York';
 // weekRangeFromToday is provided by utils/date.js
 
 // DB-backed helpers
-function loadAllTasks() {
-  try { return db.listTasks({ from: null, to: null }); } catch { return []; }
-}
+// loadAllTasks removed (unused)
 
 function listAllTasksRaw() {
   // Use FTS fallback path to get all items deterministically
@@ -77,22 +59,9 @@ function listAllEventsRaw() {
 
 // Habits removed in migration
 
-function filterTasksByWhere(where = {}) { return filterTasksByWhereUtil(where, { listAllTasksRaw }); }
+// filterTasksByWhere/getAggregatesFromDb removed (unused helpers)
 
-function filterItemsByWhere(items, where = {}) { return filterItemsByWhereUtil(items, where); }
-
-function getAggregatesFromDb() {
-  return getAggregatesFromDbUtil({ listAllTasksRaw });
-}
-
-function buildRouterSnapshots() {
-  const { fromYmd, toYmd } = weekRangeFromToday(TIMEZONE);
-  const tasksWeek = filterTasksByWhereUtil({ scheduled_range: { from: fromYmd, to: toYmd }, status: 'pending' }, { listAllTasksRaw });
-  const eventsWeek = filterItemsByWhereUtil(listAllEventsRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false });
-  const weekItems = [...tasksWeek, ...eventsWeek];
-  const compact = (t) => ({ id: t.id, title: t.title, scheduledFor: t.scheduledFor });
-  return { week: { from: fromYmd, to: toYmd, items: weekItems.map(compact) } };
-}
+// buildRouterSnapshots removed (unused)
 
 
 
@@ -105,11 +74,7 @@ try {
 
 // --- Normalization helpers (forward-compatible defaults) ---
 
-function createTaskDb({ title, notes = '', scheduledFor = null, recurrence = undefined, context = 'personal' }) {
-  return db.createTask({ title, notes, scheduledFor, recurrence: recurrence || { type: 'none' }, status: 'pending', context });
-}
-
-function findTaskById(id) { return db.getTaskById(parseInt(id, 10)); }
+// createTaskDb/findTaskById removed (unused)
 
 // moved to utils/date.js
 
@@ -424,26 +389,7 @@ const OLLAMA_TEMPERATURE = 0.1;
 const GLOBAL_TIMEOUT_SECS = parseInt('300', 10);
 
 
-function validateWhere(where) {
-  const errors = [];
-  if (!where || typeof where !== 'object') return ['invalid_where_object'];
-  const w = where;
-  if (w.ids !== undefined && !Array.isArray(w.ids)) errors.push('invalid_where_ids');
-  if (w.title_contains !== undefined && typeof w.title_contains !== 'string') errors.push('invalid_where_title_contains');
-  if (w.overdue !== undefined && typeof w.overdue !== 'boolean') errors.push('invalid_where_overdue');
-  if (w.scheduled_range !== undefined) {
-    if (typeof w.scheduled_range !== 'object') errors.push('invalid_where_scheduled_range');
-    else {
-      const r = w.scheduled_range;
-      if (r.from !== undefined && !(r.from === null || isYmdString(r.from))) errors.push('invalid_where_scheduled_range_from');
-      if (r.to !== undefined && !(r.to === null || isYmdString(r.to))) errors.push('invalid_where_scheduled_range_to');
-    }
-  }
-
-  if (w.completed !== undefined && typeof w.completed !== 'boolean') errors.push('invalid_where_completed');
-  if (w.repeating !== undefined && typeof w.repeating !== 'boolean') errors.push('invalid_where_repeating');
-  return errors;
-}
+// validateWhere removed (unused)
 
 // Centralized proposal validation using OperationProcessor validators
 async function validateProposal(body) {
@@ -676,7 +622,7 @@ function appendAudit(entry) {
   try { db.logAudit(entry); } catch {}
 }
 
-async function withDbTransaction(fn) { return db.runInTransaction(fn); }
+// withDbTransaction removed (unused wrapper)
 
 // --- Assistant chat (two-call pipeline) ---
 function buildConversationalSummaryPrompt({ instruction, operations, tasksSnapshot, transcript }) {
@@ -728,7 +674,7 @@ function buildDeterministicSummaryText(operations) {
 // Shared helper: propose → validate → (attempt repair) → return ops and annotations
 async function runProposalAndRepair({ instruction, transcript, focusedWhere, mode = 'post', onValidating, onOps, onRepairing, correlationId }) {
   // Snapshot selection
-  const aggregates = getAggregatesFromDb();
+  const aggregates = getAggregatesFromDbUtil({ listAllTasksRaw });
   const topK = focusedWhere ? filterTasksByWhereUtil(focusedWhere, { listAllTasksRaw }).slice(0, 50) : listAllTasksRaw().slice(0, 40);
   const snapshot = focusedWhere ? { focused: topK, aggregates } : { topK, aggregates };
 

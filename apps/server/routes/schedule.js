@@ -73,11 +73,15 @@ router.get('/api/schedule', (req, res) => {
   const { from, to, kinds, completed, status_task, context } = req.query || {};
   if (!isYmdString(from)) return res.status(400).json({ error: 'invalid_from' });
   if (!isYmdString(to)) return res.status(400).json({ error: 'invalid_to' });
-  let completedBool;
+  // Validate completed flag without storing (not used in this endpoint's logic)
   if (completed !== undefined) {
-    if (completed === 'true' || completed === true) completedBool = true;
-    else if (completed === 'false' || completed === false) completedBool = false;
-    else return res.status(400).json({ error: 'invalid_completed' });
+    if (completed === 'true' || completed === true) {
+      // valid; ignore filter
+    } else if (completed === 'false' || completed === false) {
+      // valid; ignore filter
+    } else {
+      return res.status(400).json({ error: 'invalid_completed' });
+    }
   }
   if (status_task !== undefined && !['pending','completed','skipped'].includes(String(status_task))) return res.status(400).json({ error: 'invalid_status_task' });
   if (context !== undefined && !['school','personal','work'].includes(String(context))) return res.status(400).json({ error: 'invalid_context' });
@@ -185,7 +189,7 @@ router.get('/api/schedule', (req, res) => {
       }
     }
 
-    const kindOrder = { event: 0, task: 1 };
+  // Events are sorted before tasks via explicit checks below (no need for a map)
     items.sort((a, b) => {
       const da = String(a.scheduledFor || '');
       const dbs = String(b.scheduledFor || '');
@@ -212,7 +216,7 @@ router.get('/api/schedule', (req, res) => {
     });
 
     return res.json({ items });
-  } catch (e) {
+  } catch {
     return res.status(500).json({ error: 'schedule_error' });
   }
 });

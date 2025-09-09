@@ -1,6 +1,6 @@
 // Chat responder for conversational replies (no operations)
 
-import { qwenConvoLLM, getModels } from './clients.js';
+import { qwenConvoLLM } from './clients.js';
 import { createQwenPrompt, getQwenFinalResponse } from './qwen_utils.js';
 import { buildQAContext } from './context.js';
 import { mkCorrelationId, logIO } from './logging.js';

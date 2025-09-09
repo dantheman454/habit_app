@@ -163,7 +163,7 @@ router.get('/api/tasks/search', (req, res) => {
       .sort((a, b) => b.s - a.s || String(a.t.scheduledFor || '').localeCompare(String(b.t.scheduledFor || '')) || (a.t.id - b.t.id))
       .map(x => x.t);
     return res.json({ tasks: items });
-  } catch (e) {
+  } catch {
     return res.status(500).json({ error: 'search_failed' });
   }
 });

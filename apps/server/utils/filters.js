@@ -48,48 +48,7 @@ export function filterTasksByWhere(where = {}, { listAllTasksRaw }) {
   return filtered;
 }
 
-export function filterItemsByWhere(items, where = {}) {
-  let filtered = (Array.isArray(items) ? items.slice() : []);
-  if (Array.isArray(where.ids) && where.ids.length) {
-    const set = new Set(where.ids.map((id) => parseInt(id, 10)));
-    filtered = filtered.filter((t) => set.has(t.id));
-  }
-  if (typeof where.title_contains === 'string' && where.title_contains.trim()) {
-    const q = where.title_contains.toLowerCase();
-    filtered = filtered.filter((t) => String(t.title || '').toLowerCase().includes(q));
-  }
-  if (typeof where.overdue === 'boolean') {
-    const todayY = ymd(new Date());
-    const isOverdue = (t) => { if (t.completed) return false; if (!t.scheduledFor) return false; return String(t.scheduledFor) < String(todayY); };
-    filtered = filtered.filter((t) => isOverdue(t) === where.overdue);
-  }
-  if (where.scheduled_range && (where.scheduled_range.from || where.scheduled_range.to)) {
-    const from = where.scheduled_range.from ? parseYMD(where.scheduled_range.from) : null;
-    const to = where.scheduled_range.to ? parseYMD(where.scheduled_range.to) : null;
-    filtered = filtered.filter((t) => {
-      if (!t.scheduledFor) return false;
-      const d = parseYMD(t.scheduledFor);
-      if (!d) return false;
-      if (from && d < from) return false;
-      if (to) {
-        const inclusiveEnd = new Date(to.getFullYear(), to.getMonth(), to.getDate() + 1);
-        if (d >= inclusiveEnd) return false;
-      }
-      return true;
-    });
-  }
-  if (typeof where.completed === 'boolean') {
-    filtered = filtered.filter((t) => !!t.completed === where.completed);
-  }
-  if (typeof where.context === 'string') {
-    filtered = filtered.filter((t) => String(t.context) === String(where.context));
-  }
-  if (typeof where.repeating === 'boolean') {
-    const isRepeating = (x) => !!(x?.recurrence && x.recurrence.type && x.recurrence.type !== 'none');
-    filtered = filtered.filter((t) => isRepeating(t) === where.repeating);
-  }
-  return filtered;
-}
+// filterItemsByWhere removed (unused)
 
 export function getAggregatesFromDb({ listAllTasksRaw }) {
   const items = (typeof listAllTasksRaw === 'function' ? listAllTasksRaw() : []);

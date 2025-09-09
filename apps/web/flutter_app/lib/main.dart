@@ -3183,23 +3183,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  String _getMonthName(int month) {
-    const monthNames = [
-      'January',
-      'February',
-      'March',
-      'April',
-      'May',
-      'June',
-      'July',
-      'August',
-      'September',
-      'October',
-      'November',
-      'December',
-    ];
-    return monthNames[month - 1];
-  }
+  // _getMonthName was unused; removed per analyzer.
 
   double _monthCellHeight() {
     // Try to fit ~5 weeks visible without scroll overflow; compute from viewport height

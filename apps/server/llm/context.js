@@ -197,16 +197,7 @@ function buildFocusedCandidates(where, tasks, events) {
   return candidates;
 }
 
-export function buildRouterSnapshots({ timezone = DEFAULT_TZ } = {}) {
-  const tz = timezone || DEFAULT_TZ;
-  const { fromYmd, toYmd } = weekRangeFromToday(tz);
-  // Completed=false by convention for week + backlog
-  const tasksWeek = filterByWhere(listAllTasksRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false }, { todayY: ymdInTimeZone(new Date(), tz) });
-  const eventsWeek = filterByWhere(listAllEventsRaw(), { scheduled_range: { from: fromYmd, to: toYmd }, completed: false }, { todayY: ymdInTimeZone(new Date(), tz) });
-  const weekItems = [...tasksWeek, ...eventsWeek];
-  const compact = (t) => ({ id: t.id, title: t.title, scheduledFor: t.scheduledFor });
-  return { week: { from: fromYmd, to: toYmd, items: weekItems.map(compact) } };
-}
+// buildRouterSnapshots removed (unused)
 
 export function buildFocusedContext(where = {}, { timezone = DEFAULT_TZ } = {}) {
   const tz = timezone || DEFAULT_TZ;
@@ -272,9 +263,7 @@ export function buildFocusedContext(where = {}, { timezone = DEFAULT_TZ } = {}) 
 
 
 
-export function buildRouterContext({ todayYmd, timezone } = {}) {
-  return { today: todayYmd || ymdInTimeZone(new Date(), timezone || DEFAULT_TZ), timezone: timezone || DEFAULT_TZ, ...buildRouterSnapshots({ timezone: timezone || DEFAULT_TZ }) };
-}
+// buildRouterContext removed (unused)
 
 // Build compact, QA‑friendly context for Chat: detailed Today, summarized Week
 export function buildQAContext({ timezone = DEFAULT_TZ } = {}) {

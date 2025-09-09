@@ -43,31 +43,7 @@ function postJson(path, body, { timeout = TIMEOUT_MS } = {}) {
   });
 }
 
-export async function convoLLM(prompt, { model = DEFAULT_CONVO_MODEL, stream = false, config = {} } = {}) {
-  const finalConfig = { ...QWEN_CONFIG, ...config };
-  const payload = { 
-    model, 
-    prompt, 
-    stream,
-    ...finalConfig
-  };
-  const { status, body } = await postJson('/api/generate', payload);
-  if (status !== 200) throw new Error(`convoLLM ${model} failed: ${status}`);
-  return body; // caller parses/streams if needed
-}
-
-export async function codeLLM(prompt, { model = DEFAULT_CODE_MODEL, config = {} } = {}) {
-  const finalConfig = { ...QWEN_CONFIG, ...config };
-  const payload = { 
-    model, 
-    prompt, 
-    stream: false,
-    ...finalConfig
-  };
-  const { status, body } = await postJson('/api/generate', payload);
-  if (status !== 200) throw new Error(`codeLLM ${model} failed: ${status}`);
-  return body;
-}
+// convoLLM/codeLLM removed (unused)
 
 export function getModels() {
   return { convo: DEFAULT_CONVO_MODEL, code: DEFAULT_CODE_MODEL, host: OLLAMA_HOST, port: OLLAMA_PORT };

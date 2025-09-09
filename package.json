@@ -16,18 +16,20 @@
     "test:all": "node tests/all.js",
     "test": "node tests/all.js",
     "test:with-server": "node scripts/test_with_server.js",
-    "db:migrate": "node apps/server/database/migration_script.js",
     "db:dump": "node scripts/db_dump.js",
     "db:seed:tasks-events": "node scripts/seed_tasks_and_events.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^0.4.0",
     "ajv": "^8.17.1",
     "better-sqlite3": "^9.0.0",
     "cors": "^2.8.5",
     "express": "^5.1.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.35.0",
+    "eslint": "^9.35.0",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-unused-imports": "^4.2.0",
     "nodemon": "^3.0.1"
   }
 }
