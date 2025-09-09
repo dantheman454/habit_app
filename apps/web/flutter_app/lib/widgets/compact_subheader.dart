@@ -54,9 +54,13 @@ class CompactSubheader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: Theme.of(context).colorScheme.surface,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        child: LayoutBuilder(
+      elevation: 1,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: LayoutBuilder(
           builder: (ctx, cons) {
             // Compute simple responsiveness thresholds
             // Narrow when layout width is below 1024
@@ -121,11 +125,11 @@ class CompactSubheader extends StatelessWidget {
 
                   const SizedBox(width: 8),
 
-                  Row(
+          Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (showCompletedLabel) const SizedBox(width: 8),
-                      if (showCompletedLabel) const Text('Show completed'),
+            if (showCompletedLabel) const SizedBox(width: 8),
+            if (showCompletedLabel) const Text('Completed'),
                       if (showCompletedLabel) const SizedBox(width: 6),
                       Tooltip(
                         message: 'Show completed',
@@ -193,6 +197,7 @@ class CompactSubheader extends StatelessWidget {
                         );
                       },
                     ),
+                  // Assistant toggle removed from header
                 ],
               );
             }
@@ -258,11 +263,11 @@ class CompactSubheader extends StatelessWidget {
                 const SizedBox(width: 8),
 
                 // Labeled Show Completed switch next to ContextFilter
-                Row(
+        Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (showCompletedLabel) const SizedBox(width: 8),
-                    if (showCompletedLabel) const Text('Show completed'),
+          if (showCompletedLabel) const SizedBox(width: 8),
+          if (showCompletedLabel) const Text('Completed'),
                     if (showCompletedLabel) const SizedBox(width: 6),
                     Tooltip(
                       message: 'Show completed',
@@ -332,6 +337,7 @@ class CompactSubheader extends StatelessWidget {
                       );
                     },
                   ),
+                // Assistant toggle removed from header
 
                 // Icon-only toggle removed in favor of labeled switch near ContextFilter
 
@@ -340,6 +346,13 @@ class CompactSubheader extends StatelessWidget {
             );
           },
         ),
+      ),
+          Divider(
+            height: 1,
+            thickness: 1,
+            color: Theme.of(context).colorScheme.outlineVariant,
+          ),
+        ],
       ),
     );
   }

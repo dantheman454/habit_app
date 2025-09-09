@@ -21,6 +21,7 @@ import 'util/animation.dart';
 import 'util/time_format.dart';
 import 'widgets/time_field.dart';
 import 'models.dart';
+import 'util/date_label.dart';
 
 // --- Test hooks and injectable API (local single-user context) ---
 class TestHooks {
@@ -2462,7 +2463,7 @@ class _HomePageState extends State<HomePage> {
                                           children: [
                                             // Moved segmented control into CompactSubheader.leadingControls
                                             CompactSubheader(
-                                              dateLabel: anchor,
+                                              dateLabel: prettyDateLabel(view, anchor),
                                               onPrev: _goPrev,
                                               onNext: _goNext,
                                               onToday: _goToToday,
@@ -2784,7 +2785,7 @@ class _HomePageState extends State<HomePage> {
           });
         }
         return Padding(
-          padding: const EdgeInsets.all(8.0),
+          padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
           child: MonthView(
             gridYmd: days,
             eventsByDate: evBy,
@@ -2806,7 +2807,7 @@ class _HomePageState extends State<HomePage> {
     // Gated path for the new DayView (disabled by default)
     if (view == ViewMode.day && mainView == MainView.tasks) {
       return Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
         child: DayView(
           dateYmd: anchor,
           events: _anchorEventsAsMaps(),
@@ -2849,7 +2850,7 @@ class _HomePageState extends State<HomePage> {
         });
       }
       return Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
         child: WeekView(
           weekYmd: days,
           eventsByDate: evBy,
@@ -2877,7 +2878,7 @@ class _HomePageState extends State<HomePage> {
       },
       child: ListView(
         key: ValueKey('${view}_$selectedContext'),
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
         children: [
           if (view == ViewMode.week) _buildWeekdayHeader(),
           for (final entry in grouped.entries) ...[
@@ -3005,7 +3006,6 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildMonthGrid(Map<String, List<Task>> groupedByDate) {
     final a = parseYmd(anchor);
-    final monthName = '${_getMonthName(a.month)} ${a.year}';
     final firstOfMonth = DateTime(a.year, a.month, 1);
     final lastOfMonth = DateTime(a.year, a.month + 1, 0);
     // NEW: Compute Sunday on/before first, Saturday on/after last
@@ -3039,42 +3039,8 @@ class _HomePageState extends State<HomePage> {
       'Fri',
       'Sat',
     ];
-    return Column(
+  return Column(
       children: [
-        // Month header with navigation
-        AnimatedContainer(
-          duration: const Duration(milliseconds: 400),
-          curve: Curves.easeOutCubic,
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surfaceContainerLow,
-            border: Border(
-              bottom: BorderSide(
-                color: Theme.of(context).colorScheme.outlineVariant,
-                width: 1,
-              ),
-            ),
-          ),
-          child: Row(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.chevron_left),
-                onPressed: _goPrev,
-              ),
-              Expanded(
-                child: Text(
-                  monthName,
-                  style: Theme.of(context).textTheme.headlineSmall,
-                  textAlign: TextAlign.center,
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.chevron_right),
-                onPressed: _goNext,
-              ),
-            ],
-          ),
-        ),
         // Weekday header (sticky)
         Material(
           elevation: 1,
