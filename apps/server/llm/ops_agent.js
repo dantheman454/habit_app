@@ -1,5 +1,5 @@
-import { qwenToolLLM } from './clients.js';
-import { createQwenToolPrompt } from './qwen_utils.js';
+import { generateStructured, getModels } from './clients.js';
+import { createToolPrompt } from './prompt.js';
 import { buildFocusedContext } from './context.js';
 import { extractFirstJson } from './json_extract.js';
 import { mkCorrelationId, logIO } from './logging.js';
@@ -57,11 +57,12 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
   const system = 'You are an operations executor for a tasks/events app. Use provided tools precisely.\n\nFields map (strict):\n- Tasks: date -> scheduledFor; status -> status.\n- Events: date -> scheduledFor; start -> startTime; end -> endTime.\n\nHard rule: Do NOT propose event completion operations. Events are never completed via tools. Only tasks use set_status (optionally with occurrenceDate).\n\nDisambiguation rules:\n- Prefer IDs from focused.candidates when present.\n- When matching by title, compare case-insensitively (ignore punctuation/extra whitespace) using indexes.task_by_title_ci and indexes.event_by_title_ci.\n- Cross-check matches with indexes.id_to_kind and indexes.id_to_title to avoid mixing task vs event.\n- Never invent IDs; if still ambiguous after candidates/indexes, return a concise clarify question.\n\nValidation: Validate dates (YYYY-MM-DD) and times (HH:MM). Keep operations under 20 total. Output MUST be a single JSON object, no code fences, no extra text.';
   const user = `Task: ${instruction}\nWhere: ${JSON.stringify(where)}\nFocused Context:\n${contextJson}\nRecent Conversation:\n${convo}`;
 
-  const prompt = createQwenToolPrompt({ system, user, tools: operationTools });
+  const prompt = createToolPrompt({ system, user, tools: operationTools });
   if (DEBUG) {
     try {
+      const { code } = getModels();
       logIO('ops_agent_init', {
-        model: 'qwen3-coder:30b',
+        model: code,
         prompt: JSON.stringify({ system, user, tools: operationTools.map(t => t.function?.name) }),
         output: JSON.stringify({ note: 'initialized tool-calling run', focusedContext }),
         meta: { correlationId }
@@ -86,7 +87,8 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
   let lastHadThinking = false;
 
   while (rounds < MAX_ROUNDS && proposedOps.length < MAX_OPS) {
-    const resp = await qwenToolLLM({ messages, tools: operationTools, tool_choice: 'auto' });
+  const { code } = getModels();
+  const resp = await generateStructured(prompt, { model: code });
 
     const text = typeof resp === 'string' ? resp : (resp.final || resp.message || resp.content || '');
 
@@ -97,8 +99,9 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
 
     if (DEBUG) {
       try {
+        const { code } = getModels();
         logIO('ops_agent_round', {
-          model: 'qwen3-coder:30b',
+          model: code,
           prompt: JSON.stringify({ round: rounds + 1, messagesLength: messages.length }),
           output: JSON.stringify({
             responseText: text?.slice(0, 2000) || '',
@@ -279,7 +282,7 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
             proposedOps.push(inferred);
             finalText = finalText || `Here are the proposed changes for your review. (1 valid, 0 invalid)`;
             if (DEBUG) {
-              try { logIO('ops_agent_fallback', { model: 'qwen3-coder:30b', prompt: JSON.stringify({ instruction }), output: JSON.stringify({ inferred }), meta: { correlationId } }); } catch {}
+              try { const { code } = getModels(); logIO('ops_agent_fallback', { model: code, prompt: JSON.stringify({ instruction }), output: JSON.stringify({ inferred }), meta: { correlationId } }); } catch {}
             }
           }
         }

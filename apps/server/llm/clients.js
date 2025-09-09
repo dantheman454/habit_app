@@ -2,7 +2,7 @@
 // Models are configurable via env. Conversation LLM may stream; code LLM is non-streaming by default.
 
 import http from 'node:http';
-import { createQwenPrompt, parseQwenResponse } from './qwen_utils.js';
+import { createPrompt, parseResponse } from './prompt.js';
 
 const DEFAULT_CONVO_MODEL = 'qwen3-coder:30b';
 const DEFAULT_CODE_MODEL = 'qwen3-coder:30b';
@@ -12,14 +12,11 @@ const TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS || 30000);
 
 
 
-// Qwen-optimized configuration for better reasoning and JSON generation
-const QWEN_CONFIG = {
-  temperature: 0.7,        // Optimal for Qwen reasoning
-  top_p: 0.8,             // Recommended for Qwen
-  top_k: 20,              // Recommended for Qwen
-  repetition_penalty: 1.05, // Better JSON generation
-  max_tokens: 4096,        // Increased for complex operations
-  stop: ['<|im_end|>', '```', '---'] // Qwen-specific stops
+// Model-agnostic defaults; callers can override per request
+const DEFAULT_CONFIG = {
+  temperature: Number(process.env.LLM_TEMPERATURE || 0.2),
+  top_p: Number(process.env.LLM_TOP_P || 0.9),
+  max_tokens: Number(process.env.LLM_MAX_TOKENS || 2048)
 };
 
 function postJson(path, body, { timeout = TIMEOUT_MS } = {}) {
@@ -67,66 +64,20 @@ export async function getAvailableModels() {
 
 
 
-// Qwen-optimized LLM functions
-export async function qwenConvoLLM(qwenPrompt, { model = DEFAULT_CONVO_MODEL, stream = false, config = {} } = {}) {
-  const formattedPrompt = typeof qwenPrompt === 'string' ? qwenPrompt : createQwenPrompt(qwenPrompt);
-  const finalConfig = { ...QWEN_CONFIG, ...config };
-  const payload = { 
-    model, 
-    prompt: formattedPrompt, 
-    stream,
-    ...finalConfig
-  };
+// Model-agnostic LLM functions
+export async function generateText(prompt, { model = DEFAULT_CONVO_MODEL, stream = false, config = {} } = {}) {
+  const formattedPrompt = typeof prompt === 'string' ? prompt : createPrompt(prompt);
+  const finalConfig = { ...DEFAULT_CONFIG, ...config };
+  const payload = { model, prompt: formattedPrompt, stream, ...finalConfig };
   const { status, body } = await postJson('/api/generate', payload);
-  if (status !== 200) throw new Error(`qwenConvoLLM ${model} failed: ${status}`);
-  
-  // Extract response from Ollama metadata
+  if (status !== 200) throw new Error(`generateText ${model} failed: ${status}`);
   let responseText = String(body || '');
   if (responseText.includes('"response":')) {
-    try {
-      const parsed = JSON.parse(responseText);
-      responseText = parsed.response || responseText;
-    } catch (e) {
-      // If parsing fails, use the original text
-    }
+    try { const parsed = JSON.parse(responseText); responseText = parsed.response || responseText; } catch {}
   }
-  
-  return parseQwenResponse(responseText);
+  return parseResponse(responseText);
 }
 
-export async function qwenToolLLM(qwenToolPrompt, { model = DEFAULT_CODE_MODEL, config = {} } = {}) {
-  const finalConfig = { ...QWEN_CONFIG, ...config };
-  const messages = Array.isArray(qwenToolPrompt?.messages) ? qwenToolPrompt.messages : [];
-  const tools = Array.isArray(qwenToolPrompt?.tools) ? qwenToolPrompt.tools : [];
-
-  const systemMsg = (messages.find(m => m.role === 'system')?.content) || '';
-  const userMsg = (messages.find(m => m.role === 'user')?.content) || '';
-
-  const toolsDoc = tools.map((t, i) => {
-    const name = t?.function?.name || `tool_${i+1}`;
-    const params = t?.function?.parameters || { type: 'object', additionalProperties: true };
-    return `- ${name}: parameters=${JSON.stringify(params)}`;
-  }).join('\n');
-
-  const system = `${systemMsg}\n\nTOOLS:\n${toolsDoc}\n\nSTRICT OUTPUT:\n- Output MUST be a single JSON object, no prose, no code fences\n- Prefer and USE tool_calls whenever an action is possible (do not return errors)\n- Tasks are all-day (no time fields). For events use startTime/endTime.\n- If using tools, respond as: {\"tool_calls\":[{\"id\":\"id1\",\"function\":{\"name\":\"tool.name\",\"arguments\":{}}}],\"message\":\"status\"}\n- If not using tools, respond as: {\"message\":\"final text\"}\n- IMPORTANT: If you need to reason internally, wrap your thinking in <think> tags and provide a clean final response in the message field\n- The final message should be user-friendly and concise, not include internal reasoning`;
-
-  const prompt = createQwenPrompt({ system, user: userMsg });
-  const payload = { 
-    model, 
-    prompt, 
-    stream: false,
-    ...finalConfig
-  };
-
-  const { status, body } = await postJson('/api/generate', payload);
-  if (status !== 200) throw new Error(`qwenToolLLM ${model} failed: ${status}`);
-
-  let responseText = String(body || '');
-  if (responseText.includes('"response"')) {
-    try {
-      const parsed = JSON.parse(responseText);
-      responseText = parsed.response || responseText;
-    } catch {}
-  }
-  return parseQwenResponse(responseText);
+export async function generateStructured(prompt, { model = DEFAULT_CODE_MODEL, config = {} } = {}) {
+  return generateText(prompt, { model, stream: false, config });
 }

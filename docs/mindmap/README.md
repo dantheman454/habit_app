@@ -46,7 +46,7 @@ graph TD
     P[("SQLite (data/app.db)\nTables: tasks, events\nAudit_log, idempotency, op_batches\nFTS5 virtual tables")]
   end
   subgraph "LLM (Ollama)"
-    F[["Ollama local model\nhardcoded (convo=qwen3-coder:30b, code=qwen3-coder:30b)\nQwen-optimized prompts and parsing"]]
+  F[["Ollama local model\nhardcoded (convo=qwen3-coder:30b, code=qwen3-coder:30b)\nModel-agnostic prompts and parsing"]]
   end
 
   A --> A2
@@ -149,10 +149,10 @@ sequenceDiagram
 - `apps/server/database/schema.sql`: SQLite schema definition, constraints, indexes
 
 **LLM Pipeline**:
-- `apps/server/llm/clients.js`: Ollama client wrappers, model configuration, Qwen-optimized helpers
+- `apps/server/llm/clients.js`: Ollama client wrappers, model configuration, neutral helpers
+- `apps/server/llm/prompt.js`: Model-agnostic prompt builders and response parsing
 - `apps/server/llm/ops_agent.js`: Tool-calling OpsAgent (proposes validated operations; no router step)
 - `apps/server/llm/chat.js`: Chat responder for conversational replies (fallback when ops fail)
-- `apps/server/llm/qwen_utils.js`: Prompt builders and response parsing
 - `apps/server/llm/json_extract.js`: JSON extraction utilities
 - `apps/server/llm/logging.js`: Correlated I/O logging helpers
 

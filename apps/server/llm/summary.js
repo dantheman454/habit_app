@@ -1,12 +1,11 @@
 // Summary generator for the two-agent system
 // Produces concise plain-text summaries of operations and issues
 
-import { qwenConvoLLM, getModels } from './clients.js';
-import { createQwenPrompt, getQwenFinalResponse } from './qwen_utils.js';
+import { generateText, getModels } from './clients.js';
+import { createPrompt, getFinalText } from './prompt.js';
 import { mkCorrelationId, logIO } from './logging.js';
 
 const TIMEZONE = 'America/New_York';
-const MODELS = { convo: 'qwen3-coder:30b' };
 
 export async function runSummary({ operations = [], issues = [], timezone } = {}) {
   if (!operations.length) return 'No operations to perform.';
@@ -23,7 +22,7 @@ export async function runSummary({ operations = [], issues = [], timezone } = {}
     return `${index + 1}. ${action} ${kind}: ${title}`;
   });
 
-  const qwenPrompt = createQwenPrompt({
+  const promptSpec = createPrompt({
     system: "You are a helpful, concise assistant for a tasks/events application. Your job is to explain what actions will be taken in clear, user-friendly language.",
     user: `Today: ${todayYmd} (${timezone || TIMEZONE})
 
@@ -47,8 +46,9 @@ SUMMARY GUIDELINES:
 Generate a clear, user-friendly summary of what will happen:`
   });
 
-  const raw = await qwenConvoLLM(qwenPrompt, { stream: false, model: MODELS.convo });
-  logIO('summary', { model: MODELS.convo, prompt: JSON.stringify(qwenPrompt), output: JSON.stringify(raw), meta: { correlationId, module: 'summary' } });
+  const { convo } = getModels();
+  const raw = await generateText(promptSpec, { stream: false, model: convo });
+  logIO('summary', { model: convo, prompt: JSON.stringify(promptSpec), output: JSON.stringify(raw), meta: { correlationId, module: 'summary' } });
 
   // Enhanced response cleaning
   function cleanSummaryResponse(raw) {
@@ -73,8 +73,8 @@ Generate a clear, user-friendly summary of what will happen:`
     return summary || 'Ready to apply your changes.';
   }
 
-  // Extract final response from Qwen response
-  const finalResponse = getQwenFinalResponse(raw);
+  // Extract final response
+  const finalResponse = getFinalText(raw);
   const summary = cleanSummaryResponse(finalResponse);
   return summary;
 }

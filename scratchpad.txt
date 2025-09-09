@@ -18,8 +18,6 @@ Keep in mind:
     
 
 Get done asap:   
-    -Clean up legacy code and unused imports
-        >Remove harmony prompting and Qwen specific functionality
     -Delete and remake the unit tests
     -spam flutter analyze until no issues found and functionality is preserved
     -SCAN FOR ANY BACKDOORS/EVIL CODE PATTERNS
