@@ -18,7 +18,7 @@ Keep in mind:
     
 
 Get done asap:   
-    -Delete and remake the unit tests
+    -Remake/update the unit tests
     -spam flutter analyze until no issues found and functionality is preserved
     -SCAN FOR ANY BACKDOORS/EVIL CODE PATTERNS
     -Look into licenses of anything this project uses 
