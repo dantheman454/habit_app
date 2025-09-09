@@ -196,11 +196,11 @@ Future<Map<String, dynamic>> assistantMessage(
   try {
     Map<String, dynamic>? result;
     // Track latest streamed values so final result reflects what UI saw during SSE
-    String _lastText = '';
-    String _lastThinking = '';
-    String _lastCorrelationId = '';
-    List<Map<String, dynamic>> _lastOps = const <Map<String, dynamic>>[];
-    List<Map<String, dynamic>> _lastPreviews = const <Map<String, dynamic>>[];
+    String lastText = '';
+    String lastThinking = '';
+    String lastCorrelationId = '';
+    List<Map<String, dynamic>> lastOps = const <Map<String, dynamic>>[];
+    List<Map<String, dynamic>> lastPreviews = const <Map<String, dynamic>>[];
     final close = sse.startSse(
       uri: uri,
       onEvent: (event, data) {
@@ -210,7 +210,7 @@ Future<Map<String, dynamic>> assistantMessage(
           try {
             final cid = (obj['correlationId'] as String?) ?? '';
             if (cid.isNotEmpty) {
-              _lastCorrelationId = cid;
+              lastCorrelationId = cid;
               if (onTraceId != null) onTraceId(cid);
             }
           } catch (_) {}
@@ -240,22 +240,22 @@ Future<Map<String, dynamic>> assistantMessage(
               final previews = (previewsRaw is List)
                   ? previewsRaw.map((e) => Map<String, dynamic>.from(e)).toList()
                   : const <Map<String, dynamic>>[];
-              _lastOps = ops;
-              _lastPreviews = previews;
+              lastOps = ops;
+              lastPreviews = previews;
               onOps(ops, version, validCount, invalidCount, previews);
             }
           } else if (event == 'summary') {
             if (onSummary != null) {
               final text = (obj['text'] as String?) ?? '';
               if (text.isNotEmpty) {
-                _lastText = text;
+                lastText = text;
                 onSummary(text);
               }
             }
             try {
               final th = (obj['thinking'] as String?) ?? '';
               if (th.isNotEmpty) {
-                _lastThinking = th;
+                lastThinking = th;
                 if (onThinking != null) onThinking(th);
               }
             } catch (_) {}
@@ -266,15 +266,13 @@ Future<Map<String, dynamic>> assistantMessage(
       },
       onDone: () {
         // If server did not emit a terminal 'result', synthesize one from last streamed values
-        if (result == null) {
-          result = {
-            'text': _lastText,
-            'operations': _lastOps,
-            'previews': _lastPreviews,
-            'thinking': _lastThinking,
-            if (_lastCorrelationId.isNotEmpty) 'correlationId': _lastCorrelationId,
+        result ??= {
+          'text': lastText,
+          'operations': lastOps,
+          'previews': lastPreviews,
+          'thinking': lastThinking,
+          if (lastCorrelationId.isNotEmpty) 'correlationId': lastCorrelationId,
           };
-        }
         completer.complete(result!);
       },
       onError: () async {

@@ -240,7 +240,7 @@ class _HoverPreview extends StatelessWidget {
                       child: Builder(builder: (context) {
                         final title = it.title;
                         final firstLine = (it.notes ?? '').split('\n').first.trim();
-                        final suffix = firstLine.isEmpty ? '' : ' • ${firstLine.length > 40 ? firstLine.substring(0, 40) + '…' : firstLine}';
+                        final suffix = firstLine.isEmpty ? '' : ' • ${firstLine.length > 40 ? '${firstLine.substring(0, 40)}…' : firstLine}';
                         final base = it.timeLabel.isEmpty ? title : '${it.timeLabel}  $title';
                         return Text(
                           '$base$suffix',

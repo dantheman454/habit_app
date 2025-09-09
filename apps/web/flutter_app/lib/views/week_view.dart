@@ -247,7 +247,7 @@ class _HoverPreview extends StatelessWidget {
                         final title = (it['title'] ?? '').toString();
                         final notes = ((it['notes'] ?? '') as String).trim();
                         final firstLine = notes.split('\n').first.trim();
-                        final suffix = firstLine.isEmpty ? '' : ' • ${firstLine.length > 40 ? firstLine.substring(0, 40) + '…' : firstLine}';
+                        final suffix = firstLine.isEmpty ? '' : ' • ${firstLine.length > 40 ? '${firstLine.substring(0, 40)}…' : firstLine}';
                         final time = ((it['timeLabel'] ?? '') as String);
                         final base = time.isEmpty ? title : '$time  $title';
                         return Text(

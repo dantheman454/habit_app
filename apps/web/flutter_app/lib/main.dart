@@ -1257,13 +1257,19 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _selectSearchResult(Task t) async {
     _removeSearchOverlay();
-    try { await Navigator.of(context, rootNavigator: true).maybePop(); } catch (_) {}
+    
+    // Capture context-dependent objects before async operations
+    final navigator = Navigator.of(context, rootNavigator: true);
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    
+    try { await navigator.maybePop(); } catch (_) {}
     _searchFocus.unfocus();
     searchCtrl.clear();
     setState(() {
       searchResults = [];
       _searchHoverIndex = -1;
     });
+    
     // Ensure correct kind visibility
     if (t.kind == 'event') {
       if (!(mainView == MainView.tasks && _kindFilter.contains('event'))) {
@@ -1286,7 +1292,7 @@ class _HomePageState extends State<HomePage> {
     // Unscheduled: close, no navigation; show toast
     if (t.scheduledFor == null) {
       try {
-        ScaffoldMessenger.of(context).showSnackBar(
+        scaffoldMessenger.showSnackBar(
           const SnackBar(content: Text('Unscheduled item — nothing to navigate to')),
         );
       } catch (_) {}

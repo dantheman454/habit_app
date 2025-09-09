@@ -18,19 +18,19 @@ Keep in mind:
     
 
 Get done asap:   
-    -Remake/update the unit tests
-    -spam flutter analyze until no issues found and functionality is preserved
     -SCAN FOR ANY BACKDOORS/EVIL CODE PATTERNS
     -Look into licenses of anything this project uses 
 
 Before career fair:
+    -Get Mr Assister up and running smoothly
+        >Make sure his tool calling works
+        >Clean up the UI (have it always show thinking but in a dropdown box thing)
     -Get habits implemented and working 
         >streaks
         >skipped days
         >Use Huberman protocals as basis for how habits function
-    -Get Mr Assister up and running smoothly
-        >Make sure his tool calling works
-        >Clean up the UI (have it always show thinking but in a dropdown box thing)
+        >Make sure Mr Assister works with Habits as well
+    -Remake/update the unit tests
     -Place work and school schedule in (still keep using gc and reminders until this system is rock solid with regular backups and good UX)
 
     
