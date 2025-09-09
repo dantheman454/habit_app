@@ -1,41 +1,44 @@
-# Assistant Chat System Mind Map
+# Assistant Chat System Mind Map (Current State)
 
-This document provides a comprehensive overview of how the assistant chat works in the task/event application, from user input through execution and feedback.
+This document reflects how Mr. Assister works today in the tasks/events app, from user input to validated proposals, previews, and optional apply via MCP with full audit/undo.
 
 ## System Architecture Overview
 
 ```mermaid
 graph TD
-    subgraph "Client (Flutter Web)"
-        A[User Input] --> B[Assistant Panel]
-        B --> C[API Client]
-        C --> D[SSE Stream Handler]
-    end
-    
-    subgraph "Server (Express)"
-        E[OpsAgent (tool-calling)] --> H[Validation]
-        H --> I[Summarization]
-        I --> J[Apply Operations (MCP → OperationProcessor)]
-    end
-    
-    subgraph "LLM (Ollama)"
-        K[Local Model] --> L[JSON Generation]
-        L --> M[Response Parsing]
-    end
-    
-    subgraph "Database"
-        N[SQLite] --> O[Audit Log]
-        N --> P[Idempotency Cache]
-    end
-    
-    C -->|HTTP/SSE| E
-    E --> K
-    H --> K
-    I --> K
-    J --> N
+  subgraph "Client (Flutter Web)"
+    A[User types message] --> B[Assistant Panel]
+    B --> C[API Client]
+    C --> D[SSE Stream Handler]
+    D --> Q[Show ops + previews + summary]
+    Q --> R[User clicks Apply (optional)]
+  end
+
+  subgraph "Server (Express)"
+    E[Assistant route /api/assistant/*] --> F[OpsAgent (Tool‑Calling)]
+    F --> H[Validation via OperationProcessor]
+    H --> I[Summarization + Previews]
+    I -->|SSE events: ops, summary, heartbeat, done| D
+    R --> J[MCP HTTP: /api/mcp/tools/call]
+    J --> K[OperationProcessor.execute]
+  end
+
+  subgraph "LLM (Ollama)"
+    L[qwen3‑coder:30b (code+convo)] --> M[Tool JSON]
+    M --> N[Extraction + Rounds]
+  end
+
+  subgraph "Database (SQLite)"
+    S[Tables] --> T[Batch Recorder]
+    T --> U[Audit Log + Undo]
+  end
+
+  F --> L
+  H --> L
+  K --> S
 ```
 
-## Detailed Flow Analysis: "update my task for today"
+## Detailed Flow: "update my task for today"
 
 ### 1. User Input & Client Processing
 
@@ -67,15 +70,19 @@ final res = await api.assistantMessage(
 );
 ```
 
-**SSE Events**: Server emits `stage`, `ops`, `summary`, `heartbeat`, and `done` events. The `ops` event includes `previews` for operation previews.
+**SSE Events**: Server emits `stage`, `ops`, `summary`, `heartbeat`, and `done` (no `result`).
+- `stage`: `{ stage: "act", correlationId }`
+- `ops`: `{ operations, version: 3, validCount, invalidCount, previews[], correlationId }`
+- `summary`: `{ text, steps, operations, tools, notes, thinking, correlationId }`
+- `previews[]`: `{ key, op, before }` where `before` is fetched for update/delete to enable diff UI.
 
-### 2. OpsAgent Proposal (Tool-Calling)
+### 2. OpsAgent Proposal (Tool‑Calling: propose‑only)
 
 ```javascript
 // runOpsAgentToolCalling() called with:
 const oa = await runOpsAgentToolCalling({ 
   taskBrief: message.trim(),
-  where: {},
+  where, // from options.client.where (POST) or context.where (SSE)
   transcript,
   timezone: TIMEZONE,
   operationProcessor
@@ -84,22 +91,35 @@ const oa = await runOpsAgentToolCalling({
 
 ### Tool Calling Generation (with focused context)
 ```javascript
-const operationTools = [
+const toolNames = [
   'task.create','task.update','task.delete','task.set_status',
   'event.create','event.update','event.delete'
-].map((name) => ({
-  type: 'function',
-  function: {
-    name,
-    description: `Execute operation ${name}`,
-    parameters: schema // JSON Schema from OperationRegistry
-  }
-}));
+];
+// Each tool's parameters come from OperationRegistry JSON Schemas
 ```
 
-**Note**: OpsAgent uses `task.create` format for LLM tool calling, while MCP server uses `create_task` format. The OpsAgent converts tool calls to operations internally.
+Focused context is built server‑side from today/week items, UI selection, and indexes:
 
-### 3. Operation Validation and Fallback
+```json
+{
+  "tasks": [ { "id": 1, "title": "...", "scheduledFor": "YYYY-MM-DD", "status": "pending" } ],
+  "events": [ { "id": 12, "title": "...", "scheduledFor": "YYYY-MM-DD", "startTime": "HH:MM", "endTime": "HH:MM" } ],
+  "focused": { "candidates": [ { "kind": "task", "id": 1, "reason": "selected_in_ui" } ] },
+  "indexes": {
+    "task_by_title_ci": { "email tests": 3 },
+    "event_by_title_ci": { "lunch with dad": 42 },
+    "id_to_kind": { "3": "task", "42": "event" },
+    "id_to_title": { "3": "Email tests", "42": "Lunch with Dad" }
+  }
+}
+```
+
+Notes
+- OpsAgent uses `task.create`/`event.update` tool names. MCP server uses `create_task`/`update_event` names. Conversion happens on the server when applying.
+- Tasks are all‑day (no start/end time). Events carry `startTime`/`endTime`.
+- Event completion is not a tool; task completion uses `task.set_status` (optionally `occurrenceDate`).
+
+### 3. Validation and Fallback
 
 **Validation Process**:
 ```javascript
@@ -109,13 +129,13 @@ const validator = operationProcessor.validators.get(type);
 const validation = validator ? await validator(op) : { valid: false, errors: ['unknown_operation_type'] };
 ```
 
-**Fallback Logic**: If no operations are proposed but intent is actionable, the system attempts to infer operations using:
-- Focused context candidates
-- Explicit where.id
-- Title matching using indexes
-- Time extraction from instruction
+Fallback logic (if the model doesn’t emit tool calls and the intent looks actionable):
+- Prefer focused candidates from UI selection
+- Consider explicit `where.id`
+- Try title matching using `task_by_title_ci`/`event_by_title_ci`
+- Extract simple times for events (HH:MM) when helpful
 
-### 4. Operation Execution (Apply phase via MCP)
+### 4. Apply Phase (MCP) — user‑driven
 
 **Tool Call Processing**:
 ```javascript
@@ -131,7 +151,11 @@ const validator = this.validators.get(type);
 const executor = this.executors.get(type);
 ```
 
-### 5. Database Update and Audit
+Security: `/api/mcp/tools/call` can be protected with `MCP_SHARED_SECRET` sent as `x-mcp-token`.
+
+Undo: last applied batch can be reversed via `/api/assistant/undo_last`.
+
+### 5. Database Update, Audit, and Undo
 
 **Batch Recording**: Each operation is recorded with before/after state for undo capability:
 ```javascript
@@ -144,26 +168,39 @@ await batchRecorder.recordOp({
 });
 ```
 
-**Audit Trail**: All operations are logged in `audit_log` table for transparency.
+**Audit Trail**: All operations are logged and associated with a correlation ID. Undo reconstructs inverse operations and applies them in reverse order.
+
+## Fallback to Conversational Chat
+If the OpsAgent throws an error (e.g., model is unavailable), the server falls back to `runChat()` which replies conversationally and explicitly does not modify data. That’s when you might see text like “the system doesn’t support modifying data.”
 
 ## Expected System Behavior Summary
-- OpsAgent proposes validated operations with fallback inference
-- Operation Processor validates/executes with full audit trail
-- DB applies changes and records batches for undo
-- Client refreshes UI after apply with correlation tracking
+- Assistant proposes validated operations; the UI previews them
+- User chooses to apply ops; server executes via MCP and OperationProcessor
+- Full audit trail with correlation ID and undo support
+- If OpsAgent errors, fallback Chat answers but performs no changes
 
 ## Client-Side Implementation
 - API integration in `apps/web/flutter_app/lib/api.dart`
-- SSE handling and updates in `assistant_panel.dart`
-- Support for thinking display and correlation ID tracking
+- Assistant panel subscribes to SSE and updates stages, previews, summary, and thinking
+- Apply button calls MCP tool(s) with correlation ID
 
 ## Server-Side Pipeline
-- OpsAgent tool-calling in `apps/server/llm/ops_agent.js`
-- MCP server tools in `apps/server/mcp/mcp_server.js`
-- Operation processing in `apps/server/operations/*`
-- Batch recording in `apps/server/utils/batch_recorder.js`
+- OpsAgent tool-calling in `apps/server/llm/ops_agent.js` (MAX_ROUNDS=5, MAX_OPS=20, strict JSON)
+- Focused context in `apps/server/llm/context.js` (today/week snapshots, selection, indexes)
+- MCP server tools in `apps/server/mcp/mcp_server.js` (create/update/delete for tasks/events, set_task_status)
+- Operation processing in `apps/server/operations/*` via `OperationProcessor`
+- Batch recording and undo in `apps/server/utils/batch_recorder.js`
 
 ## Integration Points
 - Database schema: `apps/server/database/schema.sql`
-- Idempotency/audit tables used for robustness
-- Correlation ID tracking throughout the pipeline
+- Correlation ID tracked end‑to‑end (SSE + MCP + audit)
+- Timezone: default `America/New_York` (TZ_NAME)
+
+## Model & Prompting
+- Local LLM via Ollama using `qwen3-coder:30b` for both convo and tool‑calling.
+- Strict tool prompt requires a single JSON object with optional `<think>` blocks that are stripped from final text.
+
+## Known Constraints (today)
+- Assistant proposes; it does not auto‑apply
+- Tasks are all‑day; events carry times; event completion isn’t supported
+- Title matching and focused candidates reduce ambiguity; IDs are never invented

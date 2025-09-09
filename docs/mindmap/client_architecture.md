@@ -363,17 +363,7 @@ Future<void> _createTask(String title, {String? notes, String? scheduledFor}) as
 #### Event Operations
 
 ```dart
-// Toggle event completion
-Future<void> _toggleEventOccurrence(int eventId, String occurrenceDate, bool completed) async {
-  try {
-    await api.toggleEventOccurrence(eventId, occurrenceDate, completed);
-    _refreshAll();
-  } catch (e) {
-    _showError('Failed to update event: ${e.toString()}');
-  }
-}
-
-// Create new event
+// Create new event (occurrence toggling is not supported server-side)
 Future<void> _createEvent(String title, {
   String? notes, 
   String? scheduledFor, 
@@ -471,6 +461,12 @@ Future<void> _sendAssistantMessage(String message) async {
 }
 ```
 
+#### Assistant panel specifics
+
+- Shows a “Context trimmed” badge when the assistant response includes `notes.contextTruncated = true`.
+- For each request, forwards `where.view` (rangeForView(anchor, view)) and real UI selection in `where.selected` to improve disambiguation and bias focused context.
+- Propagates correlationId across streaming (SSE) and apply flows to support batch undo.
+
 #### SSE Implementation
 
 ```dart
@@ -530,6 +526,7 @@ Notes:
 - Server emits `stage`, `ops`, `summary`, `heartbeat`, and `done` events
 - The `ops` event includes `previews` for operation previews
 - The assistant POST and SSE responses include a `correlationId` surfaced via `onTraceId` when provided
+ - The client also listens for a `result` event, but the current server does not emit it; this is harmless.
 
 #### Operations Preview and Execution
 

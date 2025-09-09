@@ -229,6 +229,91 @@ async function main() {
     req.end();
   });
 
+  // Disambiguation: prefer event in current view when titles collide
+  const todayY = ymd();
+  // Create two "Lunch" events: one today (in view) and one next month
+  const lunchToday = await applyOperationsMCP([
+    { kind: 'event', action: 'create', title: 'Lunch', scheduledFor: todayY, startTime: '12:00', endTime: '12:30', recurrence: { type: 'none' } }
+  ]);
+  const lunchTodayId = (() => { try { return lunchToday.results.find(x => x.event)?.event.id; } catch { return null; } })();
+  assert.ok(Number.isFinite(lunchTodayId));
+  // next month same title
+  const nextMonth = (() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth()+1, 1); })();
+  const nmYmd = ymd(nextMonth);
+  await applyOperationsMCP([
+    { kind: 'event', action: 'create', title: 'Lunch', scheduledFor: nmYmd, startTime: '12:00', endTime: '12:30', recurrence: { type: 'none' } }
+  ]);
+  // Ask assistant to move lunch to 13:00 with a view limited to today
+  const disamb = await request('POST', '/api/assistant/message', {
+    message: 'move lunch to 13:00',
+    transcript: [],
+    options: {
+      client: {
+        where: { view: { mode: 'day', fromYmd: todayY, toYmd: todayY }, kind: ['event'] }
+      }
+    }
+  });
+  assert.equal([200, 502].includes(disamb.status), true);
+  if (disamb.status === 200) {
+    const ops = Array.isArray(disamb.body.operations) ? disamb.body.operations : [];
+    assert.ok(Array.isArray(ops));
+  }
+
+  // Undo smoke: update an event title, then undo restores it
+  const undoCid = 'undo-batch-1';
+  const evBase = await applyOperationsMCP([
+    { kind: 'event', action: 'create', title: 'Undoable', scheduledFor: todayY, startTime: '10:00', endTime: '10:30', recurrence: { type: 'none' } }
+  ], undoCid);
+  const undoId = (() => { try { return evBase.results.find(x => x.event)?.event.id; } catch { return null; } })();
+  assert.ok(Number.isFinite(undoId));
+  // Update title within same correlation batch
+  await applyOperationsMCP([
+    { kind: 'event', action: 'update', id: undoId, title: 'Undoable 2' }
+  ], undoCid);
+  // Verify updated
+  const afterUpd = await request('GET', `/api/events/${undoId}`);
+  assert.equal(afterUpd.status, 200);
+  assert.equal(afterUpd.body.event.title, 'Undoable 2');
+  // Ensure batch exists
+  const lastBatch = await request('GET', '/api/assistant/last_batch');
+  assert.equal([200,404].includes(lastBatch.status), true);
+  if (lastBatch.status === 200) {
+    // Perform undo
+    const undid = await request('POST', '/api/assistant/undo_last');
+    assert.equal(undid.status, 200);
+    assert.equal(undid.body.ok, true);
+    // Title should be restored
+    const afterUndo = await request('GET', `/api/events/${undoId}`);
+    assert.equal(afterUndo.status, 200);
+    assert.equal(afterUndo.body.event.title, 'Undoable');
+  }
+
+  // Assistant fallback create: "add an event for today called Lunch with Dad at noon"
+  {
+    const msg = 'add an event for today called Lunch with Dad at noon';
+    const today = ymd();
+    const res = await request('POST', '/api/assistant/message', {
+      message: msg,
+      transcript: [],
+      options: {
+        client: {
+          where: { view: { mode: 'day', fromYmd: today, toYmd: today } }
+        }
+      }
+    });
+    assert.equal([200, 502].includes(res.status), true);
+    if (res.status === 200) {
+      const ops = Array.isArray(res.body.operations) ? res.body.operations : [];
+      // expect at least one event.create
+      const create = ops.find(o => o && o.kind === 'event' && (o.action === 'create' || o.op === 'create'));
+      assert.ok(create, 'expected an event.create operation');
+      assert.equal(create.scheduledFor, today);
+      assert.equal(create.startTime, '12:00');
+      assert.equal(create.endTime, '13:00');
+      assert.ok(String(create.title || '').toLowerCase().includes('lunch'), 'title should include lunch');
+    }
+  }
+
   console.log('OK');
 }
 

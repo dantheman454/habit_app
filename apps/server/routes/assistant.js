@@ -88,14 +88,17 @@ async function buildPreviews(ops) {
 
 router.post('/api/assistant/message', async (req, res) => {
   try {
-    const { message, transcript = [] } = req.body || {};
+    const { message, transcript = [], options } = req.body || {};
+    // Accept optional client-provided focus hints
+    const client = options?.client || {};
+    const where = client?.where || req.body?.where || {};
     const correlationId = mkCorrelationId();
     if (typeof message !== 'string' || message.trim() === '') {
       return res.status(400).json({ error: 'invalid_message' });
     }
     let oa;
     try {
-      oa = await runOpsAgentToolCalling({ taskBrief: message.trim(), where: {}, transcript, timezone: TIMEZONE, operationProcessor });
+      oa = await runOpsAgentToolCalling({ taskBrief: message.trim(), where, transcript, timezone: TIMEZONE, operationProcessor });
       if (DEBUG) {
         try {
           const dbg = {
@@ -105,14 +108,14 @@ router.post('/api/assistant/message', async (req, res) => {
             kinds: Array.isArray(oa.operations) ? Array.from(new Set(oa.operations.map(o => o.kind))) : []
           };
           console.log('[Assistant] response', dbg);
-          try { logIO('assistant_ops_summary', { model: 'ops_agent', prompt: JSON.stringify({ message, transcript }), output: JSON.stringify(dbg), meta: { correlationId } }); } catch {}
+          try { logIO('assistant_ops_summary', { model: 'ops_agent', prompt: JSON.stringify({ message, transcript, where }), output: JSON.stringify(dbg), meta: { correlationId } }); } catch {}
         } catch {}
       }
     } catch (err) {
       const fallbackText = await (async () => { try { return await runChat({ instruction: message.trim(), transcript, timezone: TIMEZONE }); } catch { return 'Sorry, I could not process that right now.'; } })();
       return res.json({ text: fallbackText, operations: [], correlationId });
     }
-    const summaryText = ensureSummaryText(oa.text, oa.operations, oa.notes);
+  const summaryText = ensureSummaryText(oa.text, oa.operations, oa.notes);
     const validCount = Array.isArray(oa.operations) ? oa.operations.length : 0;
     const invalidCount = Array.isArray(oa.notes?.errors) ? oa.notes.errors.length : 0;
     let previews = [];
@@ -120,7 +123,7 @@ router.post('/api/assistant/message', async (req, res) => {
     if (DEBUG) {
       try { logIO('assistant_response', { model: 'ops_agent', prompt: JSON.stringify({ message }), output: JSON.stringify({ text: summaryText, validCount, invalidCount }), meta: { correlationId } }); } catch {}
     }
-    return res.json({ text: summaryText, steps: oa.steps, operations: oa.operations, tools: oa.tools, notes: oa.notes, correlationId, validCount, invalidCount, thinking: oa.thinking, previews });
+  return res.json({ text: summaryText, steps: oa.steps, operations: oa.operations, tools: oa.tools, notes: oa.notes, correlationId, validCount, invalidCount, thinking: oa.thinking, previews });
   } catch (err) {
     console.error('Assistant route error:', err);
     res.status(502).json({ error: 'assistant_failure', detail: String(err && err.message ? err.message : err) });
@@ -133,6 +136,15 @@ router.get('/api/assistant/message/stream', async (req, res) => {
     const message = String(req.query.message || '');
     const transcriptParam = req.query.transcript;
     const transcript = (() => { try { return Array.isArray(transcriptParam) ? transcriptParam : JSON.parse(String(transcriptParam || '[]')); } catch { return []; } })();
+    // Accept optional client-provided focus hints from query `context` JSON
+    const where = (() => { 
+      try { 
+        const ctx = JSON.parse(String(req.query.context || '{}'));
+        return ctx?.where || {}; 
+      } catch { 
+        return {}; 
+      } 
+    })();
     if (message.trim() === '') return res.status(400).json({ error: 'invalid_message' });
     const correlationId = mkCorrelationId();
     res.setHeader('Content-Type', 'text/event-stream');
@@ -150,7 +162,7 @@ router.get('/api/assistant/message/stream', async (req, res) => {
       send('stage', JSON.stringify({ stage: 'act', correlationId }));
       let oa;
       try {
-        oa = await runOpsAgentToolCalling({ taskBrief: message.trim(), where: {}, transcript, timezone: TIMEZONE, operationProcessor });
+  oa = await runOpsAgentToolCalling({ taskBrief: message.trim(), where, transcript, timezone: TIMEZONE, operationProcessor });
       } catch (err) {
         const fallbackText = await (async () => { try { return await runChat({ instruction: message.trim(), transcript, timezone: TIMEZONE }); } catch { return 'Sorry, I could not process that right now.'; } })();
         send('summary', JSON.stringify({ text: fallbackText, operations: [], correlationId }));
@@ -158,12 +170,12 @@ router.get('/api/assistant/message/stream', async (req, res) => {
         res.end();
         return;
       }
-      const summaryText = ensureSummaryText(oa.text, oa.operations, oa.notes);
+  const summaryText = ensureSummaryText(oa.text, oa.operations, oa.notes);
       const validCount = Array.isArray(oa.operations) ? oa.operations.length : 0;
       const invalidCount = Array.isArray(oa.notes?.errors) ? oa.notes.errors.length : 0;
       let previews = [];
       try { previews = await buildPreviews(oa.operations); } catch {}
-      send('ops', JSON.stringify({
+  send('ops', JSON.stringify({
         operations: oa.operations,
         version: 3,
         validCount,
@@ -171,7 +183,7 @@ router.get('/api/assistant/message/stream', async (req, res) => {
         correlationId,
         previews
       }));
-      send('summary', JSON.stringify({ text: summaryText, steps: oa.steps, operations: oa.operations, tools: oa.tools, notes: oa.notes, correlationId, thinking: oa.thinking }));
+  send('summary', JSON.stringify({ text: summaryText, steps: oa.steps, operations: oa.operations, tools: oa.tools, notes: oa.notes, correlationId, thinking: oa.thinking }));
       send('done', JSON.stringify({ correlationId }));
       res.end();
     } catch (err) {

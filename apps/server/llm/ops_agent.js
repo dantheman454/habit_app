@@ -22,6 +22,74 @@ function toolCallToOperation(name, args) {
   return { kind, action, ...(args || {}) };
 }
 
+// --- helpers for fallback inference ---
+function normalizeTimeTo24h(token) {
+  try {
+    let s = String(token).trim().toLowerCase();
+    const ampm = /(am|pm)$/i.test(s) ? s.slice(-2) : '';
+    s = s.replace(/\s*(am|pm)$/i, '');
+    let [h, m] = s.split(':').map(v => parseInt(v, 10));
+    if (!Number.isFinite(h)) return null;
+    if (!Number.isFinite(m)) m = 0;
+    if (ampm === 'pm' && h < 12) h += 12;
+    if (ampm === 'am' && h === 12) h = 0;
+    if (h < 0 || h > 23 || m < 0 || m > 59) return null;
+    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+  } catch { return null; }
+}
+
+function inferKeywordTime(lower) {
+  if (/( at )?noon\b/.test(lower)) return '12:00';
+  if (/( at )?midnight\b/.test(lower)) return '00:00';
+  if (/\bmorning\b/.test(lower)) return '09:00';
+  if (/\bafternoon\b/.test(lower)) return '13:00';
+  if (/\bevening\b/.test(lower)) return '18:00';
+  return null;
+}
+
+function addOneHour(hhmm) {
+  try { const [h,m]=hhmm.split(':').map(n=>parseInt(n,10)); const d=new Date(2000,0,1,h,m); d.setHours(d.getHours()+1); return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; } catch { return null; }
+}
+
+function inferDateFromInstruction(lower, focusedContext, where, timezone) {
+  try {
+    const today = new Date();
+    const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    if (/\btoday\b/.test(lower)) return ymd(today);
+    if (/\btomorrow\b/.test(lower)) { const d=new Date(today); d.setDate(d.getDate()+1); return ymd(d); }
+    // If where.view is day mode, bias to anchor day if instruction lacks explicit date
+    try {
+      const v = where?.view || {};
+      if ((v.mode === 'day' || v.mode === 'week' || v.mode === 'month') && v.fromYmd && v.toYmd && !/\b\d{4}-\d{2}-\d{2}\b/.test(lower)) {
+        // choose today if inside view; else use v.fromYmd as reasonable default
+        const from = v.fromYmd; const to = v.toYmd;
+        const ty = ymd(today);
+        if (ty >= String(from) && ty <= String(to)) return ty;
+        return from;
+      }
+    } catch {}
+    // Explicit YYYY-MM-DD
+    const m = lower.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+    if (m) return m[1];
+  } catch {}
+  return null;
+}
+
+function inferTitleFromInstruction(instr) {
+  // Heuristic: extract after keywords like 'called', 'titled', or fallback to quoted text
+  try {
+    const s = String(instr);
+    const q = s.match(/"([^"]{2,80})"|'([^']{2,80})'/);
+    if (q) return (q[1] || q[2]).trim();
+    const called = s.match(/\b(called|titled)\s+([^,.;]+?)(\s+at\b|\s+on\b|$)/i);
+    if (called) return String(called[2]).trim();
+    // Fallback: take a short phrase after 'add an event' or 'create an event'
+    const add = s.match(/\b(add|create|schedule)\s+(an?\s+)?event\s+(for\s+|on\s+)?([^,.;]+?)(\s+at\b|$)/i);
+    if (add) return String(add[4]).replace(/\b(today|tomorrow)\b/ig,'').trim();
+  } catch {}
+  return null;
+}
+
 export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript = [], timezone, operationProcessor } = {}) {
   const instruction = String(taskBrief || '').trim();
   if (!instruction) return { version: '3', steps: [], operations: [], tools: [], notes: { errors: ['empty_instruction'] }, text: 'Please share what you would like to do.' };
@@ -54,7 +122,7 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
     });
   });
 
-  const system = 'You are an operations executor for a tasks/events app. Use provided tools precisely.\n\nFields map (strict):\n- Tasks: date -> scheduledFor; status -> status.\n- Events: date -> scheduledFor; start -> startTime; end -> endTime.\n\nHard rule: Do NOT propose event completion operations. Events are never completed via tools. Only tasks use set_status (optionally with occurrenceDate).\n\nDisambiguation rules:\n- Prefer IDs from focused.candidates when present.\n- When matching by title, compare case-insensitively (ignore punctuation/extra whitespace) using indexes.task_by_title_ci and indexes.event_by_title_ci.\n- Cross-check matches with indexes.id_to_kind and indexes.id_to_title to avoid mixing task vs event.\n- Never invent IDs; if still ambiguous after candidates/indexes, return a concise clarify question.\n\nValidation: Validate dates (YYYY-MM-DD) and times (HH:MM). Keep operations under 20 total. Output MUST be a single JSON object, no code fences, no extra text.';
+  const system = 'You are an operations executor for a tasks/events app. Use provided tools precisely.\n\nFields map (strict):\n- Tasks: date -> scheduledFor; status -> status.\n- Events: date -> scheduledFor; start -> startTime; end -> endTime.\n\nHard rules:\n- Do NOT propose event completion operations (events are never completed via tools). Tasks use set_status (optionally with occurrenceDate).\n- Never reply that you cannot modify data. You must propose tool calls. The server will only apply them after the user confirms.\n- Output requirements: You MUST output exactly ONE plain JSON object with a `tool_calls` array (no code fences, no prose). Any other content is discarded.\n\nDisambiguation (deterministic):\n- Prefer IDs from focused.candidates when exactly one candidate is present; treat as the target.\n- When multiple title matches exist, compare titles case-insensitively with normalized matching (ignore punctuation/extra whitespace) via indexes.task_by_title_ci and indexes.event_by_title_ci.\n- If multiple event matches remain: prefer those whose scheduledFor lies within the current view window (focused.where.view). Otherwise prefer the closest future date within the next-month set.\n- Cross-check the chosen ID with indexes.id_to_kind and indexes.id_to_title to verify type/title before emitting a tool call.\n- Never invent IDs. If still ambiguous after these rules, choose the best deterministic candidate and still emit the tool call. Do not ask the user to clarify.\n\nValidation: Validate dates (YYYY-MM-DD) and times (HH:MM). Keep operations under 20 total.';
   const user = `Task: ${instruction}\nWhere: ${JSON.stringify(where)}\nFocused Context:\n${contextJson}\nRecent Conversation:\n${convo}`;
 
   const prompt = createToolPrompt({ system, user, tools: operationTools });
@@ -77,7 +145,7 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
   const annotations = [];
   const steps = [ { name: 'Identify targets' }, { name: 'Propose operations' } ];
 
-  let messages = [...prompt.messages];
+  // Stateless prompting: createToolPrompt returns a string; no message threading
   let rounds = 0;
   const MAX_ROUNDS = 5;
   const MAX_OPS = 20;
@@ -87,22 +155,32 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
   let lastHadThinking = false;
 
   while (rounds < MAX_ROUNDS && proposedOps.length < MAX_OPS) {
-  const { code } = getModels();
-  const resp = await generateStructured(prompt, { model: code });
-
-    const text = typeof resp === 'string' ? resp : (resp.final || resp.message || resp.content || '');
-
-    const jsonCandidate = extractFirstJson(String(text || '')) || {};
-
-    const toolCallsArr = Array.isArray(jsonCandidate.tool_calls) ? jsonCandidate.tool_calls
-      : (jsonCandidate.tool_call ? [jsonCandidate.tool_call] : []);
+    const { code } = getModels();
+    let text = '';
+    let jsonCandidate = {};
+    let toolCallsArr = [];
+    try {
+      const resp = await generateStructured(prompt, { model: code });
+      text = typeof resp === 'string' ? resp : (resp.final || resp.message || resp.content || '');
+      jsonCandidate = extractFirstJson(String(text || '')) || {};
+      toolCallsArr = Array.isArray(jsonCandidate.tool_calls) ? jsonCandidate.tool_calls
+        : (jsonCandidate.tool_call ? [jsonCandidate.tool_call] : []);
+    } catch (e) {
+      // Model might be unavailable; skip tool-calls and allow fallback inference below
+      text = '';
+      jsonCandidate = {};
+      toolCallsArr = [];
+      if (DEBUG) {
+        try { logIO('ops_agent_round', { model: code, prompt: JSON.stringify({ round: rounds + 1 }), output: JSON.stringify({ error: 'generateStructured_failed', message: String(e && e.message ? e.message : e) }), meta: { correlationId, round: rounds + 1 } }); } catch {}
+      }
+    }
 
     if (DEBUG) {
       try {
         const { code } = getModels();
         logIO('ops_agent_round', {
           model: code,
-          prompt: JSON.stringify({ round: rounds + 1, messagesLength: messages.length }),
+          prompt: JSON.stringify({ round: rounds + 1 }),
           output: JSON.stringify({
             responseText: text?.slice(0, 2000) || '',
             toolCalls: toolCallsArr.map(c => ({ name: c?.function?.name || c?.name, arguments: c?.function?.arguments || c?.arguments }))
@@ -177,15 +255,11 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
         }
       }
       
-      // Simulate tool response for LLM
-      const simulatedResult = validation.valid ? 
-        { ok: true, message: 'Operation validated successfully' } : 
-        { ok: false, error: validation.errors.join(', ') };
-      messages.push({ role: 'tool', tool_call_id: call.id || name, content: JSON.stringify(simulatedResult) });
+      // No message threading; we only log validation outcome
     }
 
     rounds += 1;
-    messages = [ ...prompt.messages, ...messages.filter(m => m.role === 'tool') ];
+    // Stateless; continue to next round if needed
   }
 
   // Ensure we always have a reasonable summary text
@@ -200,14 +274,28 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
   if (proposedOps.length === 0) {
     try {
       const lower = instruction.toLowerCase();
-      const isActionable = ['update','change','modify','set','reschedule'].some(w => lower.includes(w));
-      if (isActionable) {
+      const isUpdateLike = ['update','change','modify','set','reschedule','move','shift','retime','delay'].some(w => lower.includes(w));
+      const isCreateLike = ['add','create','schedule','make','put'].some(w => lower.includes(w));
+
+      if (isUpdateLike) {
         // Try to extract a time like HH:MM (for events only)
-        const m = instruction.match(/\b([01]\d|2[0-3]):[0-5]\d\b/);
-        const inferredTime = m ? m[0] : null;
+        const m = instruction.match(/\b([01]?\d|2[0-3]):[0-5]\d\s*(am|pm)?\b/i);
+        const inferredTime = m ? normalizeTimeTo24h(m[0]) : inferKeywordTime(lower);
         // Choose target: prefer focused candidates, then explicit where.id, then title matching
         let targetId = null;
         let targetKind = 'task';
+        const norm = (s) => {
+          try {
+            return String(s || '')
+              .toLowerCase()
+              .replace(/[^\p{L}\p{N}]+/gu, ' ')
+              .replace(/\s+/g, ' ')
+              .trim();
+          } catch {
+            return String(s || '').toLowerCase().replace(/[^a-z0-9]+/gi, ' ').replace(/\s+/g, ' ').trim();
+          }
+        };
+        const normalizedInstruction = norm(instruction);
         
         // First, check focused candidates
         if (focusedContext.focused && Array.isArray(focusedContext.focused.candidates)) {
@@ -224,6 +312,16 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
             if (titleMatch) {
               targetId = titleMatch.id;
               targetKind = titleMatch.kind;
+            } else {
+              // Prefer event in current view over others when ambiguous
+              const byView = candidates.find(c => {
+                if (c.kind !== 'event') return false;
+                try {
+                  const ev = focusedContext.events.find(e => e.id === c.id);
+                  return ev && ev.source === 'view';
+                } catch { return false; }
+              });
+              if (byView) { targetId = byView.id; targetKind = byView.kind; }
             }
           }
         }
@@ -241,34 +339,36 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
           }
         }
         
-        // Last resort: title matching using indexes
+        // Last resort: title matching using events/tasks in focused context (prefer events in view)
         if (!targetId) {
           try {
-            // Try task index first (task_by_title_ci)
-            if (focusedContext.indexes && focusedContext.indexes.task_by_title_ci) {
-              for (const [title, id] of Object.entries(focusedContext.indexes.task_by_title_ci)) {
-                if (lower.includes(title)) {
-                  targetId = id;
-                  targetKind = 'task';
-                  break;
-                }
-              }
+            // Look for event title matches first, to support time changes like "move lunch to 1 pm"
+            const matchEvents = Array.isArray(focusedContext.events) ? focusedContext.events.filter(e => {
+              const t = norm(e.title);
+              return t && normalizedInstruction.includes(t);
+            }) : [];
+            if (matchEvents.length) {
+              // Prefer those in the current view window, else the earliest in next_month
+              const inView = matchEvents.filter(e => e.source === 'view');
+              const pick = (arr) => arr.slice().sort((a,b) => String(a.scheduledFor||'').localeCompare(String(b.scheduledFor||'')) || (a.id - b.id))[0];
+              const chosen = inView.length ? pick(inView) : pick(matchEvents);
+              if (chosen) { targetId = chosen.id; targetKind = 'event'; }
             }
-            
-            // Try event index if no task match
-            if (!targetId && focusedContext.indexes && focusedContext.indexes.event_by_title_ci) {
-              for (const [title, id] of Object.entries(focusedContext.indexes.event_by_title_ci)) {
-                if (lower.includes(title)) {
-                  targetId = id;
-                  targetKind = 'event';
-                  break;
-                }
+            // If no event match, try tasks
+            if (!targetId && Array.isArray(focusedContext.tasks)) {
+              const matchTasks = focusedContext.tasks.filter(t => {
+                const tt = norm(t.title);
+                return tt && normalizedInstruction.includes(tt);
+              });
+              if (matchTasks.length) {
+                const chosen = matchTasks.slice().sort((a,b)=> (a.id - b.id))[0];
+                if (chosen) { targetId = chosen.id; targetKind = 'task'; }
               }
             }
           } catch {}
         }
         
-        if (targetId && (inferredTime || lower.includes('time'))) {
+        if (targetId && (inferredTime || lower.includes('time') || /\b(\d{1,2})(am|pm)\b/.test(lower))) {
           const inferred = { kind: targetKind, action: 'update', id: targetId };
           if (inferredTime && targetKind === 'event') {
             inferred.startTime = inferredTime;
@@ -286,6 +386,30 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
             }
           }
         }
+      } else if (isCreateLike) {
+        // Infer a simple event.create from natural language like: "add an event for today called Lunch with Dad at noon"
+        const date = inferDateFromInstruction(lower, focusedContext, where, timezone);
+        const title = inferTitleFromInstruction(instruction);
+        const start = (() => {
+          const m = instruction.match(/\b([01]?\d|2[0-3]):[0-5]\d\s*(am|pm)?\b/i);
+          const t = m ? normalizeTimeTo24h(m[0]) : inferKeywordTime(lower);
+          return t || null;
+        })();
+        const end = start ? addOneHour(start) : null;
+        if (date && title && start && end) {
+          const op = { kind: 'event', action: 'create', title, scheduledFor: date, startTime: start, endTime: end, recurrence: { type: 'none' } };
+          const type = operationProcessor.inferOperationType(op);
+          const validator = operationProcessor.validators.get(type);
+          const validation = validator ? await validator(op) : { valid: false, errors: ['unknown_operation_type'] };
+          annotations.push({ op, errors: validation.errors || [] });
+          if (validation.valid) {
+            proposedOps.push(op);
+            finalText = finalText || `Here are the proposed changes for your review. (1 valid, 0 invalid)`;
+            if (DEBUG) {
+              try { const { code } = getModels(); logIO('ops_agent_fallback', { model: code, prompt: JSON.stringify({ instruction }), output: JSON.stringify({ inferredCreate: op }), meta: { correlationId } }); } catch {}
+            }
+          }
+        }
       }
     } catch {}
   }
@@ -295,8 +419,9 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
     steps,
     operations: proposedOps,
     tools: toolCallsLog,
-    notes: { 
-      errors: annotations.filter(a => a.errors?.length).map(a => ({ op: a.op, errors: a.errors }))
+    notes: {
+      errors: annotations.filter(a => a.errors?.length).map(a => ({ op: a.op, errors: a.errors })),
+      contextTruncated: !!(focusedContext && focusedContext.meta && focusedContext.meta.contextTruncated)
     },
     text: finalText,
     thinking: thinkingText

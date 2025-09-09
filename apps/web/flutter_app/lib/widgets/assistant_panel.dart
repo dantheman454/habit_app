@@ -55,6 +55,8 @@ class AssistantPanel extends StatelessWidget {
   final String? thinking;
   final bool showThinking;
   final VoidCallback? onToggleThinking;
+  // Whether the server trimmed context (from notes.contextTruncated)
+  final bool contextTruncated;
   
 
   const AssistantPanel({
@@ -81,6 +83,7 @@ class AssistantPanel extends StatelessWidget {
     this.thinking,
     this.showThinking = false,
     this.onToggleThinking,
+  this.contextTruncated = false,
     
   });
 
@@ -137,6 +140,21 @@ class AssistantPanel extends StatelessWidget {
                   'Mr. Assister',
                   style: TextStyle(fontWeight: FontWeight.w600, fontSize: 20),
                 ),
+                if (contextTruncated) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: Colors.orange.withOpacity(0.6)),
+                    ),
+                    child: const Text(
+                      'Context trimmed',
+                      style: TextStyle(fontSize: 10, color: Colors.orange),
+                    ),
+                  ),
+                ],
                 const Spacer(),
                 if (onToggleThinking != null)
                   Tooltip(

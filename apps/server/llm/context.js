@@ -104,26 +104,28 @@ function listAllEventsRaw() {
 }
 
 // Helper function to build title indexes for case-insensitive matching
+function normalizeTitle(s) {
+  if (!s) return '';
+  try {
+    return String(s)
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, ' ') // drop punctuation
+      .replace(/\s+/g, ' ')              // collapse whitespace
+      .trim();
+  } catch {
+    return String(s).toLowerCase().replace(/[^a-z0-9]+/gi, ' ').replace(/\s+/g, ' ').trim();
+  }
+}
+
 function buildTitleIndexes(tasks, events) {
   const taskIndex = {};
   const eventIndex = {};
-  
-  // Build task index (first 50 items)
-  tasks.slice(0, 50).forEach(task => {
-    if (task.title) {
-      const key = task.title.toLowerCase().trim();
-      taskIndex[key] = task.id;
-    }
-  });
-  
-  // Build event index (first 50 items)
-  events.slice(0, 50).forEach(event => {
-    if (event.title) {
-      const key = event.title.toLowerCase().trim();
-      eventIndex[key] = event.id;
-    }
-  });
-  
+  for (const task of tasks) {
+    if (task?.title) taskIndex[normalizeTitle(task.title)] = task.id;
+  }
+  for (const event of events) {
+    if (event?.title) eventIndex[normalizeTitle(event.title)] = event.id;
+  }
   return { taskIndex, eventIndex };
 }
 
@@ -213,7 +215,72 @@ export function buildFocusedContext(where = {}, { timezone = DEFAULT_TZ } = {}) 
   const includeEvent = !kindsHint || kindsHint.includes('event');
 
   const tasks = includeTask ? filterByWhere(listAllTasksRaw(), w, { todayY }).slice(0, 50) : [];
-  const events = includeEvent ? filterByWhere(listAllEventsRaw(), w, { todayY }).slice(0, 50) : [];
+
+  // Events expansion: current view + next month, with cap and truncation
+  let events = [];
+  let contextTruncated = false;
+  const CAP = Math.max(1, parseInt(process.env.ASSISTANT_CONTEXT_EVENTS_CAP || '800', 10));
+
+  const viewRange = (() => {
+    const v = w?.view || {};
+    const from = isYmdString(v.fromYmd) ? v.fromYmd : null;
+    const to = isYmdString(v.toYmd) ? v.toYmd : null;
+    return (from && to) ? { from, to } : null;
+  })();
+
+  if (includeEvent && viewRange) {
+    // Fetch ALL events in the provided view window
+    let eventsView = [];
+    try { eventsView = db.listEvents({ from: viewRange.from, to: viewRange.to }) || []; } catch { eventsView = []; }
+
+    // Compute next month window from today (timezone-aware)
+    const nowY = todayY; // already tz-adjusted
+    const [yy, mm] = nowY.split('-').map(n => parseInt(n, 10));
+    const firstNextMonth = new Date(yy, mm - 1 + 1, 1); // next month, day 1
+    const lastNextMonth = new Date(firstNextMonth.getFullYear(), firstNextMonth.getMonth() + 1, 0); // end of next month
+    const nextFrom = ymd(firstNextMonth);
+    const nextTo = ymd(lastNextMonth);
+
+    let eventsNext = [];
+    try { eventsNext = db.listEvents({ from: nextFrom, to: nextTo }) || []; } catch { eventsNext = []; }
+
+    // Tag sources and merge
+    const byId = new Map();
+    const push = (arr, sourceTag) => {
+      for (const e of arr) {
+        if (!byId.has(e.id)) byId.set(e.id, { ...e, __source: sourceTag });
+        else {
+          // Prefer view source over next_month
+          const cur = byId.get(e.id);
+          if (cur.__source !== 'view' && sourceTag === 'view') byId.set(e.id, { ...e, __source: sourceTag });
+        }
+      }
+    };
+    push(eventsView, 'view');
+    push(eventsNext, 'next_month');
+
+    // Order for truncation: selected -> view -> next_month
+    const selectedSet = new Set(Array.isArray(w?.selected?.events) ? w.selected.events.map(Number).filter(Number.isFinite) : []);
+    const selected = [];
+    const viewOnly = [];
+    const nextOnly = [];
+    for (const ev of byId.values()) {
+      const isSel = selectedSet.has(ev.id);
+      if (isSel) selected.push(ev);
+      else if (ev.__source === 'view') viewOnly.push(ev);
+      else nextOnly.push(ev);
+    }
+    const ordered = [...selected, ...viewOnly, ...nextOnly];
+    if (ordered.length > CAP) {
+      contextTruncated = true;
+      events = ordered.slice(0, CAP);
+    } else {
+      events = ordered;
+    }
+  } else if (includeEvent) {
+    // Fallback to previous behavior if no view provided
+    events = filterByWhere(listAllEventsRaw(), w, { todayY }).slice(0, 50);
+  }
 
   // Build focused candidates and title indexes
   const focusedCandidates = buildFocusedCandidates(w, tasks, events);
@@ -245,6 +312,7 @@ export function buildFocusedContext(where = {}, { timezone = DEFAULT_TZ } = {}) 
       recurrence: e.recurrence || { type: 'none' },
       completed: !!e.completed,
       context: e.context ?? 'personal',
+      source: e.__source === 'view' ? 'view' : (e.__source === 'next_month' ? 'next_month' : undefined),
       createdAt: e.createdAt,
       updatedAt: e.updatedAt
     })),
@@ -257,7 +325,10 @@ export function buildFocusedContext(where = {}, { timezone = DEFAULT_TZ } = {}) 
       id_to_kind: idToKind,
       id_to_title: idToTitle
     },
-    aggregates: {}
+    aggregates: {},
+    meta: {
+      contextTruncated
+    }
   };
 }
 

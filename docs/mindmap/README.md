@@ -106,7 +106,6 @@ sequenceDiagram
 - Client-side input validation
 - Server-side schema validation
 - Operation processor validation
-- LLM response parsing and repair
 - Database constraints and transactions
 - Idempotency for operation safety
 
@@ -118,13 +117,20 @@ sequenceDiagram
 - [Client Architecture](./client_architecture.md): Flutter state flows, assistant UX, search overlay, CRUD.
 - [Glossary](./glossary.md): Domain terms aligned with code.
 
+### Assistant behavior
+
+- Deterministic disambiguation rules in system prompts (singular selection, tie-breaking with view window, title normalization indexes).
+- Focused context includes: current view + next month of events; `meta.contextTruncated` is set when trimmed.
+- Propose → Apply → Undo: Assistant proposes validated ops; user applies via MCP tools; batch-based undo supported.
+- Fallback inference when the model doesn’t emit tool_calls: see details in [Backend Algorithms](./backend_algorithms.md) (update/create inference with parsed date/time/title, default 1h duration, validators enforced).
+
 ### Constraints and assumptions
 - **Single-user, single-process server**: No multi-tenancy or clustering
 - **SQLite persistence**: `data/app.db` with WAL mode enabled
 - **No authentication**: Local development focus
 - **Ollama local model**: Requires local Ollama instance running
-- **Strict recurrence policy**: Recurrence object required on create/update; anchor required when repeating
-- **Assistant safety**: Validation + single repair attempt; no bulk operations
+- **Recurrence policy**: Recurrence object required on create; optional on update. Anchor (`scheduledFor`) required when repeating.
+- **Assistant safety**: Validation-first proposals; no bulk operations; fallback inference when models underperform
 - **Operations via MCP tools**: No direct apply/dryrun endpoints
 - **Context field support**: 'school', 'personal', 'work' with 'personal' as default
 - **Timezone handling**: Fixed to `America/New_York` (configurable via `TZ_NAME`)
@@ -133,7 +139,7 @@ sequenceDiagram
 ### Invariants and contracts
 - **Recurrence semantics**: Repeating tasks track per-day completion via `completedDates`; set occurrence status via MCP `set_task_status` + `occurrenceDate`
 - **State transitions**: Changing repeating→none clears `completedDates`
-- **Time formats**: Times are canonical 24h `HH:MM` or null; dates are `YYYY-MM-DD`; events may wrap across midnight (Option A)
+- **Time formats**: Times are canonical 24h `HH:MM` or null; dates are `YYYY-MM-DD`; events may wrap across midnight and are split across days in schedule.
 - **Audit trail**: Assistant operations executed through MCP tool calls; all actions logged
 - **Status fields**: Tasks use `status` field ('pending'|'completed'|'skipped'); events use `completed` boolean
 - **Search capabilities**: FTS5 virtual tables provide full-text search for tasks and events
@@ -189,5 +195,48 @@ sequenceDiagram
 - Unit tests: `npm test` (server), `flutter test` (client)
 - Integration tests: `tests/run.js`
 - Manual testing: Full-stack development server
+
+### Try it
+
+1) Start the server
+  - Node 20+ required; optional local Ollama (assistant still proposes via fallbacks if models are unavailable).
+2) Build the client (optional)
+  - Flutter Web: `flutter build web` (served by Express from `build/web`).
+3) Ask the assistant
+  - Example: “add an event for today called Lunch with Dad at noon” → expect a proposed `event.create` with 12:00–13:00.
+  - Example: “move lunch to 1 pm” → expect a proposed `event.update` targeting the event in view.
+4) Apply via MCP tools and undo if needed.
+
+  Note: If models are unavailable, the assistant still proposes operations via fallback inference (safe defaults, validated first). Nothing is auto‑applied until you choose Apply.
+
+### Apply and Undo
+
+- Apply: Send MCP tool calls to `POST /api/mcp/tools/call` with body `{ name, arguments }`.
+  - Optional header `x-correlation-id: <id>` groups multiple applies into one batch for undo.
+  - The server validates via OperationProcessor and records an audit + batch entry.
+- Inspect last batch: `GET /api/assistant/last_batch` (useful to confirm batch ID and contents).
+- Undo last batch: `POST /api/assistant/undo_last` (reverts the most recent successful batch).
+  - Safe by design: undo only touches operations from that batch, using recorded before/after snapshots.
+
+### Troubleshooting
+
+- No models available: Assistant still returns proposals via fallback inference (documented in Backend Algorithms). Check logs in `logs/llm/` for `ops_agent_*` and `assistant_*` entries.
+- DB issues: Ensure `data/app.db` exists and is writable; WAL is enabled automatically.
+- Flutter build: If web build fails, try `flutter clean` then rebuild.
+- Timezone: Controlled by `TZ_NAME` (default `America/New_York`).
+
+### Quality gates
+
+- Build/tests: `npm test` runs unit + integration; keep tests green before committing.
+- Lint/typecheck: ESLint/TypeScript are not enforced in this repo; prefer incremental adoption to avoid drift.
+- Smoke: Start server and hit `/health` (200) and basic CRUD endpoints.
+
+### Conventions and contribution
+
+- Time formats: Dates `YYYY-MM-DD`; times `HH:MM` 24h; tasks are all‑day; events use start/end time (cross‑midnight allowed).
+- Idempotency & audit: MCP tool calls dedupe via Idempotency table; all applies are batched and audited; undo replays batch.
+- Client where: `where.view` anchors view window; `where.selected` carries user selection for disambiguation.
+- Recurrence: Validators accept `monthly`/`yearly`, but runtime recurrence helpers don’t implement them yet—see `operations/validators.js` for the allowed schema.
+- UI: The Assistant panel shows a small “Context trimmed” badge when `notes.contextTruncated` is true in the assistant response; see Client Architecture → Assistant panel.
 
 

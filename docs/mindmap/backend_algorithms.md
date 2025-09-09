@@ -61,13 +61,13 @@ Normalization helpers are not present in the current codebase; endpoints and ope
 #### Endpoint-Level Validation
 
 **Task Validation Rules**:
-- `recurrence` object required on create and update
+- `recurrence` object required on create; optional on update
 - If repeating (`type != 'none'`), `scheduledFor` anchor required
 - `status` must be one of: `pending`, `completed`, `skipped`
 - `context` must be one of: `school`, `personal`, `work`
 
 **Event Validation Rules**:
-- `recurrence` object required on create and update
+- `recurrence` object required on create; optional on update
 - If repeating, `scheduledFor` anchor required
 - `startTime` and `endTime` must be valid canonical 24h HH:MM format
 - Cross‑midnight allowed: `endTime` may be less than `startTime` (wrap to next day)
@@ -158,6 +158,19 @@ function detectAmbiguity(taskBrief, context) {
 Tool surface is limited to tasks and events only. Name format in LLM tool-calling:
 - `task.create`, `task.update`, `task.delete`, `task.set_status`
 - `event.create`, `event.update`, `event.delete`
+
+#### Fallback inference (when the model doesn't emit tool_calls)
+
+When the LLM returns a natural-language reply without structured tool_calls but the intent is clear, the OpsAgent infers safe, minimal operations:
+
+- Update fallback: For phrases like "move/shift/retime/delay" with a clear target and time, infer `event.update` with parsed `scheduledFor` and `startTime`/`endTime`.
+- Create fallback: For add/schedule intents like "add an event for today called Lunch with Dad at noon", infer `event.create` with:
+  - title parsed from the utterance
+  - scheduledFor resolved from relative/explicit date ("today", "tomorrow", YYYY-MM-DD)
+  - startTime parsed from time phrase ("noon" => `12:00`); endTime defaults to +1 hour
+  - recurrence defaults to `{ type: 'none' }` unless clearly specified
+
+All inferred operations go through the same validators and are only proposed; nothing is applied until the user approves.
 
 ### Operation Execution via Operation Processor
 

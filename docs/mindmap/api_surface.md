@@ -18,6 +18,12 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
   - Simple health check for load balancers and monitoring
   - No authentication required
 
+**LLM Health**
+- **GET** `/api/llm/health` → `{ ok, configured, available, present }`
+  - Reports configured model names, Ollama-available models, and booleans for presence
+  - Useful during local setup to confirm model availability
+  - No authentication required
+
 #### Tasks
 
 **List Tasks**
@@ -82,7 +88,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 **Update Task**
 - **PATCH** `/api/tasks/:id`
   - **Body**: Partial update with any of: `title?`, `notes?`, `scheduledFor?`, `status?`, `recurrence?`, `context?`
-  - **Validation**: `recurrence` object required on update; if repeating, anchor date must exist
+  - **Validation**: `recurrence` object is optional on update; if provided and repeating, an anchor date must exist
   - **Response**: `{ task: Task }`
   - **Example**:
     ```json
@@ -115,7 +121,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 
 **List Events**
 - **GET** `/api/events`
-  - **Query Parameters**: Same as tasks (`from`, `to`, `completed`, `context`)
+  - **Query Parameters**: `from?`, `to?`, `context?` (no `completed` filter supported here)
   - **Behavior**: Expands repeating events when both `from`/`to` provided
   - **Response**: `{ events: Event[] }`
   - **Location**: `apps/server/routes/events.js`
@@ -124,7 +130,6 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 - **GET** `/api/events/search`
   - **Query Parameters**:
     - `query: string` - Search text
-    - `completed?: true|false` - Filter by completion
     - `context?: school|personal|work` - Filter by context
   - **Response**: `{ events: Event[] }`
   - **Location**: `apps/server/routes/events.js`
@@ -151,9 +156,27 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
   - **Response**: `{ event: Event }`
   - **Location**: `apps/server/routes/events.js`
 
+**Get Single Event**
+- **GET** `/api/events/:id`
+  - **Response**: `{ event: Event }`
+  - **Errors**: `404 not_found` if event doesn't exist
+  - **Location**: `apps/server/routes/events.js`
+
+**Update Event**
+- **PATCH** `/api/events/:id`
+  - **Body**: Partial update with any of: `title?`, `notes?`, `scheduledFor?`, `startTime?`, `endTime?`, `location?`, `recurrence?`, `context?`
+  - **Validation**: `recurrence` object is optional on update; if provided and repeating, an anchor date must exist. `startTime`/`endTime` must be canonical 24h `HH:MM` if provided. Cross‑midnight is allowed (end < start).
+  - **Response**: `{ event: Event }`
+  - **Location**: `apps/server/routes/events.js`
+
 **Update Event Occurrence**
 - Not supported (returns `400 not_supported`)
 - **Location**: `apps/server/routes/events.js`
+
+**Delete Event**
+- **DELETE** `/api/events/:id`
+  - **Response**: `{ ok: true }`
+  - **Location**: `apps/server/routes/events.js`
 
 #### Unified Schedule
 
@@ -163,10 +186,10 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
     - `from: YYYY-MM-DD` - Start date (required)
     - `to: YYYY-MM-DD` - End date (required)
     - `kinds: string` - Comma-separated list: `task,event`
-    - `completed?: true|false` - Filter events by completion
+  - `completed?: true|false` - Accepted but currently ignored by the server
     - `status_task?: pending|completed|skipped` - Filter tasks by status
   - **Response**: `{ items: Array }` with unified items containing `kind: 'task'|'event'`
-  - **Behavior**: Expands repeating items into per-day occurrences
+  - **Behavior**: Expands repeating items into per-day occurrences. Cross‑midnight events (where `endTime < startTime`) are split into two segments across consecutive days for display.
   - **Location**: `apps/server/routes/schedule.js`
 
 #### Unified Search
@@ -176,11 +199,11 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
   - **Query Parameters**:
     - `q: string` - Search query (required)
     - `scope?: task|event|all` - Search scope (default: all)
-    - `completed?: true|false` - Filter events by completion
+  - `completed?: true|false` - Accepted but currently ignored by the server
     - `status_task?: pending|completed|skipped` - Filter tasks by status
     - `limit?: number` - Result limit (default: 30)
   - **Response**: `{ items: Array }` with unified items
-  - **Features**: FTS5 search across tasks and events
+  - **Features**: Substring filtering across tasks and events (per-entity FTS is available via `/api/tasks/search` and `/api/events/search`)
   - **Location**: `apps/server/routes/search.js`
 
 #### Assistant and LLM
@@ -192,21 +215,35 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
     {
       "message": "string (required)",
       "transcript": "Array (optional)",
-      "options": {}
+      "options": {
+        "client": {
+          "where": {
+            "view": { "from": "YYYY-MM-DD", "to": "YYYY-MM-DD" },
+            "selected": [ { "kind": "task|event", "id": 123 } ]
+          }
+        }
+      },
+      "where": { "view": {"from":"YYYY-MM-DD","to":"YYYY-MM-DD"}, "selected": [ {"kind":"task","id":1} ] }
     }
     ```
+  - Notes:
+    - `where` can be provided either at the top level or under `options.client.where`. It biases focused context and disambiguation.
   - **Response**: `{ text, operations, steps, tools, notes, correlationId, validCount, invalidCount, thinking, previews }`
   - **Location**: `apps/server/routes/assistant.js`
 
 **Assistant Message (SSE Stream)**
 - **GET** `/api/assistant/message/stream`
-  - **Query Parameters**: Same as POST endpoint
+  - **Query Parameters**:
+    - `message: string` (required)
+    - `transcript?: string` — JSON-encoded array of transcript turns
+    - `context?: string` — JSON-encoded object; if present, uses `context.where` with shape `{ view: {from,to}, selected: [{kind,id}] }`
   - **Response**: Server-Sent Events stream with events:
-    - `stage`: Current processing stage
-    - `ops`: Proposed operations with validation and previews
-    - `summary`: Human-readable summary
-    - `heartbeat`: Keep-alive (every 10s)
-    - `done`: Stream completion
+    - `stage`: `{ stage: "act", correlationId }`
+    - `ops`: `{ operations, version: 3, validCount, invalidCount, correlationId, previews }`
+    - `summary`: `{ text, steps, operations, tools, notes, correlationId, thinking }`
+    - `heartbeat`: `{ t: <epoch_ms>, correlationId }` (every ~10s)
+    - `done`: `{ correlationId }` (stream completion)
+    - Note: No `result` event is emitted by the server.
   - **Location**: `apps/server/routes/assistant.js`
   
   Note: Dedicated LLM routes are not exposed in the current server.
@@ -230,7 +267,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 
 **Execute Tool**
 - **POST** `/api/mcp/tools/call`
-  - **Headers**: `x-mcp-token` (required), `x-correlation-id` (optional)
+  - **Headers**: `x-mcp-token` (optional; required if `MCP_SHARED_SECRET` is configured), `x-correlation-id` (optional)
   - **Body**:
     ```json
     {
@@ -244,13 +281,13 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 ### Validation Rules
 
 **Task Validation**:
-- `recurrence` object required on create and update
+- `recurrence` object required on create; optional on update
 - If repeating (`type != 'none'`), `scheduledFor` anchor required
 - `status` must be one of: `pending`, `completed`, `skipped`
 - `context` must be one of: `school`, `personal`, `work`
 
 **Event Validation**:
-- `recurrence` object required on create and update
+- `recurrence` object required on create; optional on update
 - If repeating, `scheduledFor` anchor required
 - `startTime` and `endTime` must be valid `HH:MM` format (canonical 24h)
 - Cross‑midnight allowed: `endTime` may be less than `startTime` (wrap to next day)
@@ -274,14 +311,14 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 
 **Event Operations**:
 - `listEvents({ context? })` → `List<Event>`
-- `searchEvents(query, { completed?, context?, cancelToken? })` → `List<Event>`
+ - `searchEvents(query, { context?, cancelToken? })` → `List<Event>`
 - `createEvent(data)` → `Event`
 - `updateEvent(id, patch)` → `Event`
 - `deleteEvent(id)` → `void` (occurrence toggle not supported)
 
 **Unified Operations**:
 - `fetchSchedule({ from, to, kinds, completed?, statusTask? })` → `List<dynamic>`
-- `searchUnified(query, { scope?, completed?, statusTask?, limit?, cancelToken? })` → `List<dynamic>`
+- `searchUnified(query, { scope?, completed?, statusTask?, limit?, cancelToken? })` → `List<dynamic>` (note: `completed` is accepted but currently ignored by the server)
 
 **Assistant Operations**:
 - `assistantMessage(message, { transcript?, streamSummary?, onSummary?, onStage?, onOps?, onThinking?, onTraceId? })` → `Map<String, dynamic>`

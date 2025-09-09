@@ -351,6 +351,10 @@ class _HomePageState extends State<HomePage> {
   // Unified schedule filters (chips)
   // Default to show both tasks and events; tabs can filter to specific types.
   Set<String> _kindFilter = <String>{'task', 'event'};
+  // Lightweight selection to bias assistant disambiguation
+  // Single-select semantics for now: last interacted task/event
+  final Set<int> _selectedTaskIds = <int>{};
+  final Set<int> _selectedEventIds = <int>{};
 
   bool loading = false;
   String? message;
@@ -371,6 +375,8 @@ class _HomePageState extends State<HomePage> {
   String? assistantThinking;
   bool assistantShowThinking = false; // persisted
   int? assistantStreamingIndex;
+  // Whether server indicated the focused context got trimmed
+  bool assistantContextTruncated = false;
   // Clarify flow removed; handled by conversational chat
   String _progressStage = '';
   String? _lastCorrelationId;
@@ -1857,16 +1863,29 @@ class _HomePageState extends State<HomePage> {
         transcript: recent,
         streamSummary: true,
         clientContext: () {
-          // Limit to current view as requested: derive range and kinds
+          // Provide view range and selection in the standardized `where` shape
           final dr = rangeForView(anchor, view);
           final kinds = _kindFilter.contains('event')
-                    ? <String>['event']
+              ? <String>['event']
               : <String>['task'];
           return {
-            'range': {'from': dr.from, 'to': dr.to},
+            'where': {
+              'view': {
+                'mode': view.name,
+                'fromYmd': dr.from,
+                'toYmd': dr.to,
+              },
+              'selected': {
+                // IDs come from last user interactions (edit taps/search select)
+                'events': _selectedEventIds.toList(),
+                'tasks': _selectedTaskIds.toList(),
+              },
+              // Optional hint: limit kinds; server treats it as a hint
+              'kind': kinds,
+            },
+            // Back-compat and optional hints retained for server-side heuristics
             'kinds': kinds,
             'mainView': mainView.name,
-            // New: include completion and search context to further scope planning
             'completed': showCompleted,
             if (searchCtrl.text.trim().isNotEmpty)
               'search': searchCtrl.text.trim(),
@@ -1949,6 +1968,7 @@ class _HomePageState extends State<HomePage> {
             });
             _progressValid = validCount;
             _progressInvalid = invalidCount;
+            // Keep last-known flag until summary updates it; ops event may not carry notes
           });
         },
         onThinking: (th) {
@@ -1961,6 +1981,7 @@ class _HomePageState extends State<HomePage> {
       final reply = (res['text'] as String?) ?? '';
       final corr = (res['correlationId'] as String?) ?? _lastCorrelationId;
       final thinking = res['thinking'] as String?;
+  final notes = (res['notes'] is Map) ? Map<String, dynamic>.from(res['notes']) : const <String, dynamic>{};
       final opsRaw = res['operations'] as List<dynamic>?;
       final ops = opsRaw == null
           ? <AnnotatedOp>[]
@@ -2015,6 +2036,10 @@ class _HomePageState extends State<HomePage> {
         assistantShowDiff = false;
         assistantThinking = thinking;
         assistantShowThinking = false;
+        // Update context trimmed flag from final response notes
+        try {
+          assistantContextTruncated = (notes['contextTruncated'] == true);
+        } catch (_) {}
         try {
           storage.setItem('assistantShowThinking', assistantShowThinking ? '1' : '0');
         } catch (_) {}
@@ -2677,6 +2702,7 @@ class _HomePageState extends State<HomePage> {
                                               sending: assistantSending,
                                               previewsByKey:
                                                   assistantOpPreviews,
+                                                contextTruncated: assistantContextTruncated,
                                               onToggleOperation: (i, v) =>
                                                   setState(
                                                     () =>
@@ -3460,6 +3486,13 @@ class _HomePageState extends State<HomePage> {
       (t) => t.id == taskId,
       orElse: () => scheduledAllTime.firstWhere((t) => t.id == taskId),
     );
+    // Update assistant selection: single-select last interacted
+    setState(() {
+      _selectedEventIds.clear();
+      _selectedTaskIds
+        ..clear()
+        ..add(task.id);
+    });
     if (task.kind == 'event') {
       _editEvent(task);
     } else {
@@ -3481,6 +3514,13 @@ class _HomePageState extends State<HomePage> {
       (t) => t.id == eventId,
       orElse: () => scheduledAllTime.firstWhere((t) => t.id == eventId),
     );
+    // Update assistant selection: single-select last interacted
+    setState(() {
+      _selectedTaskIds.clear();
+      _selectedEventIds
+        ..clear()
+        ..add(event.id);
+    });
     _editEvent(event);
   }
 }

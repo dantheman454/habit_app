@@ -127,11 +127,11 @@ This glossary defines key terms and concepts used throughout the Task/Event App 
 - **Example**: `missing_recurrence` when creating task without recurrence object
 - **Reference**: See [Backend Algorithms](./backend_algorithms.md#error-messages-catalog) for complete list
 
-**Repair attempts**: Single LLM-powered attempt to fix invalid operations before rejecting them.
+**Fallback inference**: When the model doesn't emit tool calls but the intent is clear, the server infers safe, minimal operations (e.g., `event.create` with default 1h duration). These are validated and only proposed, never auto-applied.
 
-- **Usage**: Improve user experience by automatically correcting common mistakes
-- **Example**: Fixing malformed recurrence objects or missing required fields
-- **Reference**: See [Backend Algorithms](./backend_algorithms.md#repair-algorithm) for implementation
+- **Usage**: Improves reliability when LLM under-specifies actions
+- **Example**: “Add lunch tomorrow at noon” → inferred `event.create` with `12:00–13:00`
+- **Reference**: See [Backend Algorithms](./backend_algorithms.md#fallback-inference-when-the-model-doesnt-emit-tool_calls)
 
 ### Development and Testing
 
