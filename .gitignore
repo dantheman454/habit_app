@@ -36,3 +36,4 @@ env/
 .venv/
 
 scratchpad.txt
+/data
