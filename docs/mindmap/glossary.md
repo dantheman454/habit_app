@@ -55,7 +55,7 @@ This glossary defines key terms and concepts used throughout the Task/Event App 
 **Idempotency**: MCP tool calls deduplicate by `x-correlation-id` + request hash to avoid re-applying the same changes.
 
 - **Usage**: Prevents duplicate operations from network retries or user double-clicks
-- **Example**: Same operation with same correlation ID returns cached result
+- **Example**: Correlate logs across systems using the same correlation ID and fingerprint; no router caching is performed.
 - **Reference**: See [Backend Algorithms](./backend_algorithms.md#idempotency-implementation) for implementation
 
 **Audit log**: Append-only records of assistant and CRUD actions written during operation execution.

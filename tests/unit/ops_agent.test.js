@@ -1,4 +1,4 @@
-// Unit tests for OpsAgent fallback inference (create/update) without a real LLM
+// Unit tests for OpsAgent simplified behavior (no heuristic fallback)
 import assert from 'node:assert/strict';
 import { test, before } from 'node:test';
 import path from 'node:path';
@@ -32,41 +32,19 @@ before(() => {
   reg.registerAllOperations(op);
 });
 
-test('ops_agent fallback: create event for today at noon', async () => {
+test('ops_agent provides guidance when no valid tool_calls are present', async () => {
   const today = ymd();
   const where = { view: { mode: 'day', fromYmd: today, toYmd: today } };
   const r = await runOpsAgentToolCalling({
-    taskBrief: 'add an event for today called Lunch with Dad at noon',
+    taskBrief: 'do something with lunch',
     where,
     transcript: [],
     timezone: 'America/New_York',
     operationProcessor: op
   });
   assert.ok(Array.isArray(r.operations));
-  const create = r.operations.find(o => o.kind === 'event' && (o.action === 'create' || o.op === 'create'));
-  assert.ok(create, 'expected an event.create');
-  assert.equal(create.scheduledFor, today);
-  assert.equal(create.startTime, '12:00');
-  assert.equal(create.endTime, '13:00');
-  assert.ok(String(create.title || '').toLowerCase().includes('lunch'));
-});
-
-test('ops_agent fallback: update event time when asked to move to 1 pm', async () => {
-  const today = ymd();
-  // Seed an event in DB so the focused context can find a candidate
-  const seeded = db.createEvent({ title: 'Lunch with Dad', scheduledFor: today, startTime: '12:00', endTime: '13:00', recurrence: { type: 'none' } });
-  assert.ok(seeded && seeded.id);
-  const where = { view: { mode: 'day', fromYmd: today, toYmd: today } };
-  const r = await runOpsAgentToolCalling({
-    taskBrief: 'move lunch to 1 pm',
-    where,
-    transcript: [],
-    timezone: 'America/New_York',
-    operationProcessor: op
-  });
-  assert.ok(Array.isArray(r.operations));
-  const upd = r.operations.find(o => o.kind === 'event' && (o.action === 'update' || o.op === 'update'));
-  assert.ok(upd, 'expected an event.update');
-  assert.equal(upd.id, seeded.id);
-  assert.equal(upd.startTime, '13:00');
+  assert.equal(r.operations.length, 0);
+  assert.ok(typeof r.text === 'string' && r.text.length > 0);
+  const hasNoOpsError = Array.isArray(r.notes?.errors) && r.notes.errors.some(e => e && (e.error === 'no_operations_proposed'));
+  assert.ok(hasNoOpsError, 'expected no_operations_proposed error note');
 });

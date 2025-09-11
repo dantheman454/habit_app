@@ -65,11 +65,11 @@ export async function getAvailableModels() {
 
 
 // Model-agnostic LLM functions
-export async function generateText(prompt, { model = DEFAULT_CONVO_MODEL, stream = false, config = {} } = {}) {
+export async function generateText(prompt, { model = DEFAULT_CONVO_MODEL, stream = false, config = {}, timeoutMs } = {}) {
   const formattedPrompt = typeof prompt === 'string' ? prompt : createPrompt(prompt);
   const finalConfig = { ...DEFAULT_CONFIG, ...config };
   const payload = { model, prompt: formattedPrompt, stream, ...finalConfig };
-  const { status, body } = await postJson('/api/generate', payload);
+  const { status, body } = await postJson('/api/generate', payload, { timeout: Number(timeoutMs || TIMEOUT_MS) });
   if (status !== 200) throw new Error(`generateText ${model} failed: ${status}`);
   let responseText = String(body || '');
   if (responseText.includes('"response":')) {
@@ -78,6 +78,6 @@ export async function generateText(prompt, { model = DEFAULT_CONVO_MODEL, stream
   return parseResponse(responseText);
 }
 
-export async function generateStructured(prompt, { model = DEFAULT_CODE_MODEL, config = {} } = {}) {
-  return generateText(prompt, { model, stream: false, config });
+export async function generateStructured(prompt, { model = DEFAULT_CODE_MODEL, config = {}, timeoutMs } = {}) {
+  return generateText(prompt, { model, stream: false, config, timeoutMs });
 }

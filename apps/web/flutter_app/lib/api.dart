@@ -3,6 +3,7 @@ import 'dart:async';
 import 'util/sse.dart' as sse;
 import 'util/storage.dart' as storage;
 import 'dart:convert';
+import 'util/text_filters.dart' as filters;
 
 String _computeApiBase() {
   // Prefer same-origin when the app is being served by the backend (LAN IP or HTTPS proxy).
@@ -172,7 +173,8 @@ Future<Map<String, dynamic>> assistantMessage(
     try {
       if (onSummary != null) {
         final text = (map['text'] as String?) ?? '';
-        if (text.isNotEmpty) onSummary(text);
+        final clean = text.isNotEmpty ? filters.stripJsonBlobs(text) : '';
+        if (clean.isNotEmpty) onSummary(clean);
       }
     } catch (_) {}
     try {
@@ -247,9 +249,10 @@ Future<Map<String, dynamic>> assistantMessage(
           } else if (event == 'summary') {
             if (onSummary != null) {
               final text = (obj['text'] as String?) ?? '';
-              if (text.isNotEmpty) {
-                lastText = text;
-                onSummary(text);
+              final clean = text.isNotEmpty ? filters.stripJsonBlobs(text) : '';
+              if (clean.isNotEmpty) {
+                lastText = clean;
+                onSummary(clean);
               }
             }
             try {
@@ -316,6 +319,12 @@ Future<Map<String, dynamic>> assistantMessage(
           try {
             final th = (map['thinking'] as String?) ?? '';
             if (th.isNotEmpty && onThinking != null) onThinking(th);
+          } catch (_) {}
+          // Clean text before completing
+          try {
+            if (map.containsKey('text') && map['text'] is String) {
+              map['text'] = filters.stripJsonBlobs(map['text'] as String);
+            }
           } catch (_) {}
           completer.complete(map);
         } catch (e) {

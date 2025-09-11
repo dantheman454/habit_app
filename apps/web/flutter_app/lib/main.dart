@@ -1917,7 +1917,17 @@ class _HomePageState extends State<HomePage> {
         onStage: (st) {
           if (!mounted) return;
           setState(() {
-            _progressStage = st;
+            // Map server stages to UI-friendly labels
+            switch (st) {
+              case 'route':
+                _progressStage = 'routing';
+                break;
+              case 'act':
+                _progressStage = 'proposing';
+                break;
+              default:
+                _progressStage = st;
+            }
             _progressStart ??= DateTime.now();
           });
         },

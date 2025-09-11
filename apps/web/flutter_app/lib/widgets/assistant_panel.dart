@@ -188,138 +188,48 @@ class AssistantPanel extends StatelessWidget {
             child: ListView(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
               children: [
-                for (final turn in transcript) _buildTurnBubble(context, turn),
-                // Clarify section removed
-                if (sending) _buildTypingBubble(context),
-                // progress no longer here
-                if (showThinking && (thinking != null && thinking!.trim().isNotEmpty)) ...[
-                  const SizedBox(height: 8),
-                  _SectionHeader(title: 'Thinking'),
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surface,
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: Theme.of(context).dividerColor),
-                    ),
-                    child: SelectableText(
-                      thinking!,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ),
+                for (var i = 0; i < transcript.length; i++) ...[
+                  _buildTurnBubble(
+                    context,
+                    transcript[i],
+                    isLatestAssistant: i == transcript.length - 1 &&
+                        (transcript[i]['role'] == 'assistant'),
                   ),
-                ],
-                if (operations.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  _SectionHeader(
-                    title: sending ? 'Proposed operations' : 'Executed operations (${operations.length})',
-                  ),
-                  if (operations.any((o) => _getErrors(o).isNotEmpty))
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4, bottom: 4),
-                      child: Row(
-                        children: const [
-                          Icon(Icons.error_outline, size: 16, color: Colors.amber),
-                          SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              'Some operations failed to run. Review errors below.',
-                              style: TextStyle(fontSize: 12),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  const SizedBox(height: 4),
-                  if (operations.any((o) => _getErrors(o).isNotEmpty)) ...[
-                    const SizedBox(height: 6),
+                  if (i == transcript.length - 1 &&
+                      (transcript[i]['role'] == 'assistant') &&
+                      showThinking &&
+                      (thinking != null && thinking!.trim().isNotEmpty)) ...[
+                    const SizedBox(height: 8),
+                    _SectionHeader(title: 'Thinking'),
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: Colors.amberAccent.withAlpha((0.15 * 255).round()),
+                        color: Theme.of(context).colorScheme.surface,
                         borderRadius: BorderRadius.circular(6),
-                        border: Border.all(
-                          color: Colors.amber.withAlpha((0.6 * 255).round()),
+                        border:
+                            Border.all(color: Theme.of(context).dividerColor),
+                      ),
+                      child: SelectableText(
+                        thinking!,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurfaceVariant,
                         ),
                       ),
-                      child: const Text(
-                        'Some proposed operations are invalid and cannot be applied. Please review the errors below.',
-                        style: TextStyle(fontSize: 12),
-                      ),
                     ),
-                    const SizedBox(height: 6),
                   ],
-                  ..._buildGroupedOperationList(
-                    context,
-                    operations,
-                    operationsChecked,
-                    labeler,
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      FilledButton(
-                        onPressed: () async {
-                          final anyChecked = operationsChecked.any((e) => e);
-                          if (!anyChecked) {
-                            onApplySelected();
-                            return;
-                          }
-                          final confirmed = await showDialog<bool>(
-                            context: context,
-                            builder: (ctx) => AlertDialog(
-                              title: const Text('Apply selected changes?'),
-                              content: const Text('These changes will be applied to your data. You can undo the last batch from the menu.'),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.of(ctx).pop(false),
-                                  child: const Text('Cancel'),
-                                ),
-                                FilledButton(
-                                  onPressed: () => Navigator.of(ctx).pop(true),
-                                  child: const Text('Apply'),
-                                ),
-                              ],
-                            ),
-                          );
-                          if (confirmed == true) onApplySelected();
-                        },
-                        child: const Text('Apply Selected'),
-                      ),
-                      // Quick selection helpers (operate via onToggleOperation)
-                      TextButton(
-                        onPressed: () {
-                          for (var i = 0; i < operations.length; i++) {
-                            // Skip invalid ops
-                            if (_getErrors(operations[i]).isNotEmpty) continue;
-                            if (i < operationsChecked.length && !operationsChecked[i]) {
-                              onToggleOperation(i, true);
-                            }
-                          }
-                        },
-                        child: const Text('Select all'),
-                      ),
-                      TextButton(
-                        onPressed: () {
-                          for (var i = 0; i < operations.length; i++) {
-                            if (i < operationsChecked.length && operationsChecked[i]) {
-                              onToggleOperation(i, false);
-                            }
-                          }
-                        },
-                        child: const Text('Clear'),
-                      ),
-                      TextButton(
-                        onPressed: onDiscard,
-                        child: const Text('Discard'),
-                      ),
-                    ],
-                  ),
+                  if (i == transcript.length - 1 &&
+                      (transcript[i]['role'] == 'assistant') &&
+                      operations.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    _buildOperationsSection(context, labeler),
+                  ],
                 ],
+                // Clarify section removed
+                if (sending) _buildTypingBubble(context),
+                // progress no longer here
               ],
             ),
           ),
@@ -362,7 +272,11 @@ class AssistantPanel extends StatelessWidget {
     );
   }
 
-  Widget _buildTurnBubble(BuildContext context, Map<String, String> turn) {
+  Widget _buildTurnBubble(
+    BuildContext context,
+    Map<String, String> turn, {
+    bool isLatestAssistant = false,
+  }) {
     final isUser = (turn['role'] == 'user');
   final Color bg = isUser
     ? Theme.of(context).colorScheme.primary
@@ -384,7 +298,10 @@ class AssistantPanel extends StatelessWidget {
             borderRadius: BorderRadius.circular(8),
           ),
           child: isUser
-              ? Text(_parseLLMResponse(turn['text'] ?? ''), style: TextStyle(color: fg))
+              ? Text(
+                  _parseLLMResponse(turn['text'] ?? ''),
+                  style: TextStyle(color: fg),
+                )
               : Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -396,10 +313,149 @@ class AssistantPanel extends StatelessWidget {
                         style: TextStyle(color: fg),
                       ),
                     ),
+                    if (isLatestAssistant &&
+                        thinking != null &&
+                        thinking!.trim().isNotEmpty &&
+                        onToggleThinking != null)
+                      Tooltip(
+                        message:
+                            showThinking ? 'Hide thinking' : 'Show thinking',
+                        child: IconButton(
+                          onPressed: onToggleThinking,
+                          icon: Icon(
+                            showThinking
+                                ? Icons.expand_less
+                                : Icons.expand_more,
+                            size: 18,
+                            color: fg,
+                          ),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
                   ],
                 ),
         ),
       ),
+    );
+  }
+
+  Widget _buildOperationsSection(
+    BuildContext context,
+    String Function(dynamic) labeler,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionHeader(
+          title: sending
+              ? 'Proposed operations'
+              : 'Executed operations (${operations.length})',
+        ),
+        if (operations.any((o) => _getErrors(o).isNotEmpty))
+          Padding(
+            padding: const EdgeInsets.only(top: 4, bottom: 4),
+            child: Row(
+              children: const [
+                Icon(Icons.error_outline, size: 16, color: Colors.amber),
+                SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Some operations failed to run. Review errors below.',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        const SizedBox(height: 4),
+        if (operations.any((o) => _getErrors(o).isNotEmpty)) ...[
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.amberAccent.withAlpha((0.15 * 255).round()),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(
+                color: Colors.amber.withAlpha((0.6 * 255).round()),
+              ),
+            ),
+            child: const Text(
+              'Some proposed operations are invalid and cannot be applied. Please review the errors below.',
+              style: TextStyle(fontSize: 12),
+            ),
+          ),
+          const SizedBox(height: 6),
+        ],
+        ..._buildGroupedOperationList(
+          context,
+          operations,
+          operationsChecked,
+          labeler,
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            FilledButton(
+              onPressed: () async {
+                final anyChecked = operationsChecked.any((e) => e);
+                if (!anyChecked) {
+                  onApplySelected();
+                  return;
+                }
+                final confirmed = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Apply selected changes?'),
+                    content: const Text(
+                        'These changes will be applied to your data. You can undo the last batch from the menu.'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(ctx).pop(false),
+                        child: const Text('Cancel'),
+                      ),
+                      FilledButton(
+                        onPressed: () => Navigator.of(ctx).pop(true),
+                        child: const Text('Apply'),
+                      ),
+                    ],
+                  ),
+                );
+                if (confirmed == true) onApplySelected();
+              },
+              child: const Text('Apply Selected'),
+            ),
+            // Quick selection helpers (operate via onToggleOperation)
+            TextButton(
+              onPressed: () {
+                for (var i = 0; i < operations.length; i++) {
+                  // Skip invalid ops
+                  if (_getErrors(operations[i]).isNotEmpty) continue;
+                  if (i < operationsChecked.length && !operationsChecked[i]) {
+                    onToggleOperation(i, true);
+                  }
+                }
+              },
+              child: const Text('Select all'),
+            ),
+            TextButton(
+              onPressed: () {
+                for (var i = 0; i < operations.length; i++) {
+                  if (i < operationsChecked.length && operationsChecked[i]) {
+                    onToggleOperation(i, false);
+                  }
+                }
+              },
+              child: const Text('Clear'),
+            ),
+            TextButton(
+              onPressed: onDiscard,
+              child: const Text('Discard'),
+            ),
+          ],
+        ),
+      ],
     );
   }
 

@@ -28,8 +28,8 @@ async function main() {
       try { fs.unlinkSync(path.join(testDataDir, f)); } catch {}
     }
   } catch {}
-  // 1) Unit tests (Node test runner will discover our unit tests)
-  await run(process.execPath, ['--test', path.join(__dirname, 'unit')]);
+  // 1) Unit tests (disable LLM to keep deterministic guidance expectations)
+  await run(process.execPath, ['--test', path.join(__dirname, 'unit')], { env: { ...process.env, ASSISTANT_DISABLE_LLM: '1' } });
 
   // 2) Start a stub LLM (fakes Ollama) so assistant endpoints can run without a real model
   const llmStub = await new Promise((resolve) => {
@@ -69,7 +69,15 @@ async function main() {
   });
 
   // 3) Start server for integration tests, wait for /health, then run smoke tests
-  const serverEnv = { ...process.env, APP_DB_PATH: process.env.APP_DB_PATH, OLLAMA_HOST: '127.0.0.1', OLLAMA_PORT: String(llmStub.port) };
+  const serverEnv = { 
+    ...process.env,
+    APP_DB_PATH: process.env.APP_DB_PATH,
+    OLLAMA_HOST: '127.0.0.1',
+    OLLAMA_PORT: String(llmStub.port),
+    ORCHESTRATOR_ENABLED: '1',
+    ORCHESTRATOR_HYBRID: '1',
+    ORCHESTRATOR_CLASSIFIER_ENABLED: '0'
+  };
   const server = spawn(process.execPath, [path.join(__dirname, '..', 'apps', 'server', 'server.js')], {
     env: serverEnv,
     stdio: ['ignore', 'inherit', 'inherit']

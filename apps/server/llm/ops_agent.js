@@ -1,7 +1,7 @@
 import { generateStructured, getModels } from './clients.js';
 import { createToolPrompt } from './prompt.js';
 import { buildFocusedContext } from './context.js';
-import { extractFirstJson } from './json_extract.js';
+import { extractFirstJson, validateToolCallsResponse } from './json_extract.js';
 import { mkCorrelationId, logIO } from './logging.js';
 import db from '../database/DbService.js';
 import { OperationRegistry } from '../operations/operation_registry.js';
@@ -22,73 +22,7 @@ function toolCallToOperation(name, args) {
   return { kind, action, ...(args || {}) };
 }
 
-// --- helpers for fallback inference ---
-function normalizeTimeTo24h(token) {
-  try {
-    let s = String(token).trim().toLowerCase();
-    const ampm = /(am|pm)$/i.test(s) ? s.slice(-2) : '';
-    s = s.replace(/\s*(am|pm)$/i, '');
-    let [h, m] = s.split(':').map(v => parseInt(v, 10));
-    if (!Number.isFinite(h)) return null;
-    if (!Number.isFinite(m)) m = 0;
-    if (ampm === 'pm' && h < 12) h += 12;
-    if (ampm === 'am' && h === 12) h = 0;
-    if (h < 0 || h > 23 || m < 0 || m > 59) return null;
-    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
-  } catch { return null; }
-}
-
-function inferKeywordTime(lower) {
-  if (/( at )?noon\b/.test(lower)) return '12:00';
-  if (/( at )?midnight\b/.test(lower)) return '00:00';
-  if (/\bmorning\b/.test(lower)) return '09:00';
-  if (/\bafternoon\b/.test(lower)) return '13:00';
-  if (/\bevening\b/.test(lower)) return '18:00';
-  return null;
-}
-
-function addOneHour(hhmm) {
-  try { const [h,m]=hhmm.split(':').map(n=>parseInt(n,10)); const d=new Date(2000,0,1,h,m); d.setHours(d.getHours()+1); return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; } catch { return null; }
-}
-
-function inferDateFromInstruction(lower, focusedContext, where, timezone) {
-  try {
-    const today = new Date();
-    const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    if (/\btoday\b/.test(lower)) return ymd(today);
-    if (/\btomorrow\b/.test(lower)) { const d=new Date(today); d.setDate(d.getDate()+1); return ymd(d); }
-    // If where.view is day mode, bias to anchor day if instruction lacks explicit date
-    try {
-      const v = where?.view || {};
-      if ((v.mode === 'day' || v.mode === 'week' || v.mode === 'month') && v.fromYmd && v.toYmd && !/\b\d{4}-\d{2}-\d{2}\b/.test(lower)) {
-        // choose today if inside view; else use v.fromYmd as reasonable default
-        const from = v.fromYmd; const to = v.toYmd;
-        const ty = ymd(today);
-        if (ty >= String(from) && ty <= String(to)) return ty;
-        return from;
-      }
-    } catch {}
-    // Explicit YYYY-MM-DD
-    const m = lower.match(/\b(\d{4}-\d{2}-\d{2})\b/);
-    if (m) return m[1];
-  } catch {}
-  return null;
-}
-
-function inferTitleFromInstruction(instr) {
-  // Heuristic: extract after keywords like 'called', 'titled', or fallback to quoted text
-  try {
-    const s = String(instr);
-    const q = s.match(/"([^"]{2,80})"|'([^']{2,80})'/);
-    if (q) return (q[1] || q[2]).trim();
-    const called = s.match(/\b(called|titled)\s+([^,.;]+?)(\s+at\b|\s+on\b|$)/i);
-    if (called) return String(called[2]).trim();
-    // Fallback: take a short phrase after 'add an event' or 'create an event'
-    const add = s.match(/\b(add|create|schedule)\s+(an?\s+)?event\s+(for\s+|on\s+)?([^,.;]+?)(\s+at\b|$)/i);
-    if (add) return String(add[4]).replace(/\b(today|tomorrow)\b/ig,'').trim();
-  } catch {}
-  return null;
-}
+// (Removed) heuristic fallback helpers; strict tool-calling only
 
 export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript = [], timezone, operationProcessor } = {}) {
   const instruction = String(taskBrief || '').trim();
@@ -122,7 +56,7 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
     });
   });
 
-  const system = 'You are an operations executor for a tasks/events app. Use provided tools precisely.\n\nFields map (strict):\n- Tasks: date -> scheduledFor; status -> status.\n- Events: date -> scheduledFor; start -> startTime; end -> endTime.\n\nHard rules:\n- Do NOT propose event completion operations (events are never completed via tools). Tasks use set_status (optionally with occurrenceDate).\n- Never reply that you cannot modify data. You must propose tool calls. The server will only apply them after the user confirms.\n- Output requirements: You MUST output exactly ONE plain JSON object with a `tool_calls` array (no code fences, no prose). Any other content is discarded.\n\nDisambiguation (deterministic):\n- Prefer IDs from focused.candidates when exactly one candidate is present; treat as the target.\n- When multiple title matches exist, compare titles case-insensitively with normalized matching (ignore punctuation/extra whitespace) via indexes.task_by_title_ci and indexes.event_by_title_ci.\n- If multiple event matches remain: prefer those whose scheduledFor lies within the current view window (focused.where.view). Otherwise prefer the closest future date within the next-month set.\n- Cross-check the chosen ID with indexes.id_to_kind and indexes.id_to_title to verify type/title before emitting a tool call.\n- Never invent IDs. If still ambiguous after these rules, choose the best deterministic candidate and still emit the tool call. Do not ask the user to clarify.\n\nValidation: Validate dates (YYYY-MM-DD) and times (HH:MM). Keep operations under 20 total.';
+  const system = 'You are an assistant for a tasks and events app. Use the provided tools to create, update, or delete tasks and events.\n\nIMPORTANT:\n- Tasks are all-day items (no time fields)\n- Events have start and end times\n- Use tool_calls to perform actions\n- The system will validate and present changes to the user for approval\n\nAvailable tools are listed below. Use them when the user wants to modify data.';
   const user = `Task: ${instruction}\nWhere: ${JSON.stringify(where)}\nFocused Context:\n${contextJson}\nRecent Conversation:\n${convo}`;
 
   const prompt = createToolPrompt({ system, user, tools: operationTools });
@@ -159,12 +93,25 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
     let text = '';
     let jsonCandidate = {};
     let toolCallsArr = [];
+    // Test knob: allow disabling LLM to force guidance path in unit tests
+    const DISABLE_LLM = /^(1|true|yes|on)$/i.test(String(process.env.ASSISTANT_DISABLE_LLM || ''));
+    if (DISABLE_LLM) {
+      toolCallsArr = [];
+    } else {
     try {
       const resp = await generateStructured(prompt, { model: code });
       text = typeof resp === 'string' ? resp : (resp.final || resp.message || resp.content || '');
-      jsonCandidate = extractFirstJson(String(text || '')) || {};
-      toolCallsArr = Array.isArray(jsonCandidate.tool_calls) ? jsonCandidate.tool_calls
-        : (jsonCandidate.tool_call ? [jsonCandidate.tool_call] : []);
+      const parsed = extractFirstJson(String(text || ''));
+      jsonCandidate = parsed && typeof parsed === 'object' ? parsed : {};
+      const v = validateToolCallsResponse(jsonCandidate);
+      if (v.valid) {
+        toolCallsArr = jsonCandidate.tool_calls;
+      } else {
+        toolCallsArr = [];
+        if (DEBUG) {
+          try { logIO('ops_agent_round', { output: JSON.stringify({ warning: 'invalid_response_format', detail: v.error }) }); } catch {}
+        }
+      }
     } catch (e) {
       // Model might be unavailable; skip tool-calls and allow fallback inference below
       text = '';
@@ -173,6 +120,7 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
       if (DEBUG) {
         try { logIO('ops_agent_round', { model: code, prompt: JSON.stringify({ round: rounds + 1 }), output: JSON.stringify({ error: 'generateStructured_failed', message: String(e && e.message ? e.message : e) }), meta: { correlationId, round: rounds + 1 } }); } catch {}
       }
+    }
     }
 
     if (DEBUG) {
@@ -200,7 +148,7 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
       if (thinkingText && thinkingText.length > 2000) thinkingText = thinkingText.slice(0, 2000) + '…';
     }
 
-    if (!toolCallsArr.length) {
+  if (!toolCallsArr.length) {
       // No tool calls - extract clean final response
       let respText = responseText;
       
@@ -211,7 +159,7 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
       
       // If no clean response after removing thinking, use a default
       if (!respText) {
-        respText = 'Here are the suggested changes for your review.';
+    respText = 'I could not propose any changes. Use explicit actions like add/create, update/set, or delete, with specific titles and dates.';
       }
       
       finalText = respText;
@@ -270,148 +218,31 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
     finalText = respText || defaultText;
   }
 
-  // Fallback: if no operations were proposed but intent is likely actionable, infer a minimal op
+  // Guidance path: if no operations were proposed, provide concise suggestions
   if (proposedOps.length === 0) {
-    try {
-      const lower = instruction.toLowerCase();
-      const isUpdateLike = ['update','change','modify','set','reschedule','move','shift','retime','delay'].some(w => lower.includes(w));
-      const isCreateLike = ['add','create','schedule','make','put'].some(w => lower.includes(w));
-
-      if (isUpdateLike) {
-        // Try to extract a time like HH:MM (for events only)
-        const m = instruction.match(/\b([01]?\d|2[0-3]):[0-5]\d\s*(am|pm)?\b/i);
-        const inferredTime = m ? normalizeTimeTo24h(m[0]) : inferKeywordTime(lower);
-        // Choose target: prefer focused candidates, then explicit where.id, then title matching
-        let targetId = null;
-        let targetKind = 'task';
-        const norm = (s) => {
-          try {
-            return String(s || '')
-              .toLowerCase()
-              .replace(/[^\p{L}\p{N}]+/gu, ' ')
-              .replace(/\s+/g, ' ')
-              .trim();
-          } catch {
-            return String(s || '').toLowerCase().replace(/[^a-z0-9]+/gi, ' ').replace(/\s+/g, ' ').trim();
-          }
-        };
-        const normalizedInstruction = norm(instruction);
-        
-        // First, check focused candidates
-        if (focusedContext.focused && Array.isArray(focusedContext.focused.candidates)) {
-          const candidates = focusedContext.focused.candidates;
-          if (candidates.length === 1) {
-            targetId = candidates[0].id;
-            targetKind = candidates[0].kind;
-          } else if (candidates.length > 1) {
-            // Multiple candidates - try to find best match by title
-            const titleMatch = candidates.find(c => {
-              const t = String(c.title || '').toLowerCase();
-              return !!t && lower.includes(t);
-            });
-            if (titleMatch) {
-              targetId = titleMatch.id;
-              targetKind = titleMatch.kind;
-            } else {
-              // Prefer event in current view over others when ambiguous
-              const byView = candidates.find(c => {
-                if (c.kind !== 'event') return false;
-                try {
-                  const ev = focusedContext.events.find(e => e.id === c.id);
-                  return ev && ev.source === 'view';
-                } catch { return false; }
-              });
-              if (byView) { targetId = byView.id; targetKind = byView.kind; }
-            }
-          }
-        }
-        
-        // Fallback to explicit where.id
-        if (!targetId && where && Number.isFinite(where.id)) {
-          targetId = where.id;
-          // Try to determine kind by checking both tasks and events
-          const tasksInContext = (focusedContext && Array.isArray(focusedContext.tasks)) ? focusedContext.tasks : [];
-          const eventsInContext = (focusedContext && Array.isArray(focusedContext.events)) ? focusedContext.events : [];
-          if (tasksInContext.find(t => t.id === targetId)) {
-            targetKind = 'task';
-          } else if (eventsInContext.find(e => e.id === targetId)) {
-            targetKind = 'event';
-          }
-        }
-        
-        // Last resort: title matching using events/tasks in focused context (prefer events in view)
-        if (!targetId) {
-          try {
-            // Look for event title matches first, to support time changes like "move lunch to 1 pm"
-            const matchEvents = Array.isArray(focusedContext.events) ? focusedContext.events.filter(e => {
-              const t = norm(e.title);
-              return t && normalizedInstruction.includes(t);
-            }) : [];
-            if (matchEvents.length) {
-              // Prefer those in the current view window, else the earliest in next_month
-              const inView = matchEvents.filter(e => e.source === 'view');
-              const pick = (arr) => arr.slice().sort((a,b) => String(a.scheduledFor||'').localeCompare(String(b.scheduledFor||'')) || (a.id - b.id))[0];
-              const chosen = inView.length ? pick(inView) : pick(matchEvents);
-              if (chosen) { targetId = chosen.id; targetKind = 'event'; }
-            }
-            // If no event match, try tasks
-            if (!targetId && Array.isArray(focusedContext.tasks)) {
-              const matchTasks = focusedContext.tasks.filter(t => {
-                const tt = norm(t.title);
-                return tt && normalizedInstruction.includes(tt);
-              });
-              if (matchTasks.length) {
-                const chosen = matchTasks.slice().sort((a,b)=> (a.id - b.id))[0];
-                if (chosen) { targetId = chosen.id; targetKind = 'task'; }
-              }
-            }
-          } catch {}
-        }
-        
-        if (targetId && (inferredTime || lower.includes('time') || /\b(\d{1,2})(am|pm)\b/.test(lower))) {
-          const inferred = { kind: targetKind, action: 'update', id: targetId };
-          if (inferredTime && targetKind === 'event') {
-            inferred.startTime = inferredTime;
-          }
-          // Validate and include if valid
-          const type = operationProcessor.inferOperationType(inferred);
-          const validator = operationProcessor.validators.get(type);
-          const validation = validator ? await validator(inferred) : { valid: false, errors: ['unknown_operation_type'] };
-          annotations.push({ op: inferred, errors: validation.errors || [] });
-          if (validation.valid) {
-            proposedOps.push(inferred);
-            finalText = finalText || `Here are the proposed changes for your review. (1 valid, 0 invalid)`;
-            if (DEBUG) {
-              try { const { code } = getModels(); logIO('ops_agent_fallback', { model: code, prompt: JSON.stringify({ instruction }), output: JSON.stringify({ inferred }), meta: { correlationId } }); } catch {}
-            }
-          }
-        }
-      } else if (isCreateLike) {
-        // Infer a simple event.create from natural language like: "add an event for today called Lunch with Dad at noon"
-        const date = inferDateFromInstruction(lower, focusedContext, where, timezone);
-        const title = inferTitleFromInstruction(instruction);
-        const start = (() => {
-          const m = instruction.match(/\b([01]?\d|2[0-3]):[0-5]\d\s*(am|pm)?\b/i);
-          const t = m ? normalizeTimeTo24h(m[0]) : inferKeywordTime(lower);
-          return t || null;
-        })();
-        const end = start ? addOneHour(start) : null;
-        if (date && title && start && end) {
-          const op = { kind: 'event', action: 'create', title, scheduledFor: date, startTime: start, endTime: end, recurrence: { type: 'none' } };
-          const type = operationProcessor.inferOperationType(op);
-          const validator = operationProcessor.validators.get(type);
-          const validation = validator ? await validator(op) : { valid: false, errors: ['unknown_operation_type'] };
-          annotations.push({ op, errors: validation.errors || [] });
-          if (validation.valid) {
-            proposedOps.push(op);
-            finalText = finalText || `Here are the proposed changes for your review. (1 valid, 0 invalid)`;
-            if (DEBUG) {
-              try { const { code } = getModels(); logIO('ops_agent_fallback', { model: code, prompt: JSON.stringify({ instruction }), output: JSON.stringify({ inferredCreate: op }), meta: { correlationId } }); } catch {}
-            }
-          }
-        }
-      }
-    } catch {}
+    const lower = instruction.toLowerCase();
+    let guidance = 'I could not propose any changes. ';
+    if (/(add|create|schedule)\b/.test(lower)) {
+      guidance += 'Try: "add an event called Meeting at 14:00 tomorrow" or "create a task titled Groceries for 2025-09-10".';
+    } else if (/(update|change|modify|move|reschedule|set)\b/.test(lower)) {
+      guidance += 'Try: "update Lunch with Dad to 13:00 today" or "set task \"Groceries\" status to completed".';
+    } else if (/(delete|remove)\b/.test(lower)) {
+      guidance += 'Try: "delete the event \"Lunch with Dad\" today" or "delete task \"Groceries\"".';
+    } else {
+      guidance += 'Use explicit actions like add/create, update/set, or delete, with specific titles and dates.';
+    }
+    return {
+      version: '3',
+      steps,
+      operations: [],
+      tools: toolCallsLog,
+      notes: {
+        errors: [{ error: 'no_operations_proposed' }],
+        contextTruncated: !!(focusedContext && focusedContext.meta && focusedContext.meta.contextTruncated)
+      },
+      text: guidance,
+      thinking: thinkingText
+    };
   }
 
   return {
@@ -420,7 +251,7 @@ export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript
     operations: proposedOps,
     tools: toolCallsLog,
     notes: {
-      errors: annotations.filter(a => a.errors?.length).map(a => ({ op: a.op, errors: a.errors })),
+  errors: annotations.filter(a => a.errors?.length).map(a => ({ op: a.op, errors: a.errors })),
       contextTruncated: !!(focusedContext && focusedContext.meta && focusedContext.meta.contextTruncated)
     },
     text: finalText,

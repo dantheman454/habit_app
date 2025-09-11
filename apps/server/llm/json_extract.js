@@ -28,3 +28,28 @@ export function extractFirstJson(text) {
   const candidate = s.slice(0, end);
   try { return JSON.parse(candidate); } catch { return null; }
 }
+
+// Validate that a JSON response follows the strict tool_calls format
+// { tool_calls: [ { function: { name: string, arguments: object|string } } ] }
+export function validateToolCallsResponse(jsonResponse) {
+  if (!jsonResponse || typeof jsonResponse !== 'object') {
+    return { valid: false, error: 'Response is not a valid object' };
+  }
+  const arr = jsonResponse.tool_calls;
+  if (!Array.isArray(arr)) {
+    return { valid: false, error: 'Missing or invalid tool_calls array' };
+  }
+  for (const call of arr) {
+    const fn = call && call.function;
+    if (!fn || typeof fn !== 'object') {
+      return { valid: false, error: 'Missing function in tool call' };
+    }
+    if (!fn.name || typeof fn.name !== 'string') {
+      return { valid: false, error: 'Missing function.name in tool call' };
+    }
+    if (fn.arguments === undefined) {
+      return { valid: false, error: 'Missing function.arguments in tool call' };
+    }
+  }
+  return { valid: true };
+}

@@ -3,6 +3,7 @@ import { mkCorrelationId, logIO } from '../llm/logging.js';
 import db from '../database/DbService.js';
 import { runOpsAgentToolCalling } from '../llm/ops_agent.js';
 import { runChat } from '../llm/chat.js';
+import { routeAssistant, routeAssistantHybrid } from '../llm/orchestrator.js';
 
 const router = Router();
 const DEBUG = /^(1|true|yes|on)$/i.test(String(process.env.ASSISTANT_DEBUG || ''));
@@ -96,9 +97,33 @@ router.post('/api/assistant/message', async (req, res) => {
     if (typeof message !== 'string' || message.trim() === '') {
       return res.status(400).json({ error: 'invalid_message' });
     }
+    // Orchestrator telemetry placeholder: log router disabled → default to ops
+  const ORCHESTRATOR_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.ORCHESTRATOR_ENABLED || '1'));
+    let route = { decision: 'ops', reason: 'router_disabled', hints: null };
+    if (ORCHESTRATOR_ENABLED) {
+  const HYBRID = /^(1|true|yes|on)$/i.test(String(process.env.ORCHESTRATOR_HYBRID || '1'));
+      if (HYBRID) {
+        route = await routeAssistantHybrid({ message, where, transcript, correlationId });
+      } else {
+        route = routeAssistant({ message, where, transcript, correlationId });
+      }
+    } else {
+      try { logIO('assistant_orchestrator_decision', { model: 'orchestrator', prompt: JSON.stringify({ message, where }), output: JSON.stringify(route), meta: { correlationId } }); } catch {}
+    }
+
     let oa;
     try {
-      oa = await runOpsAgentToolCalling({ taskBrief: message.trim(), where, transcript, timezone: TIMEZONE, operationProcessor });
+      if (route.decision === 'chat') {
+  const text = await runChat({ instruction: message.trim(), transcript, timezone: TIMEZONE });
+  const summaryText = ensureSummaryText(text, [], {});
+  return res.json({ text: summaryText, operations: [], correlationId, validCount: 0, invalidCount: 0, previews: [], fingerprint: route.fingerprint || null });
+      }
+      if (route.decision === 'clarify') {
+        const q = String(route.clarifyQuestion || '').trim() || 'Could you clarify your request?';
+        return res.json({ text: q, operations: [], correlationId, validCount: 0, invalidCount: 0, previews: [], fingerprint: route.fingerprint || null });
+      }
+      const whereMerged = { ...(where || {}), ...(route?.hints ? { hints: route.hints } : {}) };
+      oa = await runOpsAgentToolCalling({ taskBrief: message.trim(), where: whereMerged, transcript, timezone: TIMEZONE, operationProcessor });
       if (DEBUG) {
         try {
           const dbg = {
@@ -112,8 +137,18 @@ router.post('/api/assistant/message', async (req, res) => {
         } catch {}
       }
     } catch (err) {
-      const fallbackText = await (async () => { try { return await runChat({ instruction: message.trim(), transcript, timezone: TIMEZONE }); } catch { return 'Sorry, I could not process that right now.'; } })();
-      return res.json({ text: fallbackText, operations: [], correlationId });
+      const lower = message.toLowerCase();
+      let guidance = 'I could not propose any changes.';
+      if (/(add|create|schedule)\b/.test(lower)) {
+        guidance += ' Try: "add an event called Meeting at 14:00 tomorrow" or "create a task titled Groceries for 2025-09-10".';
+      } else if (/(update|change|modify|move|reschedule|set)\b/.test(lower)) {
+        guidance += ' Try: "update Lunch with Dad to 13:00 today" or "set task \"Groceries\" status to completed".';
+      } else if (/(delete|remove|cancel)\b/.test(lower)) {
+        guidance += ' Try: "delete the event \"Lunch with Dad\" today" or "delete task \"Groceries\"".';
+      } else {
+        guidance += ' Use explicit actions like add/create, update/set, or delete, with specific titles and dates.';
+      }
+      return res.json({ text: guidance, operations: [], correlationId, fingerprint: route.fingerprint || null, error: true });
     }
   const summaryText = ensureSummaryText(oa.text, oa.operations, oa.notes);
     const validCount = Array.isArray(oa.operations) ? oa.operations.length : 0;
@@ -123,7 +158,7 @@ router.post('/api/assistant/message', async (req, res) => {
     if (DEBUG) {
       try { logIO('assistant_response', { model: 'ops_agent', prompt: JSON.stringify({ message }), output: JSON.stringify({ text: summaryText, validCount, invalidCount }), meta: { correlationId } }); } catch {}
     }
-  return res.json({ text: summaryText, steps: oa.steps, operations: oa.operations, tools: oa.tools, notes: oa.notes, correlationId, validCount, invalidCount, thinking: oa.thinking, previews });
+  return res.json({ text: summaryText, steps: oa.steps, operations: oa.operations, tools: oa.tools, notes: oa.notes, correlationId, validCount, invalidCount, thinking: oa.thinking, previews, fingerprint: route.fingerprint || null });
   } catch (err) {
     console.error('Assistant route error:', err);
     res.status(502).json({ error: 'assistant_failure', detail: String(err && err.message ? err.message : err) });
@@ -159,13 +194,53 @@ router.get('/api/assistant/message/stream', async (req, res) => {
 
     // Local ops agent (Ollama-backed) streaming
     try {
-      send('stage', JSON.stringify({ stage: 'act', correlationId }));
+      // Emit route stage first (backward compatible)
+      send('stage', JSON.stringify({ stage: 'route', correlationId }));
+      // Orchestrator: decide chat vs ops
+  const ORCHESTRATOR_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.ORCHESTRATOR_ENABLED || '1'));
+      let route = { decision: 'ops', reason: 'router_disabled', hints: null };
+      if (ORCHESTRATOR_ENABLED) {
+  const HYBRID = /^(1|true|yes|on)$/i.test(String(process.env.ORCHESTRATOR_HYBRID || '1'));
+        if (HYBRID) {
+          route = await routeAssistantHybrid({ message, where, transcript, correlationId });
+        } else {
+          route = routeAssistant({ message, where, transcript, correlationId });
+        }
+      } else {
+        try { logIO('assistant_orchestrator_decision', { model: 'orchestrator', prompt: JSON.stringify({ message, where }), output: JSON.stringify(route), meta: { correlationId } }); } catch {}
+      }
+      send('stage', JSON.stringify({ stage: 'act', correlationId, fingerprint: route.fingerprint || null }));
       let oa;
       try {
-  oa = await runOpsAgentToolCalling({ taskBrief: message.trim(), where, transcript, timezone: TIMEZONE, operationProcessor });
+        if (route.decision === 'chat') {
+          const text = await runChat({ instruction: message.trim(), transcript, timezone: TIMEZONE });
+          send('summary', JSON.stringify({ text: ensureSummaryText(text, [], {}), correlationId, fingerprint: route.fingerprint || null }));
+          send('done', JSON.stringify({ correlationId }));
+          res.end();
+          return;
+        }
+        if (route.decision === 'clarify') {
+          const q = String(route.clarifyQuestion || '').trim() || 'Could you clarify your request?';
+          send('summary', JSON.stringify({ text: q, correlationId, fingerprint: route.fingerprint || null }));
+          send('done', JSON.stringify({ correlationId }));
+          res.end();
+          return;
+        }
+        const whereMerged = { ...(where || {}), ...(route?.hints ? { hints: route.hints } : {}) };
+        oa = await runOpsAgentToolCalling({ taskBrief: message.trim(), where: whereMerged, transcript, timezone: TIMEZONE, operationProcessor });
       } catch (err) {
-        const fallbackText = await (async () => { try { return await runChat({ instruction: message.trim(), transcript, timezone: TIMEZONE }); } catch { return 'Sorry, I could not process that right now.'; } })();
-        send('summary', JSON.stringify({ text: fallbackText, operations: [], correlationId }));
+        const lower = message.toLowerCase();
+        let guidance = 'I could not propose any changes.';
+        if (/(add|create|schedule)\b/.test(lower)) {
+          guidance += ' Try: "add an event called Meeting at 14:00 tomorrow" or "create a task titled Groceries for 2025-09-10".';
+        } else if (/(update|change|modify|move|reschedule|set)\b/.test(lower)) {
+          guidance += ' Try: "update Lunch with Dad to 13:00 today" or "set task \"Groceries\" status to completed".';
+        } else if (/(delete|remove|cancel)\b/.test(lower)) {
+          guidance += ' Try: "delete the event \"Lunch with Dad\" today" or "delete task \"Groceries\"".';
+        } else {
+          guidance += ' Use explicit actions like add/create, update/set, or delete, with specific titles and dates.';
+        }
+        send('summary', JSON.stringify({ text: ensureSummaryText(guidance, [], {}), correlationId, fingerprint: route.fingerprint || null }));
         send('done', JSON.stringify({ correlationId }));
         res.end();
         return;
@@ -180,10 +255,11 @@ router.get('/api/assistant/message/stream', async (req, res) => {
         version: 3,
         validCount,
         invalidCount,
-        correlationId,
+    correlationId,
+    fingerprint: route.fingerprint || null,
         previews
       }));
-  send('summary', JSON.stringify({ text: summaryText, steps: oa.steps, operations: oa.operations, tools: oa.tools, notes: oa.notes, correlationId, thinking: oa.thinking }));
+  send('summary', JSON.stringify({ text: summaryText, correlationId, fingerprint: route.fingerprint || null }));
       send('done', JSON.stringify({ correlationId }));
       res.end();
     } catch (err) {

@@ -40,6 +40,8 @@ export class DbService {
     } catch {}
     this.openIfNeeded();
     this.db.exec(schemaSql);
+  // Cleanup legacy tables (safe no-op if absent)
+  try { this.db.exec('DROP TABLE IF EXISTS assistant_router_cache'); } catch {}
   }
 
   begin() { this.openIfNeeded(); return this.db.transaction(() => {})(); }

@@ -34,6 +34,13 @@ const MODELS = {
   port: process.env.OLLAMA_PORT || '11434',
 };
 
+// Orchestrator configuration (feature-flagged)
+const ORCHESTRATOR = {
+  enabled: /^(1|true|yes|on)$/i.test(String(process.env.ORCHESTRATOR_ENABLED || '1')),
+  model: process.env.ORCHESTRATOR_MODEL || 'qwen3-coder:30b',
+  timeoutMs: Number(process.env.ORCHESTRATOR_TIMEOUT_MS || 15000)
+};
+
 // --- Paths ---
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const DATA_DIR = path.join(REPO_ROOT, 'data');
@@ -106,6 +113,13 @@ setOperationProcessor(operationProcessor);
 
 const mcpServer = new HabitusMCPServer(app);
 mcpServer.setOperationProcessor(operationProcessor);
+
+// Log orchestrator configuration at startup
+try {
+  const summary = { enabled: ORCHESTRATOR.enabled, model: ORCHESTRATOR.model, timeoutMs: ORCHESTRATOR.timeoutMs };
+  console.log('Orchestrator config:', summary);
+  try { logIO('assistant_orchestrator_config', { model: 'orchestrator', prompt: JSON.stringify({}), output: JSON.stringify(summary) }); } catch {}
+} catch {}
 
 // Static assets (Flutter Web build) are mounted AFTER API routes below
 

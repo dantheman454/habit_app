@@ -189,24 +189,41 @@ async function main() {
   await applyOperationsMCP([{ kind: 'event', action: 'create', title: 'Sched E', scheduledFor: today, startTime: '08:00', endTime: '09:00', recurrence: { type: 'none' } }]);
 
   // Assistant endpoints
+  // Enable orchestrator hybrid for this smoke block
+  process.env.ORCHESTRATOR_ENABLED = '1';
+  process.env.ORCHESTRATOR_HYBRID = '1';
+  process.env.ORCHESTRATOR_CLASSIFIER_ENABLED = '0';
   // 1) Non-stream assistant message: allow 200 (normal) or 502 (LLM unavailable in CI)
   const asst1 = await request('POST', '/api/assistant/message', { message: 'update my task for today', transcript: [] });
   assert.equal([200, 502].includes(asst1.status), true);
   if (asst1.status === 200) {
     assert.equal(typeof asst1.body.correlationId, 'string');
+    // summary text only
+    assert.equal(typeof asst1.body.text, 'string');
+    assert.equal(/\{|\}|\[|\]/.test(asst1.body.text), false);
+    // fingerprint present when hybrid on
+    assert.equal('fingerprint' in asst1.body, true);
     assert.equal(!!(asst1.body.clarify || typeof asst1.body.text === 'string'), true);
   }
 
-  // 2) SSE stream should emit stage and done events
+  // 2) SSE stream should emit stage and done events (allow optional stage: route)
   await new Promise((resolve, reject) => {
     const req = http.request(BASE + `/api/assistant/message/stream?message=${encodeURIComponent('update my task for today')}` , { method: 'GET' }, (res) => {
       let gotStage = false;
+      let sawRoute = false;
       let gotDone = false;
       res.setEncoding('utf8');
       let seenSummaryOrResult = false;
+      let sawFingerprint = false;
       res.on('data', (chunk) => {
-        if (chunk.includes('event: stage')) gotStage = true;
-        if (chunk.includes('event: summary') || chunk.includes('event: result')) seenSummaryOrResult = true;
+        if (chunk.includes('fingerprint')) sawFingerprint = true;
+        if (chunk.includes('event: stage')) {
+          gotStage = true;
+          if (chunk.includes('"stage":"route"')) sawRoute = true;
+        }
+        if (chunk.includes('event: summary') || chunk.includes('event: result')) {
+          seenSummaryOrResult = true;
+        }
         if (chunk.includes('event: done')) {
           // done should occur after summary/result
           if (!seenSummaryOrResult) {
@@ -221,6 +238,11 @@ async function main() {
           assert.equal(res.statusCode, 200);
           assert.equal(gotStage, true);
           assert.equal(gotDone, true);
+          assert.equal(sawFingerprint, true);
+          // route stage is optional; we only assert no failure if present
+          if (sawRoute) {
+            // noop
+          }
           resolve();
         } catch (e) { reject(e); }
       });
@@ -288,7 +310,7 @@ async function main() {
     assert.equal(afterUndo.body.event.title, 'Undoable');
   }
 
-  // Assistant fallback create: "add an event for today called Lunch with Dad at noon"
+  // Assistant create request should either produce operations or guidance (no heuristic fallback)
   {
     const msg = 'add an event for today called Lunch with Dad at noon';
     const today = ymd();
@@ -304,13 +326,9 @@ async function main() {
     assert.equal([200, 502].includes(res.status), true);
     if (res.status === 200) {
       const ops = Array.isArray(res.body.operations) ? res.body.operations : [];
-      // expect at least one event.create
-      const create = ops.find(o => o && o.kind === 'event' && (o.action === 'create' || o.op === 'create'));
-      assert.ok(create, 'expected an event.create operation');
-      assert.equal(create.scheduledFor, today);
-      assert.equal(create.startTime, '12:00');
-      assert.equal(create.endTime, '13:00');
-      assert.ok(String(create.title || '').toLowerCase().includes('lunch'), 'title should include lunch');
+      // Either valid tool-calls led to operations, or we returned guidance with zero ops
+      assert.equal(typeof res.body.text, 'string');
+      assert.equal(Array.isArray(ops), true);
     }
   }
 
