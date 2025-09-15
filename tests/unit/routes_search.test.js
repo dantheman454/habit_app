@@ -35,6 +35,8 @@ describe('routes: /api/search', () => {
     try { fs.mkdirSync(testDataDir, { recursive: true }); } catch {}
     const testDbPath = path.join(testDataDir, 'app.db');
     process.env.APP_DB_PATH = testDbPath;
+    // Ensure any previous handles are closed and files are clean before bootstrap
+    try { if (db.db) { try { db.db.close(); } catch {} db.db = null; } } catch {}
     for (const f of ['app.db', 'app.db-shm', 'app.db-wal']) {
       try { fs.unlinkSync(path.join(testDataDir, f)); } catch {}
     }

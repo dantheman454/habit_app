@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { mkCorrelationId, logIO } from '../llm/logging.js';
 import db from '../database/DbService.js';
 import { runOpsAgentToolCalling } from '../llm/ops_agent.js';
+import { runOpsGraph, resumeRun } from '../llm/ops_graph.js';
 import { runChat } from '../llm/chat.js';
 import { routeAssistant, routeAssistantHybrid } from '../llm/orchestrator.js';
 
@@ -99,6 +100,7 @@ router.post('/api/assistant/message', async (req, res) => {
     }
     // Orchestrator telemetry placeholder: log router disabled → default to ops
   const ORCHESTRATOR_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.ORCHESTRATOR_ENABLED || '1'));
+    const GRAPH_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.ASSISTANT_GRAPH_ENABLED || '1'));
     let route = { decision: 'ops', reason: 'router_disabled', hints: null };
     if (ORCHESTRATOR_ENABLED) {
   const HYBRID = /^(1|true|yes|on)$/i.test(String(process.env.ORCHESTRATOR_HYBRID || '1'));
@@ -123,7 +125,11 @@ router.post('/api/assistant/message', async (req, res) => {
         return res.json({ text: q, operations: [], correlationId, validCount: 0, invalidCount: 0, previews: [], fingerprint: route.fingerprint || null });
       }
       const whereMerged = { ...(where || {}), ...(route?.hints ? { hints: route.hints } : {}) };
-      oa = await runOpsAgentToolCalling({ taskBrief: message.trim(), where: whereMerged, transcript, timezone: TIMEZONE, operationProcessor });
+      if (GRAPH_ENABLED) {
+        oa = await runOpsGraph({ instruction: message.trim(), where: whereMerged, transcript, timezone: TIMEZONE }, { operationProcessor });
+      } else {
+        oa = await runOpsAgentToolCalling({ taskBrief: message.trim(), where: whereMerged, transcript, timezone: TIMEZONE, operationProcessor });
+      }
       if (DEBUG) {
         try {
           const dbg = {
@@ -196,6 +202,15 @@ router.get('/api/assistant/message/stream', async (req, res) => {
     try {
       // Emit route stage first (backward compatible)
       send('stage', JSON.stringify({ stage: 'route', correlationId }));
+      // Optional resume: if resume_correlation_id is provided and graph is enabled, replay prior stages
+      const GRAPH_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.ASSISTANT_GRAPH_ENABLED || '1'));
+      const resumeCid = String(req.query.resume_correlation_id || '').trim();
+      if (GRAPH_ENABLED && resumeCid) {
+        try {
+          const resume = resumeRun({ correlationId: resumeCid, onStage: (stage, meta) => { try { send('stage', JSON.stringify({ stage, correlationId: meta?.correlationId || resumeCid })); } catch {} } });
+          if (DEBUG) { try { console.log('[Assistant][SSE] resume stages', resume); } catch {} }
+        } catch {}
+      }
       // Orchestrator: decide chat vs ops
   const ORCHESTRATOR_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.ORCHESTRATOR_ENABLED || '1'));
       let route = { decision: 'ops', reason: 'router_disabled', hints: null };
@@ -227,7 +242,19 @@ router.get('/api/assistant/message/stream', async (req, res) => {
           return;
         }
         const whereMerged = { ...(where || {}), ...(route?.hints ? { hints: route.hints } : {}) };
-        oa = await runOpsAgentToolCalling({ taskBrief: message.trim(), where: whereMerged, transcript, timezone: TIMEZONE, operationProcessor });
+        if (GRAPH_ENABLED) {
+          oa = await runOpsGraph(
+            { instruction: message.trim(), where: whereMerged, transcript, timezone: TIMEZONE, correlationId },
+            {
+              operationProcessor,
+              onStage: (stage, meta) => {
+                try { send('stage', JSON.stringify({ stage, correlationId: meta?.correlationId })); } catch {}
+              }
+            }
+          );
+        } else {
+          oa = await runOpsAgentToolCalling({ taskBrief: message.trim(), where: whereMerged, transcript, timezone: TIMEZONE, operationProcessor });
+        }
       } catch (err) {
         const lower = message.toLowerCase();
         let guidance = 'I could not propose any changes.';

@@ -6,15 +6,6 @@ import { mkCorrelationId, logIO } from './logging.js';
 import db from '../database/DbService.js';
 import { OperationRegistry } from '../operations/operation_registry.js';
 
-export async function runOpsAgent({ taskBrief, where = {}, transcript = [], timezone, operationProcessor } = {}) {
-  // Pruned: delegate to tool-calling path for a single consistent execution flow
-  return runOpsAgentToolCalling({ taskBrief, where, transcript, timezone, operationProcessor });
-}
-
-export async function runOpsAgentWithProcessor({ taskBrief, where = {}, transcript = [], timezone, operationProcessor } = {}) {
-  // Pruned: delegate to tool-calling path; processor is passed through
-  return runOpsAgentToolCalling({ taskBrief, where, transcript, timezone, operationProcessor });
-}
 
 function toolCallToOperation(name, args) {
   const [kind, action] = String(name || '').split('.')
@@ -22,7 +13,6 @@ function toolCallToOperation(name, args) {
   return { kind, action, ...(args || {}) };
 }
 
-// (Removed) heuristic fallback helpers; strict tool-calling only
 
 export async function runOpsAgentToolCalling({ taskBrief, where = {}, transcript = [], timezone, operationProcessor } = {}) {
   const instruction = String(taskBrief || '').trim();
