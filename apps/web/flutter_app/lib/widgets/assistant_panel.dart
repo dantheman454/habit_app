@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+ 
 import 'dart:convert';
 
 class LlmOperationLike {
@@ -41,22 +42,18 @@ class AssistantPanel extends StatelessWidget {
   final VoidCallback onSend;
   final String Function(dynamic op)? opLabel;
   final VoidCallback? onClearChat;
-  // Clarify UI removed; handled by conversational chat
-  // Progress stage label
-  final String? progressStage;
-  // Optional progress metadata
-  final int? progressValid;
-  final int? progressInvalid;
-  final DateTime? progressStart;
   // Helper for date quick-selects
   final String? todayYmd;
-  // Clarify selection removed
   // Thinking data for optional display
   final String? thinking;
   final bool showThinking;
   final VoidCallback? onToggleThinking;
   // Whether the server trimmed context (from notes.contextTruncated)
   final bool contextTruncated;
+  // Correlation id for current run (tucked info)
+  final String? correlationId;
+  // SSE fallback indicator banner
+  final bool sseFallback;
   
 
   const AssistantPanel({
@@ -75,15 +72,14 @@ class AssistantPanel extends StatelessWidget {
     this.opLabel,
     this.onClearChat,
     
-    this.progressStage,
-  this.progressValid,
-  this.progressInvalid,
-  this.progressStart,
+    
     this.todayYmd,
     this.thinking,
     this.showThinking = false,
     this.onToggleThinking,
   this.contextTruncated = false,
+    this.correlationId,
+    this.sseFallback = false,
     
   });
 
@@ -155,16 +151,9 @@ class AssistantPanel extends StatelessWidget {
                     ),
                   ),
                 ],
+                const SizedBox(width: 8),
                 const Spacer(),
-                if (onToggleThinking != null)
-                  Tooltip(
-                    message: showThinking ? 'Hide thinking' : 'Show thinking',
-                    child: IconButton(
-                      visualDensity: VisualDensity.compact,
-                      onPressed: onToggleThinking,
-                      icon: Icon(showThinking ? Icons.visibility_off_outlined : Icons.visibility_outlined, size: 18),
-                    ),
-                  ),
+                
                 if (onClearChat != null)
                   Tooltip(
                     message: 'Clear',
@@ -177,12 +166,7 @@ class AssistantPanel extends StatelessWidget {
               ],
             ),
           ),
-          // Progress just under header (sticky)
-          if (sending && (progressStage != null && progressStage!.isNotEmpty))
-            Material(
-              color: Theme.of(context).colorScheme.surface,
-              child: _buildProgress(context),
-            ),
+          
 
           Expanded(
             child: ListView(
@@ -234,6 +218,25 @@ class AssistantPanel extends StatelessWidget {
             ),
           ),
           const Divider(height: 1),
+          if (sseFallback)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.orange.withOpacity(0.4)),
+                ),
+                child: Row(
+                  children: const [
+                    Icon(Icons.wifi_off, size: 16, color: Colors.orange),
+                    SizedBox(width: 6),
+                    Expanded(child: Text('Live updates unavailable; using fallback', style: TextStyle(fontSize: 12))),
+                  ],
+                ),
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
             child: Row(
@@ -241,10 +244,11 @@ class AssistantPanel extends StatelessWidget {
                 Expanded(
                   child: TextField(
                     controller: inputController,
+                    enabled: !sending,
                     decoration: InputDecoration(
-                      hintText: 'Ask away…',
                       filled: true,
                       fillColor: Theme.of(context).colorScheme.surface,
+                      hintText: 'Type a message',
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 12,
                         vertical: 10,
@@ -254,7 +258,7 @@ class AssistantPanel extends StatelessWidget {
                         borderSide: BorderSide.none,
                       ),
                     ),
-                    onSubmitted: (_) => onSend(),
+                    onSubmitted: (_) { if (!sending) onSend(); },
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -313,25 +317,6 @@ class AssistantPanel extends StatelessWidget {
                         style: TextStyle(color: fg),
                       ),
                     ),
-                    if (isLatestAssistant &&
-                        thinking != null &&
-                        thinking!.trim().isNotEmpty &&
-                        onToggleThinking != null)
-                      Tooltip(
-                        message:
-                            showThinking ? 'Hide thinking' : 'Show thinking',
-                        child: IconButton(
-                          onPressed: onToggleThinking,
-                          icon: Icon(
-                            showThinking
-                                ? Icons.expand_less
-                                : Icons.expand_more,
-                            size: 18,
-                            color: fg,
-                          ),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                      ),
                   ],
                 ),
         ),
@@ -343,13 +328,48 @@ class AssistantPanel extends StatelessWidget {
     BuildContext context,
     String Function(dynamic) labeler,
   ) {
+    final selectedCount = operationsChecked.where((e) => e).length;
+    final invalidCount = operations.where((o) => _getErrors(o).isNotEmpty).length;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionHeader(
-          title: sending
-              ? 'Proposed operations'
-              : 'Executed operations (${operations.length})',
+        Padding(
+          padding: const EdgeInsets.only(top: 4, bottom: 4),
+          child: Row(
+            children: [
+              Text(
+                'Changes',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  letterSpacing: 0.2,
+                ),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Theme.of(context).dividerColor),
+                ),
+                child: Text('(${selectedCount} selected)', style: const TextStyle(fontSize: 11)),
+              ),
+              if (invalidCount > 0) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.amber.withOpacity(0.6)),
+                  ),
+                  child: Text('invalid: $invalidCount', style: const TextStyle(fontSize: 11, color: Colors.amber)),
+                ),
+              ],
+            ],
+          ),
         ),
         if (operations.any((o) => _getErrors(o).isNotEmpty))
           Padding(
@@ -398,33 +418,89 @@ class AssistantPanel extends StatelessWidget {
           runSpacing: 8,
           children: [
             FilledButton(
-              onPressed: () async {
-                final anyChecked = operationsChecked.any((e) => e);
-                if (!anyChecked) {
-                  onApplySelected();
-                  return;
+              onPressed: (() async {
+                final selectedIdx = <int>[];
+                for (var i = 0; i < operationsChecked.length; i++) {
+                  if (operationsChecked[i]) selectedIdx.add(i);
                 }
+                // Safety: require at least one selection
+                if (selectedIdx.isEmpty) return;
+                // Build concise list and optional details using existing labeler and previews
                 final confirmed = await showDialog<bool>(
                   context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: const Text('Apply selected changes?'),
-                    content: const Text(
-                        'These changes will be applied to your data. You can undo the last batch from the menu.'),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.of(ctx).pop(false),
-                        child: const Text('Cancel'),
-                      ),
-                      FilledButton(
-                        onPressed: () => Navigator.of(ctx).pop(true),
-                        child: const Text('Apply'),
-                      ),
-                    ],
-                  ),
+                  builder: (ctx) {
+                    final items = selectedIdx.map((i) => labeler(operations[i])).toList();
+                    final details = selectedIdx.map((i) {
+                      try {
+                        final key = _opKey(operations[i] is Map<String, dynamic> ? operations[i] : (operations[i] as dynamic).op.toJson());
+                        final preview = (previewsByKey ?? const <String, Map<String, dynamic>>{})[key];
+                        if (preview == null) return const SizedBox.shrink();
+                        final before = (preview['before'] as Map?)?.cast<String, dynamic>();
+                        final opMap = (preview['op'] as Map?)?.cast<String, dynamic>();
+                        final rows = _computeDiffRows(before, opMap);
+                        if (rows.isEmpty) return const SizedBox.shrink();
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: _InlineDiffSnippet(rows: rows),
+                        );
+                      } catch (_) {
+                        return const SizedBox.shrink();
+                      }
+                    }).toList();
+                    return StatefulBuilder(
+                      builder: (ctx, setState) {
+                        bool expanded = false;
+                        return AlertDialog(
+                          title: Text('Apply (${selectedIdx.length})'),
+                          content: SingleChildScrollView(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                ...items.map((t) => Padding(
+                                      padding: const EdgeInsets.symmetric(vertical: 2),
+                                      child: Text('• $t'),
+                                    )),
+                                const SizedBox(height: 8),
+                                TextButton.icon(
+                                  onPressed: () => setState(() => expanded = !expanded),
+                                  icon: Icon(expanded ? Icons.expand_less : Icons.expand_more, size: 16),
+                                  label: Text(expanded ? 'Hide details' : 'Show details'),
+                                ),
+                                if (expanded) ...details
+                              ],
+                            ),
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.of(ctx).pop(false),
+                              child: const Text('Cancel'),
+                            ),
+                            FilledButton(
+                              onPressed: () => Navigator.of(ctx).pop(true),
+                              child: const Text('Apply'),
+                            ),
+                          ],
+                        );
+                      },
+                    );
+                  },
                 );
                 if (confirmed == true) onApplySelected();
-              },
-              child: const Text('Apply Selected'),
+              }),
+              style: ButtonStyle(
+                backgroundColor: WidgetStateProperty.resolveWith((states) {
+                  final n = operationsChecked.where((b) => b).length;
+                  return (n == 0 || sending) ? Theme.of(context).disabledColor : null;
+                }),
+                foregroundColor: WidgetStateProperty.resolveWith((states) {
+                  final n = operationsChecked.where((b) => b).length;
+                  return (n == 0 || sending) ? Theme.of(context).colorScheme.onSurface.withOpacity(0.38) : null;
+                }),
+              ),
+              child: Text(() {
+                final n = operationsChecked.where((b) => b).length;
+                return 'Apply ($n)';
+              }()),
             ),
             // Quick selection helpers (operate via onToggleOperation)
             TextButton(
@@ -648,6 +724,15 @@ class AssistantPanel extends StatelessWidget {
         final op = ops[i];
         final errs = _getErrors(op);
         final isInvalid = errs.isNotEmpty;
+        Color? actionColor;
+        try {
+          final cand = (op is Map<String, dynamic> && op.containsKey('op')) ? (op['op'] as Map).cast<String, dynamic>() : (op as Map).cast<String, dynamic>();
+          final action = (cand['action'] ?? cand['op'] ?? '').toString();
+          final cs = Theme.of(context).colorScheme;
+          if (action == 'create') actionColor = cs.primary.withOpacity(0.10);
+          else if (action == 'update') actionColor = cs.tertiary.withOpacity(0.10);
+          else if (action == 'delete') actionColor = cs.error.withOpacity(0.10);
+        } catch (_) {}
         widgets.add(Padding(
           padding: const EdgeInsets.symmetric(vertical: 2),
           child: Row(
@@ -661,7 +746,14 @@ class AssistantPanel extends StatelessWidget {
                 onChanged: isInvalid ? null : (v) => onToggleOperation(i, v ?? true),
               ),
             ),
-            _kindIcon(k),
+            Container(
+              decoration: BoxDecoration(
+                color: actionColor,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              padding: const EdgeInsets.all(2),
+              child: _kindIcon(k),
+            ),
             const SizedBox(width: 6),
             Expanded(
               child: Column(
@@ -735,66 +827,7 @@ class AssistantPanel extends StatelessWidget {
     );
   }
 
-  Widget _buildProgress(BuildContext context) {
-    double stagePercent(String s) {
-      switch (s) {
-        case 'routing':
-          return 0.15;
-        case 'proposing':
-          return 0.35;
-        case 'validating':
-          return 0.55;
-        case 'repairing':
-          return 0.75;
-        case 'summarizing':
-          return 0.9;
-        case 'done':
-          return 1.0;
-        default:
-          return 0.1;
-      }
-    }
-    final theme = Theme.of(context);
-    final pct = stagePercent(progressStage ?? '');
-    final valid = progressValid ?? 0;
-    final invalid = progressInvalid ?? 0;
-    final start = progressStart;
-    final elapsed = start == null ? '' : ' • ${(DateTime.now().difference(start).inSeconds)}s';
-    return Padding(
-      padding: const EdgeInsets.only(left: 8, bottom: 6, right: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Progress • ${progressStage ?? ''}$elapsed',
-            style: TextStyle(
-              fontSize: 12,
-              color: theme.colorScheme.onSurfaceVariant.withAlpha((0.8 * 255).round()),
-            ),
-          ),
-          const SizedBox(height: 4),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: pct.clamp(0.0, 1.0),
-              minHeight: 6,
-            ),
-          ),
-          if (valid + invalid > 0)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(
-                'ops: $valid valid · $invalid invalid',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: theme.colorScheme.onSurfaceVariant.withAlpha((0.7 * 255).round()),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
+  
 
   // Clarify section removed
 }

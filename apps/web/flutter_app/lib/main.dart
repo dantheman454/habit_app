@@ -374,19 +374,14 @@ class _HomePageState extends State<HomePage> {
   // Thinking state for assistant responses
   String? assistantThinking;
   bool assistantShowThinking = false; // persisted
+  bool _assistantSseFallback = false;
   int? assistantStreamingIndex;
   // Whether server indicated the focused context got trimmed
   bool assistantContextTruncated = false;
-  // Clarify flow removed; handled by conversational chat
-  String _progressStage = '';
   String? _lastCorrelationId;
-  int _progressValid = 0;
-  int _progressInvalid = 0;
-  DateTime? _progressStart;
   // Pending smooth-scroll target (YYYY-MM-DD) for Day view
   String? _pendingScrollYmd;
 
-  // merged into the later initState below
 
   // Quick-add controllers
   final TextEditingController _qaTaskTitle = TextEditingController();
@@ -413,7 +408,7 @@ class _HomePageState extends State<HomePage> {
     super.initState();
     // Restore thinking toggle
     try {
-      final v = storage.getItem('assistantShowThinking');
+      final v = storage.getItem('assistant_show_thinking');
       if (v == '1') assistantShowThinking = true;
     } catch (_) {}
     // Restore persisted main tab if available
@@ -1848,11 +1843,7 @@ class _HomePageState extends State<HomePage> {
     });
     // Clear input immediately for snappier UX while preserving `text` captured above
     assistantCtrl.clear();
-    // Insert a placeholder assistant bubble that we will update with streamed summary
-    setState(() {
-      assistantTranscript.add({'role': 'assistant', 'text': ''});
-      assistantStreamingIndex = assistantTranscript.length - 1;
-    });
+    assistantStreamingIndex = null;
     try {
       // Send last 3 turns and request streaming summary (server will fall back to JSON if not SSE)
       final recent = assistantTranscript.length <= 3
@@ -1898,38 +1889,17 @@ class _HomePageState extends State<HomePage> {
             _lastCorrelationId = cid;
           });
         },
-        onSummary: (s) {
-          // Update placeholder bubble with latest streamed text
+        onFallback: () {
           if (!mounted) return;
-          setState(() {
-            if (assistantStreamingIndex != null &&
-                assistantStreamingIndex! >= 0 &&
-                assistantStreamingIndex! < assistantTranscript.length) {
-              assistantTranscript[assistantStreamingIndex!] = {
-                'role': 'assistant',
-                'text': s,
-              };
-            }
-          });
+          setState(() { _assistantSseFallback = true; });
+        },
+        onSummary: (s) {
+          // We wait for the final message; ignore incremental summaries for transcript display.
         },
         // Clarify flow removed; Mr. Assister will ask follow-ups in chat
 
         onStage: (st) {
-          if (!mounted) return;
-          setState(() {
-            // Map server stages to UI-friendly labels
-            switch (st) {
-              case 'route':
-                _progressStage = 'routing';
-                break;
-              case 'act':
-                _progressStage = 'proposing';
-                break;
-              default:
-                _progressStage = st;
-            }
-            _progressStart ??= DateTime.now();
-          });
+          // Progress UI removed
         },
         onOps: (ops, version, validCount, invalidCount, previews) {
           if (!mounted) return;
@@ -1976,9 +1946,6 @@ class _HomePageState extends State<HomePage> {
               final preserved = prevMap[key] ?? assistantOps[i].errors.isEmpty;
               return preserved && assistantOps[i].errors.isEmpty;
             });
-            _progressValid = validCount;
-            _progressInvalid = invalidCount;
-            // Keep last-known flag until summary updates it; ops event may not carry notes
           });
         },
         onThinking: (th) {
@@ -2000,16 +1967,8 @@ class _HomePageState extends State<HomePage> {
                 .toList();
       setState(() {
         if (reply.trim().isNotEmpty) {
-          if (assistantStreamingIndex != null &&
-              assistantStreamingIndex! >= 0 &&
-              assistantStreamingIndex! < assistantTranscript.length) {
-            assistantTranscript[assistantStreamingIndex!] = {
-              'role': 'assistant',
-              'text': reply,
-            };
-          } else {
-            assistantTranscript.add({'role': 'assistant', 'text': reply});
-          }
+          // Add the assistant bubble only now that final text is available
+          assistantTranscript.add({'role': 'assistant', 'text': reply});
         }
         assistantStreamingIndex = null;
         _lastCorrelationId = corr;
@@ -2051,13 +2010,10 @@ class _HomePageState extends State<HomePage> {
           assistantContextTruncated = (notes['contextTruncated'] == true);
         } catch (_) {}
         try {
-          storage.setItem('assistantShowThinking', assistantShowThinking ? '1' : '0');
+          storage.setItem('assistant_show_thinking', assistantShowThinking ? '1' : '0');
         } catch (_) {}
-        // Clarify state removed
-        _progressStage = '';
-        _progressValid = 0;
-        _progressInvalid = 0;
-        _progressStart = null;
+        // Clarify state removed; progress state removed
+        _assistantSseFallback = false; // reset after successful completion
       });
     } catch (e) {
       setState(() {
@@ -2090,6 +2046,53 @@ class _HomePageState extends State<HomePage> {
       if (selectedOps.isEmpty) {
         setState(() => message = 'No operations selected.');
         return;
+      }
+      // Ensure previews exist for update/delete/status before apply
+      bool _needsPreview(Map<String, dynamic> op) {
+        try {
+          final action = (op['action'] ?? op['op'] ?? '').toString();
+          return action == 'update' || action == 'delete' || action == 'complete' || action == 'set_status' || action == 'complete_occurrence';
+        } catch (_) { return false; }
+      }
+      String _buildOpKey(Map<String, dynamic> op) {
+        try {
+          final kind = (op['kind'] ?? 'task').toString();
+          final action = (op['action'] ?? op['op'] ?? 'create').toString();
+          final id = (op['id'] ?? '').toString();
+          final scheduledFor = (op['scheduledFor'] ?? '').toString();
+          final startTime = (op['startTime'] ?? '').toString();
+          final title = (op['title'] ?? '').toString();
+          final status = (op['status'] ?? '').toString();
+          final occurrenceDate = (op['occurrenceDate'] ?? '').toString();
+          return [kind, action, id, scheduledFor, startTime, title, status, occurrenceDate].join('|');
+        } catch (_) { return ''; }
+      }
+      try {
+        final missing = <Map<String, dynamic>>[];
+        for (final op in selectedOps) {
+          if (_needsPreview(op)) {
+            final k = _buildOpKey(op);
+            if (k.isNotEmpty && !assistantOpPreviews.containsKey(k)) missing.add(op);
+          }
+        }
+        if (missing.isNotEmpty) {
+          final pre = await api.previewOperations(selectedOps);
+          final affected = (pre['affected'] as List<dynamic>? ?? const <dynamic>[])
+              .map((e) => (e as Map).cast<String, dynamic>())
+              .toList();
+          setState(() {
+            for (final a in affected) {
+              final op = (a['op'] as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
+              final before = (a['before'] as Map?)?.cast<String, dynamic>();
+              final k = _buildOpKey(op);
+              if (k.isNotEmpty) {
+                assistantOpPreviews[k] = {'op': op, 'before': before};
+              }
+            }
+          });
+        }
+      } catch (_) {
+        // Best-effort previews
       }
       // Dry-run before apply to surface warnings
       try {
@@ -2144,6 +2147,7 @@ class _HomePageState extends State<HomePage> {
         correlationId: _lastCorrelationId,
       );
       final summary = res['summary'];
+      final appliedCount = ((summary['created'] ?? 0) as int) + ((summary['updated'] ?? 0) as int) + ((summary['deleted'] ?? 0) as int) + ((summary['completed'] ?? 0) as int);
       if (mounted) {
         setState(() {
           message =
@@ -2151,7 +2155,185 @@ class _HomePageState extends State<HomePage> {
           assistantOps = [];
           assistantOpsChecked = [];
           assistantShowDiff = false;
+          // Append a richer assistant transcript message describing the applied changes
+          try {
+            final List<dynamic> rawResults = (res['results'] as List<dynamic>? ?? const <dynamic>[]);
+            final items = <String>[];
+            final errors = <String>[];
+            for (final r in rawResults) {
+              try {
+                final m = (r as Map).cast<String, dynamic>();
+                if (m.containsKey('error')) {
+                  errors.add(m['error'].toString());
+                }
+                final op = (m['op'] as Map?)?.cast<String, dynamic>();
+                final affected = (m['affected'] as Map?)?.cast<String, dynamic>();
+                String labelFrom(Map<String, dynamic>? a) {
+                  if (a == null) return '';
+                  final title = (a['title'] ?? a['name'] ?? '').toString();
+                  final id = (a['id'] ?? '').toString();
+                  return [title, if (id.isNotEmpty) '#$id'].where((e) => e != null && e.toString().trim().isNotEmpty).join(' ');
+                }
+                final kind = (op?['kind'] ?? '').toString();
+                final action = (op?['action'] ?? op?['op'] ?? '').toString();
+                final after = affected?['after'] as Map<String, dynamic>?;
+                final before = affected?['before'] as Map<String, dynamic>?;
+                final label = labelFrom(after) // prefer after
+                    .toString().trim().isNotEmpty
+                    ? labelFrom(after)
+                    : labelFrom(before);
+                final piece = [kind, action, if (label.isNotEmpty) '– $label'].where((s) => s != null && s.toString().trim().isNotEmpty).join(' ');
+                if (piece.isNotEmpty) items.add('• $piece');
+              } catch (_) {}
+            }
+            final counts = 'Created: ${summary['created']}, Updated: ${summary['updated']}, Deleted: ${summary['deleted']}, Completed: ${summary['completed']}';
+            final msg = [
+              'Applied ${appliedCount} change${appliedCount == 1 ? '' : 's'}.',
+              counts,
+              if (items.isNotEmpty) '',
+              ...items,
+              if (errors.isNotEmpty) '',
+              if (errors.isNotEmpty) 'Errors:',
+              ...errors.map((e) => '• $e'),
+            ].join('\n');
+            assistantTranscript.add({'role': 'assistant', 'text': msg});
+          } catch (_) {}
         });
+        // Snackbar: Undo and View last batch
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                Expanded(child: Text('Applied $appliedCount changes')),
+                TextButton(
+                  onPressed: () async {
+                    try {
+                      final last = await api.api.get('/api/assistant/last_batch');
+                      if (!mounted) return;
+                      final batch = (last.data as Map<String, dynamic>);
+                      final ops = (batch['ops'] as List?) ?? const <dynamic>[];
+                      showDialog(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          title: const Text('Last batch'),
+                          content: SizedBox(
+                            width: 480,
+                            child: SingleChildScrollView(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('Correlation ID: ${batch['correlationId']}'),
+                                  const SizedBox(height: 8),
+                                  for (final o in ops)
+                                    Builder(builder: (_) {
+                                      try {
+                                        final m = (o as Map).cast<String, dynamic>();
+                                        final op = (m['op'] as Map).cast<String, dynamic>();
+                                        final before = (m['before'] as Map?)?.cast<String, dynamic>();
+                                        final after = (m['after'] as Map?)?.cast<String, dynamic>();
+                                        final kind = op['kind'];
+                                        final action = op['action'];
+                                        final id = op['id'];
+                                        List<Widget> row(String label, String? b, String? a) => [
+                                          Row(children: [
+                                            SizedBox(width: 120, child: Text(label, style: const TextStyle(fontWeight: FontWeight.w500))),
+                                            Expanded(child: Text(b ?? '—', style: const TextStyle(color: Colors.black54))),
+                                            const SizedBox(width: 6),
+                                            const Icon(Icons.arrow_right_alt, size: 16),
+                                            const SizedBox(width: 6),
+                                            Expanded(child: Text(a ?? '—')),
+                                          ])
+                                        ];
+                                        List<Widget> diffRows() {
+                                          final rows = <Widget>[];
+                                          String? g(Map<String, dynamic>? m, String k) => m == null ? null : (m[k]?.toString());
+                                          rows.addAll(row('Title', g(before, 'title'), g(after, 'title')));
+                                          rows.addAll(row('Notes', g(before, 'notes'), g(after, 'notes')));
+                                          rows.addAll(row('Date', g(before, 'scheduledFor'), g(after, 'scheduledFor')));
+                                          rows.addAll(row('Start', g(before, 'startTime'), g(after, 'startTime')));
+                                          rows.addAll(row('End', g(before, 'endTime'), g(after, 'endTime')));
+                                          rows.addAll(row('Location', g(before, 'location'), g(after, 'location')));
+                                          rows.addAll(row('Status', g(before, 'status'), g(after, 'status')));
+                                          // Recurrence
+                                          String? getNested(Map<String, dynamic>? m, List<String> path) {
+                                            if (m == null) return null;
+                                            dynamic cur = m;
+                                            for (final k in path) {
+                                              if (cur is Map && cur.containsKey(k)) cur = cur[k]; else return null;
+                                            }
+                                            return cur?.toString();
+                                          }
+                                          final beforeRecType = getNested(before, ['recurrence','type']);
+                                          final afterRecType = getNested(after, ['recurrence','type']);
+                                          final beforeRecN = getNested(before, ['recurrence','intervalDays']);
+                                          final afterRecN = getNested(after, ['recurrence','intervalDays']);
+                                          rows.add(Row(children: [
+                                            const SizedBox(width: 120, child: Text('Recurrence', style: TextStyle(fontWeight: FontWeight.w500))),
+                                            Expanded(child: Text(beforeRecType ?? '—', style: const TextStyle(color: Colors.black54))),
+                                            const SizedBox(width: 6),
+                                            const Icon(Icons.arrow_right_alt, size: 16),
+                                            const SizedBox(width: 6),
+                                            Expanded(child: Text((){
+                                              final t = afterRecType ?? '—';
+                                              final n = afterRecN ?? '—';
+                                              return (t == '—' || n == '—') ? t : '$t ($n)';
+                                            }())),
+                                          ]));
+                                          return rows;
+                                        }
+                                        return Padding(
+                                          padding: const EdgeInsets.symmetric(vertical: 6),
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text('• $kind $action ${id ?? ''}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                                              const SizedBox(height: 4),
+                                              Container(
+                                                padding: const EdgeInsets.all(8),
+                                                decoration: BoxDecoration(
+                                                  color: Theme.of(context).colorScheme.surface,
+                                                  borderRadius: BorderRadius.circular(6),
+                                                  border: Border.all(color: Theme.of(context).dividerColor),
+                                                ),
+                                                child: Column(children: diffRows()),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      } catch (_) { return const SizedBox.shrink(); }
+                                    }),
+                                ],
+                              ),
+                            ),
+                          ),
+                          actions: [
+                            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close'))
+                          ],
+                        ),
+                      );
+                    } catch (_) {}
+                  },
+                  child: const Text('View'),
+                ),
+              ],
+            ),
+            action: SnackBarAction(
+              label: 'Undo last batch',
+              onPressed: () async {
+                try {
+                  final r = await api.api.post('/api/assistant/undo_last');
+                  final undone = ((r.data as Map)['undone']) ?? 0;
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Undid $undone changes')),
+                  );
+                  await _refreshAll();
+                } catch (_) {}
+              },
+            ),
+            duration: const Duration(seconds: 6),
+          ),
+        );
       }
       await _refreshAll();
     } catch (e) {
@@ -2712,7 +2894,9 @@ class _HomePageState extends State<HomePage> {
                                               sending: assistantSending,
                                               previewsByKey:
                                                   assistantOpPreviews,
-                                                contextTruncated: assistantContextTruncated,
+                                              contextTruncated: assistantContextTruncated,
+                                              correlationId: _lastCorrelationId,
+                                              sseFallback: _assistantSseFallback,
                                               onToggleOperation: (i, v) =>
                                                   setState(
                                                     () =>
@@ -2737,10 +2921,6 @@ class _HomePageState extends State<HomePage> {
                                                 assistantOpsChecked = [];
                                                 assistantOpPreviews.clear();
                                               }),
-                                              progressStage: _progressStage,
-                                              progressValid: _progressValid,
-                                              progressInvalid: _progressInvalid,
-                                              progressStart: _progressStart,
                                               todayYmd: ymd(DateTime.now()),
                                               thinking: assistantThinking,
                                               showThinking:
@@ -2749,7 +2929,7 @@ class _HomePageState extends State<HomePage> {
                                                 () {
                                                   assistantShowThinking = !assistantShowThinking;
                                                   try {
-                                                    storage.setItem('assistantShowThinking', assistantShowThinking ? '1' : '0');
+                                                    storage.setItem('assistant_show_thinking', assistantShowThinking ? '1' : '0');
                                                   } catch (_) {}
                                                 },
                                               ),

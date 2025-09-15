@@ -134,6 +134,7 @@ Future<Map<String, dynamic>> assistantMessage(
   onOps,
   void Function(String correlationId)? onTraceId,
   void Function(String thinking)? onThinking,
+  void Function()? onFallback,
 }) async {
   if (!streamSummary) {
     final res = await api.post(
@@ -279,6 +280,7 @@ Future<Map<String, dynamic>> assistantMessage(
         completer.complete(result!);
       },
       onError: () async {
+        try { onFallback?.call(); } catch (_) {}
         // Fallback to non-streaming POST on SSE error
         try {
           final res = await api.post(
@@ -339,6 +341,7 @@ Future<Map<String, dynamic>> assistantMessage(
     });
   } catch (_) {
     // Fallback to non-streaming on any error
+    try { onFallback?.call(); } catch (_) {}
     final res = await api.post(
       '/api/assistant/message',
       data: {
@@ -496,9 +499,44 @@ Future<Map<String, dynamic>> applyOperationsMCP(
     try {
       final toolName = _operationToToolName(op);
       final args = _operationToToolArgs(op);
-      
+      // Best-effort: capture "before" for richer client summaries
+      Map<String, dynamic>? _before;
+      try {
+        final action = (op['action'] ?? op['op'] ?? '').toString();
+        final kind = (op['kind'] ?? 'task').toString();
+        final dynamic idRaw = op['id'];
+        final bool needsBefore = action == 'update' || action == 'delete' || action == 'complete' || action == 'set_status' || action == 'complete_occurrence';
+        if (needsBefore && idRaw != null) {
+          final int? id = (idRaw is int) ? idRaw : int.tryParse(idRaw.toString());
+          if (id != null) {
+            _before = kind == 'event' ? await _getEventById(id) : await _getTaskById(id);
+          }
+        }
+      } catch (_) {}
+
       final result = await callMCPTool(toolName, args, correlationId: correlationId);
-      results.add(result);
+      // Best-effort: capture "after" for non-delete updates when ID is known
+      Map<String, dynamic>? _after;
+      try {
+        final action = (op['action'] ?? op['op'] ?? '').toString();
+        final kind = (op['kind'] ?? 'task').toString();
+        if (action != 'delete') {
+          final dynamic idRaw = op['id'];
+          final int? id = (idRaw is int) ? idRaw : int.tryParse(idRaw?.toString() ?? '');
+          if (id != null) {
+            _after = kind == 'event' ? await _getEventById(id) : await _getTaskById(id);
+          }
+        }
+      } catch (_) {}
+      // Echo op and affected snapshots alongside the tool-call result
+      results.add({
+        ...result,
+        'op': op,
+        'affected': {
+          if (_before != null) 'before': _before,
+          if (_after != null) 'after': _after,
+        },
+      });
       
       // Count operations
       if (op['action'] == 'create') {

@@ -70,10 +70,6 @@ try {
 } catch {}
 
 // --- Server ---
-// app instance is created and configured in app.js
-
-// Ajv schemas moved to individual route files; keep server.js lean
-
 // Initialize MCP server and operation processor
 const operationProcessor = new OperationProcessor();
 operationProcessor.setDbService(db);
@@ -92,10 +88,6 @@ try {
   console.log('Orchestrator config:', summary);
   try { logIO('assistant_orchestrator_config', { model: 'orchestrator', prompt: JSON.stringify({}), output: JSON.stringify(summary) }); } catch {}
 } catch {}
-
-// Static assets (Flutter Web build) are mounted AFTER API routes below
-
-// Health route is mounted via app.js
 
 // --- Security: shared-secret auth for MCP mutations ---
 function requireMcpToken(req, res, next) {
@@ -276,14 +268,23 @@ app.post('/api/assistant/undo_last', async (req, res) => {
           inverses.push(inverseOp);
         }
       } else if (op.action === 'set_status' || op.action === 'set_occurrence_status') {
-        // set_status → set back to previous status
+        // Normalize to set_status tool with optional occurrenceDate
         if (before) {
-          const inverseOp = { kind: op.kind, action: op.action, id: op.id };
+          const inverseOp = { kind: op.kind, action: 'set_status', id: op.id };
           if (op.action === 'set_status') {
+            // Revert master status to previous
             inverseOp.status = before.status;
           } else {
+            // Occurrence toggle: derive status from previous state
+            // If previous was completed on that date, revert to pending; else set to completed
             inverseOp.occurrenceDate = op.occurrenceDate;
-            inverseOp.completed = !op.completed; // Toggle the completion
+            const wasCompleted = (() => {
+              try {
+                const list = Array.isArray(before.completedDates) ? before.completedDates : [];
+                return list.includes(op.occurrenceDate);
+              } catch { return false; }
+            })();
+            inverseOp.status = wasCompleted ? 'pending' : 'completed';
           }
           inverses.push(inverseOp);
         }
@@ -332,7 +333,8 @@ function _operationToToolName(op) {
     case 'set_status':
       return `set_${kind}_status`;
     case 'set_occurrence_status':
-      return `set_${kind}_occurrence_status`;
+      // Normalize to existing set_status tool; occurrence controlled via args
+      return `set_${kind}_status`;
     default:
       return `create_${kind}`;
   }
