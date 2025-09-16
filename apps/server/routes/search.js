@@ -39,9 +39,13 @@ router.get('/api/search', (req, res) => {
     const todayY = ymdInTimeZone(new Date(), TIMEZONE);
     const boosterScore = (rec) => {
       let s = 0;
-      const overdue = ((rec.status ? (rec.status !== 'completed' && rec.status !== 'skipped') : !rec.completed) && rec.scheduledFor && String(rec.scheduledFor) < String(todayY));
-      if (overdue) s += 0.5;
-      // Only boost events that have a start time; tasks are all-day and should not be boosted by time
+      // Overdue boost for tasks only; events are not completable
+      if (rec.kind === 'task') {
+        const isPending = (rec.status && rec.status !== 'completed' && rec.status !== 'skipped');
+        const overdue = (isPending && rec.scheduledFor && String(rec.scheduledFor) < String(todayY));
+        if (overdue) s += 0.5;
+      }
+      // Small boost for events that have a start time
       if (rec.kind === 'event' && !!rec.startTime) s += 0.05;
       return s;
     };

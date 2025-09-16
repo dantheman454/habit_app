@@ -18,38 +18,10 @@ function isYmdString(value) {
 - **Location**: `apps/server/utils/recurrence.js`
 
 **Time Validation**:
-```javascript
-function isValidTimeOfDay(value) {
-  if (value === null || value === undefined) return true;
-  if (typeof value !== 'string') return false;
-  return /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
-}
-```
-- **Pattern**: `^([01]\d|2[0-3]):[0-5]\d$` (canonical 24h HH:MM, 00:00-23:59)
-- **Usage**: `startTime`, `endTime` (events only). Tasks are all-day.
-- **Null handling**: Returns `true` for null/undefined (all-day items)
-- **Location**: `apps/server/utils/recurrence.js`
+Validation for event times uses route-level checks and operation validators, not utils. Canonical pattern `^([01]\d|2[0-3]):[0-5]\d$` is enforced in `apps/server/routes/events.js` and `apps/server/operations/validators.js`.
 
 **Recurrence Validation**:
-```javascript
-function isValidRecurrence(rec) {
-  if (rec === null || rec === undefined) return true;
-  if (typeof rec !== 'object') return false;
-  
-  const type = rec.type;
-  const allowed = ['none', 'daily', 'weekdays', 'weekly', 'every_n_days'];
-  if (!allowed.includes(String(type))) return false;
-  
-  if (type === 'every_n_days') {
-    const n = rec.intervalDays;
-    if (!Number.isInteger(n) || n < 1) return false;
-  }
-  
-  if (!(rec.until === null || rec.until === undefined || isYmdString(rec.until))) return false;
-  return true;
-}
-```
-- **Type validation**: Only allowed recurrence types (note: operation validators include 'monthly', 'yearly' but utils/recurrence.js does not)
+Allowed types across the system: `none`, `daily`, `weekdays`, `weekly`, `every_n_days`. Both endpoints and operation validators use the same set.
 - **Interval validation**: `intervalDays >= 1` for `every_n_days`
 - **Until validation**: Must be valid YYYY-MM-DD or null
 - **Location**: `apps/server/utils/recurrence.js`
@@ -110,48 +82,12 @@ Aggregate calculations are implemented in `apps/server/utils/filters.js` and inc
 - Backlog count (unscheduled)
 - Total scheduled items
 
-#### Ambiguity Detection
+#### Orchestrator and Routing
 
-```javascript
-function detectAmbiguity(taskBrief, context) {
-  const lowerBrief = taskBrief.toLowerCase();
-  const actionWords = ['update', 'change', 'modify', 'complete', 'delete', 'remove', 'set', 'create', 'add'];
-  const hasAction = actionWords.some(word => lowerBrief.includes(word));
-  
-  if (!hasAction) {
-    return { needsClarification: false };
-  }
-  
-  const items = context.focused || [];
-  if (items.length > 1 && !lowerBrief.match(/#\d+/)) {
-    return {
-      needsClarification: true,
-      question: "Which item do you want to work with?",
-      options: items.slice(0, 5).map(item => ({
-        id: item.id,
-        title: item.title,
-        scheduledFor: item.scheduledFor
-      }))
-    };
-  }
-  const titleMatches = items.filter(item => 
-    item.title && lowerBrief.includes(item.title.toLowerCase())
-  );
-  if (titleMatches.length > 1) {
-    return {
-      needsClarification: true,
-      question: "Which item do you mean?",
-      options: titleMatches.map(item => ({
-        id: item.id,
-        title: item.title,
-        scheduledFor: item.scheduledFor
-      }))
-    };
-  }
-  return { needsClarification: false };
-}
-```
-- **Location**: `apps/server/llm/ops_agent.js`
+The system includes a feature-flagged orchestrator that can choose between Ops and Chat:
+- Heuristic routing is always available; LLM classifier is optional.
+- Hybrid mode can adopt LLM decide/clarify with fingerprinting.
+- Location: `apps/server/llm/orchestrator.js`
 
 ### Assistant Tool-Calling Pipeline
 
@@ -159,18 +95,13 @@ Tool surface is limited to tasks and events only. Name format in LLM tool-callin
 - `task.create`, `task.update`, `task.delete`, `task.set_status`
 - `event.create`, `event.update`, `event.delete`
 
-#### Fallback inference (when the model doesn't emit tool_calls)
+#### Tool-Calling and Validation
 
-When the LLM returns a natural-language reply without structured tool_calls but the intent is clear, the OpsAgent infers safe, minimal operations:
-
-- Update fallback: For phrases like "move/shift/retime/delay" with a clear target and time, infer `event.update` with parsed `scheduledFor` and `startTime`/`endTime`.
-- Create fallback: For add/schedule intents like "add an event for today called Lunch with Dad at noon", infer `event.create` with:
-  - title parsed from the utterance
-  - scheduledFor resolved from relative/explicit date ("today", "tomorrow", YYYY-MM-DD)
-  - startTime parsed from time phrase ("noon" => `12:00`); endTime defaults to +1 hour
-  - recurrence defaults to `{ type: 'none' }` unless clearly specified
-
-All inferred operations go through the same validators and are only proposed; nothing is applied until the user approves.
+The OpsAgent uses structured tool-calling with the following process:
+- **Tool surface**: Limited to tasks and events with predefined schemas
+- **Validation**: Each tool call is validated using OperationProcessor validators
+- **Error handling**: Invalid operations are logged but not executed
+- **Proposal-only**: All operations are proposed for user approval, never auto-applied
 
 ### Operation Execution via Operation Processor
 
@@ -178,7 +109,7 @@ All inferred operations go through the same validators and are only proposed; no
 
 ### Auditing and Undo
 
-Batch recording captures per-op before/after for undo. Idempotency table caches apply responses.
+Batch recording captures per-op before/after for undo. An idempotency table exists, but HTTP apply does not currently read/write it.
 
 ### Error Messages Catalog (selected)
 

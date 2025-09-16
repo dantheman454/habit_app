@@ -72,7 +72,7 @@ final res = await api.assistantMessage(
 
 **SSE Events**: Server emits `stage`, `ops`, `summary`, `heartbeat`, and `done` (no `result`).
 - `stage`: `{ stage: "act", correlationId }`
-- `ops`: `{ operations, version: 3, validCount, invalidCount, previews[], correlationId }`
+- `ops`: `{ operations, version: 3, validCount, invalidCount, previews, correlationId }`
 - `summary`: `{ text, steps, operations, tools, notes, thinking, correlationId }`
 - `previews[]`: `{ key, op, before }` where `before` is fetched for update/delete to enable diff UI.
 
@@ -129,11 +129,7 @@ const validator = operationProcessor.validators.get(type);
 const validation = validator ? await validator(op) : { valid: false, errors: ['unknown_operation_type'] };
 ```
 
-Fallback logic (if the model doesn’t emit tool calls and the intent looks actionable):
-- Prefer focused candidates from UI selection
-- Consider explicit `where.id`
-- Try title matching using `task_by_title_ci`/`event_by_title_ci`
-- Extract simple times for events (HH:MM) when helpful
+If the model doesn’t emit tool calls, the system returns concise guidance text. No hidden auto-inference or implicit operations are performed.
 
 ### 4. Apply Phase (MCP) — user‑driven
 

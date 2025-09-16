@@ -3,25 +3,20 @@ import 'package:flutter/material.dart';
 class FabActions extends StatelessWidget {
   final VoidCallback onCreateTask;
   final VoidCallback onCreateEvent;
+  final VoidCallback? onCreateHabit;
   final String? currentDate; // For smart defaults
 
   const FabActions({
     super.key,
     required this.onCreateTask,
     required this.onCreateEvent,
+    this.onCreateHabit,
     this.currentDate,
   });
 
   @override
   Widget build(BuildContext context) {
     return PopupMenuButton<String>(
-      onSelected: (v) {
-        if (v == 'task') {
-          onCreateTask();
-        } else if (v == 'event') {
-          onCreateEvent();
-        }
-      },
       itemBuilder: (c) => [
         PopupMenuItem<String>(
           value: 'task',
@@ -61,11 +56,36 @@ class FabActions extends StatelessWidget {
             ],
           ),
         ),
+        if (onCreateHabit != null)
+          PopupMenuItem<String>(
+            value: 'habit',
+            child: Row(
+              children: [
+                const Icon(Icons.checklist_rtl, size: 18),
+                const SizedBox(width: 8),
+                const Text('New Habit'),
+                if (currentDate != null) ...[
+                  const Spacer(),
+                  Text(
+                    currentDate!,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
       ],
       child: FloatingActionButton(
         onPressed: null,
         child: const Icon(Icons.add),
       ),
+      onSelected: (v) {
+        if (v == 'task') onCreateTask();
+        else if (v == 'event') onCreateEvent();
+        else if (v == 'habit' && onCreateHabit != null) onCreateHabit!();
+      },
     );
   }
 }

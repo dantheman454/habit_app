@@ -33,9 +33,7 @@ erDiagram
         string start_time "HH:MM (24h) or NULL"
         string end_time "HH:MM (24h) or NULL (may wrap)"
         string location "nullable"
-        int completed "0|1"
         string recurrence "JSON"
-        string completed_dates "JSON or NULL"
         string context "school|personal|work"
         string created_at
         string updated_at

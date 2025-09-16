@@ -42,7 +42,7 @@ This glossary defines key terms and concepts used throughout the Task/Event App 
 - **Example**: `bulk_delete` or `bulk_update` operations are rejected
 - **Reference**: See [Backend Algorithms](./backend_algorithms.md#operation-level-validation) for validation rules
 
-**Router**: Removed. Assistant uses a single tool-calling OpsAgent path.
+**Router**: Feature-flagged orchestrator can select Ops vs Chat (heuristic or hybrid). Defaults to Ops.
 
 **Tool calling**: Native LLM tool calling with Qwen model for operation proposal. Uses a predefined tool surface limited to tasks and events.
 
@@ -52,11 +52,10 @@ This glossary defines key terms and concepts used throughout the Task/Event App 
 
 ### Data Integrity and Safety
 
-**Idempotency**: MCP tool calls deduplicate by `x-correlation-id` + request hash to avoid re-applying the same changes.
+**Idempotency**: The database includes an idempotency table. The current HTTP apply path (`POST /api/mcp/tools/call`) does not read/write it; deduplication is not enforced. Applies are grouped by correlation ID for audit/undo.
 
-- **Usage**: Prevents duplicate operations from network retries or user double-clicks
-- **Example**: Correlate logs across systems using the same correlation ID and fingerprint; no router caching is performed.
-- **Reference**: See [Backend Algorithms](./backend_algorithms.md#idempotency-implementation) for implementation
+- **Usage**: Track and undo batches via correlation ID
+- **Reference**: See [Backend Algorithms](./backend_algorithms.md#auditing-and-undo)
 
 **Audit log**: Append-only records of assistant and CRUD actions written during operation execution.
 
@@ -102,7 +101,7 @@ This glossary defines key terms and concepts used throughout the Task/Event App 
 
 - **Usage**: Define how often an item repeats
 - **Example**: `{"type": "daily", "until": "2024-12-31"}` for daily until year end
-- **Note**: Operation validators include `'monthly'` and `'yearly'` types, but these are not implemented in the actual recurrence logic
+- **Note**: Operation validators include `'monthly'` and `'yearly'` types, but the actual recurrence expansion logic only supports `'none'`, `'daily'`, `'weekdays'`, `'weekly'`, and `'every_n_days'`
 - **Reference**: See [Data Model](./data_model.md#recurrence-system) for detailed types and rules
 
 ### Performance and Optimization
@@ -127,11 +126,11 @@ This glossary defines key terms and concepts used throughout the Task/Event App 
 - **Example**: `missing_recurrence` when creating task without recurrence object
 - **Reference**: See [Backend Algorithms](./backend_algorithms.md#error-messages-catalog) for complete list
 
-**Fallback inference**: When the model doesn't emit tool calls but the intent is clear, the server infers safe, minimal operations (e.g., `event.create` with default 1h duration). These are validated and only proposed, never auto-applied.
+**Fallback inference**: Not implemented. The system uses structured tool-calling with the OpsAgent and does not have fallback inference logic when the model doesn't emit tool calls.
 
-- **Usage**: Improves reliability when LLM under-specifies actions
-- **Example**: “Add lunch tomorrow at noon” → inferred `event.create` with `12:00–13:00`
-- **Reference**: See [Backend Algorithms](./backend_algorithms.md#fallback-inference-when-the-model-doesnt-emit-tool_calls)
+- **Usage**: N/A - this feature does not exist in the current implementation
+- **Example**: N/A
+- **Reference**: See [Backend Algorithms](./backend_algorithms.md#assistant-tool-calling-pipeline) for the actual tool-calling implementation
 
 ### Development and Testing
 
@@ -141,12 +140,12 @@ This glossary defines key terms and concepts used throughout the Task/Event App 
 - **Example**: `TestHooks.skipRefresh` to prevent data loading during tests
 - **Reference**: See [Client Architecture](./client_architecture.md#test-hooks) for available hooks
 
-**Debug panel**: Development-only UI component that shows system state and provides testing controls.
+**Debug panel**: Not implemented. The system does not have a debug panel UI component.
 
-- **Usage**: Monitor application state and trigger actions during development
-- **Example**: Shows current view mode, context, and item counts
-- **Note**: Currently documented but not implemented in the codebase
-- **Reference**: See [Client Architecture](./client_architecture.md#development-tools) for documentation
+- **Usage**: N/A - this feature does not exist in the current implementation
+- **Example**: N/A
+- **Note**: This was documented but never implemented in the codebase
+- **Reference**: N/A
 
 ### Cross-References
 

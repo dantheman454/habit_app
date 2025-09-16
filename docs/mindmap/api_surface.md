@@ -165,13 +165,79 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 **Update Event**
 - **PATCH** `/api/events/:id`
   - **Body**: Partial update with any of: `title?`, `notes?`, `scheduledFor?`, `startTime?`, `endTime?`, `location?`, `recurrence?`, `context?`
-  - **Validation**: `recurrence` object is optional on update; if provided and repeating, an anchor date must exist. `startTime`/`endTime` must be canonical 24h `HH:MM` if provided. Cross‑midnight is allowed (end < start).
+  - **Validation**: `recurrence` object is optional on update; if provided and repeating, an anchor date must exist. `startTime`/`endTime` must be canonical 24h `HH:MM` if provided. Cross‑midnight events are split into two segments in the unified schedule view.
   - **Response**: `{ event: Event }`
   - **Location**: `apps/server/routes/events.js`
 
 **Update Event Occurrence**
 - Not supported (returns `400 not_supported`)
 - **Location**: `apps/server/routes/events.js`
+
+#### Habits
+
+**List Habits**
+- **GET** `/api/habits`
+  - **Query Parameters**: `context?: school|personal|work`
+  - **Response**: `{ habits: Habit[] }`
+  - **Location**: `apps/server/routes/habits.js`
+
+**Search Habits**
+- **GET** `/api/habits/search`
+  - **Query Parameters**:
+    - `query: string` - Search text (required)
+    - `context?: school|personal|work` - Filter by context
+  - **Response**: `{ habits: Habit[] }`
+  - **Location**: `apps/server/routes/habits.js`
+
+**Get Single Habit**
+- **GET** `/api/habits/:id`
+  - **Response**: `{ habit: Habit }`
+  - **Errors**: `404 not_found` if habit doesn't exist
+  - **Location**: `apps/server/routes/habits.js`
+
+**Create Habit**
+- **POST** `/api/habits`
+  - **Body**:
+    ```json
+    {
+      "title": "string (required)",
+      "notes": "string (optional)",
+      "startedOn": "YYYY-MM-DD|null (optional; required if repeating)",
+      "recurrence": {
+        "type": "none|daily|weekdays|weekly|every_n_days",
+        "intervalDays": 3,
+        "until": "YYYY-MM-DD|null"
+      },
+      "weeklyTargetCount": 3,
+      "context": "school|personal|work"
+    }
+    ```
+  - **Response**: `{ habit: Habit }`
+  - **Location**: `apps/server/routes/habits.js`
+
+**Update Habit**
+- **PATCH** `/api/habits/:id`
+  - **Body**: Partial update with any of: `title?`, `notes?`, `startedOn?`, `recurrence?`, `weeklyTargetCount?`, `context?`
+  - **Validation**: If repeating, `startedOn` anchor must exist
+  - **Response**: `{ habit: Habit }`
+  - **Location**: `apps/server/routes/habits.js`
+
+**Delete Habit**
+- **DELETE** `/api/habits/:id`
+  - **Response**: `{ ok: true }`
+  - **Location**: `apps/server/routes/habits.js`
+
+**Habit Logs (Progress)**
+- **GET** `/api/habits/:id/logs?from=YYYY-MM-DD&to=YYYY-MM-DD`
+  - **Response**: `{ logs: HabitLog[] }`
+  - **Location**: `apps/server/routes/habits.js`
+- **PUT** `/api/habits/:id/logs/:date`
+  - **Body**: `{ done: true|false, note?: string }`
+  - **Response**: `{ log: HabitLog }`
+  - **Location**: `apps/server/routes/habits.js`
+- **DELETE** `/api/habits/:id/logs/:date`
+  - **Response**: `{ ok: true }`
+  - **Location**: `apps/server/routes/habits.js`
 
 **Delete Event**
 - **DELETE** `/api/events/:id`
@@ -219,11 +285,11 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
         "client": {
           "where": {
             "view": { "from": "YYYY-MM-DD", "to": "YYYY-MM-DD" },
-            "selected": [ { "kind": "task|event", "id": 123 } ]
+            "selected": { "tasks": [1,2], "events": [42] }
           }
         }
       },
-      "where": { "view": {"from":"YYYY-MM-DD","to":"YYYY-MM-DD"}, "selected": [ {"kind":"task","id":1} ] }
+      "where": { "view": {"from":"YYYY-MM-DD","to":"YYYY-MM-DD"}, "selected": { "tasks": [1], "events": [] } }
     }
     ```
   - Notes:
@@ -239,7 +305,7 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
     - `context?: string` — JSON-encoded object; if present, uses `context.where` with shape `{ view: {from,to}, selected: [{kind,id}] }`
   - **Response**: Server-Sent Events stream with events:
     - `stage`: `{ stage: "act", correlationId }`
-    - `ops`: `{ operations, version: 3, validCount, invalidCount, correlationId, previews }`
+    - `ops`: `{ operations, version: 3, validCount, invalidCount, previews, correlationId }`
     - `summary`: `{ text, steps, operations, tools, notes, correlationId, thinking }`
     - `heartbeat`: `{ t: <epoch_ms>, correlationId }` (every ~10s)
     - `done`: `{ correlationId }` (stream completion)
@@ -316,9 +382,19 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 - `updateEvent(id, patch)` → `Event`
 - `deleteEvent(id)` → `void` (occurrence toggle not supported)
 
+**Habit Operations**:
+- `listHabits({ context? })` → `List<Habit>`
+- `searchHabits(query, { context?, cancelToken? })` → `List<Habit>`
+- `createHabit(data)` → `Habit`
+- `updateHabit(id, patch)` → `Habit`
+- `deleteHabit(id)` → `void`
+- `listHabitLogs(id, { from, to })` → `List<Map<String, dynamic>>`
+- `setHabitLog(id, ymd, { done, note? })` → `Map<String, dynamic>`
+- `deleteHabitLog(id, ymd)` → `void`
+
 **Unified Operations**:
-- `fetchSchedule({ from, to, kinds, completed?, statusTask? })` → `List<dynamic>`
-- `searchUnified(query, { scope?, completed?, statusTask?, limit?, cancelToken? })` → `List<dynamic>` (note: `completed` is accepted but currently ignored by the server)
+- `fetchSchedule({ from, to, kinds, completed?, statusTask?, context? })` → `List<dynamic>`
+- `searchUnified(query, { scope?, limit?, cancelToken? })` → `List<dynamic>`
 
 **Assistant Operations**:
 - `assistantMessage(message, { transcript?, streamSummary?, onSummary?, onStage?, onOps?, onThinking?, onTraceId? })` → `Map<String, dynamic>`
@@ -409,7 +485,6 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
   location?: string | null,  // For events
   recurrence?: Recurrence,
   status?: string,           // For tasks: 'pending' | 'completed' | 'skipped'
-  completed?: boolean,       // For events
   occurrenceDate?: string,   // For set_status operations
   context?: 'school' | 'personal' | 'work'
 }
@@ -430,6 +505,15 @@ Audience: backend and client developers. Covers endpoints, payload shapes, valid
 | `POST /api/events` | `createEvent` | Requires recurrence |
 | `PATCH /api/events/:id` | `updateEvent` | Partial updates |
 | `DELETE /api/events/:id` | `deleteEvent` | Cascade deletes |
+
+| `GET /api/habits` | `listHabits` | Context filter |
+| `GET /api/habits/search` | `searchHabits` | Substring + FTS backed |
+| `POST /api/habits` | `createHabit` | Anchor required if repeating |
+| `PATCH /api/habits/:id` | `updateHabit` | Partial update |
+| `DELETE /api/habits/:id` | `deleteHabit` | Cascade logs via FK |
+| `GET /api/habits/:id/logs` | `listHabitLogs` | Range filter |
+| `PUT /api/habits/:id/logs/:date` | `setHabitLog` | Upsert done toggle |
+| `DELETE /api/habits/:id/logs/:date` | `deleteHabitLog` | Remove log |
 
 | `GET /api/schedule` | `fetchSchedule` | Unified schedule view |
 | `GET /api/search` | `searchUnified` | Cross-type search |

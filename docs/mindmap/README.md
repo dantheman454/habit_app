@@ -11,21 +11,15 @@ This hub aligns the docs with the current implementation. It's the quickest path
 - Ops/Assistant: MCP tools and operation processor in `apps/server/operations/*`; assistant pipeline in `apps/server/llm/*`.
 - Quick start: see repo root `README.md`.
 
-### Active Migration
+### Migration Status
 
-- Migration complete: Tasks are all-day; events retain times. See `../migration_remove_task_time.md` for historical steps.
-
-#### Migration Progress (current)
-
-- Server behavior aligned to all-day tasks (non-breaking):
-  - `routes/schedule.js`: Sort events by `startTime`; always place tasks after events for the same date.
-  - `routes/search.js`: Ignore task time-of-day in scoring/sorting; only boost events with `startTime`.
-  - `database/DbService.js`: `listTasks()` no longer orders by `time_of_day`.
-- Validation: Full server test suite passes after these changes.
-- Next (breaking, to be done on a branch):
-  - Drop `time_of_day` from schema + remove `timeOfDay` from DbService create/update/map.
-  - Remove `timeOfDay` from task routes, operation schemas/executors, assistant LLM context/prompts.
-  - Update seed scripts; then client (Flutter) model/UI; adjust tests; grep gate.
+- **Migration Complete**: Tasks are all-day; events retain times. The `time_of_day` field has been completely removed from the database schema and all server code.
+- **Current State**: 
+  - Database schema: Tasks table has no time fields (all-day only)
+  - Events table retains `start_time` and `end_time` fields
+  - Server behavior: Tasks are treated as all-day items throughout the system
+  - Client model: Flutter `Task` class supports both tasks and events via unified interface
+- **Validation**: Full server test suite passes with all-day task implementation.
 
 ### System overview
 
@@ -119,10 +113,10 @@ sequenceDiagram
 
 ### Assistant behavior
 
-- Deterministic disambiguation rules in system prompts (singular selection, tie-breaking with view window, title normalization indexes).
+- Deterministic disambiguation rules in system prompts (singular selection, tie‑breaking with view window, title normalization indexes).
 - Focused context includes: current view + next month of events; `meta.contextTruncated` is set when trimmed.
 - Propose → Apply → Undo: Assistant proposes validated ops; user applies via MCP tools; batch-based undo supported.
-- Fallback inference when the model doesn’t emit tool_calls: see details in [Backend Algorithms](./backend_algorithms.md) (update/create inference with parsed date/time/title, default 1h duration, validators enforced).
+- When the model doesn’t emit tool_calls, the system returns concise guidance text (no hidden fallback inference or auto‑ops). If the OpsAgent errors, the server falls back to Chat for a conversational reply only.
 
 ### Constraints and assumptions
 - **Single-user, single-process server**: No multi-tenancy or clustering
@@ -130,7 +124,7 @@ sequenceDiagram
 - **No authentication**: Local development focus
 - **Ollama local model**: Requires local Ollama instance running
 - **Recurrence policy**: Recurrence object required on create; optional on update. Anchor (`scheduledFor`) required when repeating.
-- **Assistant safety**: Validation-first proposals; no bulk operations; fallback inference when models underperform
+- **Assistant safety**: Validation-first proposals; no bulk operations; no hidden fallback inference
 - **Operations via MCP tools**: No direct apply/dryrun endpoints
 - **Context field support**: 'school', 'personal', 'work' with 'personal' as default
 - **Timezone handling**: Fixed to `America/New_York` (configurable via `TZ_NAME`)
@@ -141,9 +135,9 @@ sequenceDiagram
 - **State transitions**: Changing repeating→none clears `completedDates`
 - **Time formats**: Times are canonical 24h `HH:MM` or null; dates are `YYYY-MM-DD`; events may wrap across midnight and are split across days in schedule.
 - **Audit trail**: Assistant operations executed through MCP tool calls; all actions logged
-- **Status fields**: Tasks use `status` field ('pending'|'completed'|'skipped'); events use `completed` boolean
+- **Status fields**: Tasks use `status` field ('pending'|'completed'|'skipped'); events do not have completion status
 - **Search capabilities**: FTS5 virtual tables provide full-text search for tasks and events
-- **Idempotency**: MCP tool calls deduplicate by `Idempotency-Key` + request hash
+- **Idempotency**: An idempotency table exists in the DB, but HTTP apply (`POST /api/mcp/tools/call`) does not currently use it. Applies are grouped by correlation ID for audit and undo.
 
 ### Key files and their responsibilities
 
@@ -207,7 +201,7 @@ sequenceDiagram
   - Example: “move lunch to 1 pm” → expect a proposed `event.update` targeting the event in view.
 4) Apply via MCP tools and undo if needed.
 
-  Note: If models are unavailable, the assistant still proposes operations via fallback inference (safe defaults, validated first). Nothing is auto‑applied until you choose Apply.
+  Note: If models are unavailable or no tool calls are produced, the assistant returns concise guidance (or falls back to Chat). Nothing is auto‑applied until you choose Apply.
 
 ### Apply and Undo
 
@@ -234,9 +228,9 @@ sequenceDiagram
 ### Conventions and contribution
 
 - Time formats: Dates `YYYY-MM-DD`; times `HH:MM` 24h; tasks are all‑day; events use start/end time (cross‑midnight allowed).
-- Idempotency & audit: MCP tool calls dedupe via Idempotency table; all applies are batched and audited; undo replays batch.
+- Idempotency & audit: An idempotency table exists, but HTTP apply does not currently use it. All applies are batched and audited; undo replays the batch.
 - Client where: `where.view` anchors view window; `where.selected` carries user selection for disambiguation.
-- Recurrence: Validators accept `monthly`/`yearly`, but runtime recurrence helpers don’t implement them yet—see `operations/validators.js` for the allowed schema.
+- Recurrence: Allowed types are `none|daily|weekdays|weekly|every_n_days` across endpoints, validators, and recurrence helpers.
 - UI: The Assistant panel shows a small “Context trimmed” badge when `notes.contextTruncated` is true in the assistant response; see Client Architecture → Assistant panel.
 
 

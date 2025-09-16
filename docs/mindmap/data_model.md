@@ -13,11 +13,11 @@ This document specifies the Task/Event schemas, recurrence semantics, occurrence
 
 **Core Tables**:
 - `tasks(id, title, notes, scheduled_for, status, recurrence TEXT(JSON), completed_dates TEXT(JSON), skipped_dates TEXT(JSON), context, created_at, updated_at)`
-- `events(id, title, notes, scheduled_for, start_time, end_time, location, completed INTEGER, recurrence TEXT(JSON), completed_dates TEXT(JSON), context, created_at, updated_at)`
+- `events(id, title, notes, scheduled_for, start_time, end_time, location, recurrence TEXT(JSON), context, created_at, updated_at)`
 
 **Supporting Tables**:
 - `audit_log(id, ts, action, entity, entity_id, payload)` - Operation tracking
-- `idempotency(id, idempotency_key, request_hash, response, ts)` - Response caching
+- `idempotency(id, idempotency_key, request_hash, response, ts)` - Present for potential response caching (not used by current HTTP apply)
 - `op_batches(id, correlation_id, ts)` - Batch header for propose/apply pipeline
 - `op_batch_ops(id, batch_id, seq, kind, action, op_json, before_json, after_json)` - Per-op before/after for undo
 
@@ -72,9 +72,7 @@ interface Event {
   startTime: string | null;                      // canonical 24h HH:MM or null
   endTime: string | null;                        // canonical 24h HH:MM or null (may wrap)
   location: string | null;                       // Optional location
-  completed: boolean;                            // Required, defaults to false
   recurrence: Recurrence;                        // Required JSON object
-  completedDates: string[] | null;               // YYYY-MM-DD array for repeating
   context: 'school' | 'personal' | 'work';       // Required, defaults to 'personal'
   createdAt: string;                             // ISO-8601 timestamp
   updatedAt: string;                             // ISO-8601 timestamp
@@ -82,15 +80,15 @@ interface Event {
 ```
 
 **Key Differences from Task**:
-- Uses `startTime`/`endTime` instead of `timeOfDay`
-- Uses `completed` boolean instead of `status` enum
+- Uses `startTime`/`endTime` for time scheduling
+- No completion status (events do not have completion functionality)
 - Includes `location` field for venue information
-- No `skippedDates` (events are either completed or not)
+- No `completedDates` or `skippedDates` (events do not track completion)
 
 **Flutter Model Notes**:
 - The Flutter `Task` class includes additional fields: `kind`, `endTime`, `priority`, `masterId`
 - Tasks are all-day and have no time field; events use `startTime`/`endTime`
-- The `LlmOperation` class includes both `op` (legacy) and `kind`/`action` (V3) fields for backward compatibility
+- Operations carry `kind` and `action` fields; legacy `op` may appear in some client paths.
 
 ### Recurrence System
 

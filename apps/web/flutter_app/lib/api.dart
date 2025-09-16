@@ -696,3 +696,64 @@ Map<String, dynamic> _operationToToolArgs(Map<String, dynamic> op) {
 
   return args;
 }
+
+// --- Habits API ---
+Future<List<dynamic>> listHabits({ String? context }) async {
+  final res = await api.get(
+    '/api/habits',
+    queryParameters: {
+      if (context != null) 'context': context,
+    },
+  );
+  return (res.data['habits'] as List<dynamic>);
+}
+
+Future<List<dynamic>> searchHabits(
+  String q, {
+  String? context,
+  CancelToken? cancelToken,
+}) async {
+  final res = await api.get(
+    '/api/habits/search',
+    queryParameters: {
+      'query': q,
+      if (context != null) 'context': context,
+    },
+    cancelToken: cancelToken,
+  );
+  return (res.data['habits'] as List<dynamic>);
+}
+
+Future<Map<String, dynamic>> createHabit(Map<String, dynamic> data) async {
+  final res = await api.post('/api/habits', data: data);
+  return Map<String, dynamic>.from(res.data['habit']);
+}
+
+Future<Map<String, dynamic>> updateHabit(int id, Map<String, dynamic> patch) async {
+  final res = await api.patch('/api/habits/$id', data: patch);
+  return Map<String, dynamic>.from(res.data['habit']);
+}
+
+Future<void> deleteHabit(int id) async {
+  await api.delete('/api/habits/$id');
+}
+
+Future<List<Map<String, dynamic>>> listHabitLogs(int id, { required String from, required String to }) async {
+  final res = await api.get(
+    '/api/habits/$id/logs',
+    queryParameters: { 'from': from, 'to': to },
+  );
+  return List<Map<String, dynamic>>.from((res.data['logs'] as List<dynamic>).map((e) => Map<String, dynamic>.from(e)));
+}
+
+Future<Map<String, dynamic>> setHabitLog(int id, String ymd, { required bool done, String? note }) async {
+  final res = await api.put(
+    '/api/habits/$id/logs/$ymd',
+    data: { 'done': done, if (note != null) 'note': note },
+  );
+  return Map<String, dynamic>.from(res.data['log']);
+}
+
+Future<void> deleteHabitLog(int id, String ymd) async {
+  await api.delete('/api/habits/$id/logs/$ymd');
+}

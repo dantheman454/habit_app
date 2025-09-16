@@ -71,7 +71,7 @@ export class OperationRegistry {
             properties: {
               type: { 
                 type: 'string', 
-                enum: ['none', 'daily', 'weekly', 'monthly', 'yearly', 'every_n_days'] 
+                enum: ['none', 'daily', 'weekdays', 'weekly', 'every_n_days'] 
               },
               intervalDays: { type: 'number', minimum: 1 },
               until: { type: 'string', format: 'date' }
@@ -93,7 +93,7 @@ export class OperationRegistry {
             properties: {
               type: { 
                 type: 'string', 
-                enum: ['none', 'daily', 'weekly', 'monthly', 'yearly', 'every_n_days'] 
+                enum: ['none', 'daily', 'weekdays', 'weekly', 'every_n_days'] 
               },
               intervalDays: { type: 'number', minimum: 1 },
               until: { type: 'string', format: 'date' }
@@ -133,7 +133,7 @@ export class OperationRegistry {
             properties: {
               type: { 
                 type: 'string', 
-                enum: ['none', 'daily', 'weekly', 'monthly', 'yearly', 'every_n_days'] 
+                enum: ['none', 'daily', 'weekdays', 'weekly', 'every_n_days'] 
               },
               intervalDays: { type: 'number', minimum: 1 },
               until: { type: 'string', format: 'date' }
@@ -158,7 +158,7 @@ export class OperationRegistry {
             properties: {
               type: { 
                 type: 'string', 
-                enum: ['none', 'daily', 'weekly', 'monthly', 'yearly', 'every_n_days'] 
+                enum: ['none', 'daily', 'weekdays', 'weekly', 'every_n_days'] 
               },
               intervalDays: { type: 'number', minimum: 1 },
               until: { type: 'string', format: 'date' }

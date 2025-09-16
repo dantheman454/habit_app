@@ -4,6 +4,33 @@ Entry files: `apps/web/flutter_app/lib/main.dart`, `apps/web/flutter_app/lib/api
 
 ### State Management and Data Flow
 
+#### Task Model (Client-Side)
+
+The Flutter client uses a unified `Task` model for both tasks and events:
+
+```dart
+class Task {
+  final int id;
+  String title;
+  String notes;
+  String? kind; // 'task'|'event' for unified schedule rows
+  String? scheduledFor; // YYYY-MM-DD or null
+  String? startTime; // canonical 24h HH:MM or null (for events)
+  String? endTime; // canonical 24h HH:MM or null (for events)
+  String? priority; // low|medium|high
+  bool completed; // Note: events have this field but server doesn't support completion
+  String? status; // 'pending'|'completed'|'skipped' for tasks
+  Map<String, dynamic>? recurrence; // {type,...}
+  int? masterId; // present on expanded occurrences
+  String? context; // 'school'|'personal'|'work'
+  String? location; // for events
+  final String createdAt;
+  String updatedAt;
+}
+```
+
+**Important**: The client-side `Task` model includes a `completed` field for both tasks and events, but the server-side events table does not have a `completed` column. The client handles this by checking `if (t.kind == 'event')` in completion functions and showing "Event completion is not supported" messages.
+
 #### Core State Structure
 
 ```dart
@@ -108,7 +135,7 @@ class _HomePageState extends State<HomePage> {
 enum ViewMode { day, week, month }
 enum MainView { tasks }
 enum SmartList { today, all }
-enum AppTab { tasks, events }
+enum AppTab { tasks, events, habits }
 
 // Date range calculation
 Map<String, String> rangeForView(DateTime anchor, ViewMode view) {

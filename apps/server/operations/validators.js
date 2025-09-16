@@ -233,7 +233,7 @@ export class OperationValidators {
   static isValidRecurrence(recurrence) {
     if (!recurrence || typeof recurrence !== 'object') return false;
     
-    const validTypes = ['none', 'daily', 'weekdays', 'weekly', 'monthly', 'yearly', 'every_n_days'];
+    const validTypes = ['none', 'daily', 'weekdays', 'weekly', 'every_n_days'];
     if (!validTypes.includes(recurrence.type)) return false;
     
     if (recurrence.until && !OperationValidators.isValidDate(recurrence.until)) return false;

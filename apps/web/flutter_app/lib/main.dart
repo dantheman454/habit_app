@@ -22,6 +22,7 @@ import 'util/time_format.dart';
 import 'widgets/time_field.dart';
 import 'models.dart';
 import 'util/date_label.dart';
+import 'views/habits_view.dart';
 
 // --- Test hooks and injectable API (local single-user context) ---
 class TestHooks {
@@ -351,6 +352,9 @@ class _HomePageState extends State<HomePage> {
   // Unified schedule filters (chips)
   // Default to show both tasks and events; tabs can filter to specific types.
   Set<String> _kindFilter = <String>{'task', 'event'};
+  // Simple toggle to show habits full-screen in place of the list
+  bool _showHabits = false;
+  bool _openHabitQuickAdd = false;
   // Lightweight selection to bias assistant disambiguation
   // Single-select semantics for now: last interacted task/event
   final Set<int> _selectedTaskIds = <int>{};
@@ -2807,19 +2811,37 @@ class _HomePageState extends State<HomePage> {
                                                       horizontal: 16,
                                                       vertical: 8,
                                                     ),
-                                                    child: SegmentedButton<ViewMode>(
-                                                      segments: const [
-                                                        ButtonSegment(value: ViewMode.day, label: Text('Day')),
-                                                        ButtonSegment(value: ViewMode.week, label: Text('Week')),
-                                                        ButtonSegment(value: ViewMode.month, label: Text('Month')),
+                                                    child: Row(
+                                                      mainAxisSize: MainAxisSize.min,
+                                                      children: [
+                                                        SegmentedButton<ViewMode>(
+                                                          segments: const [
+                                                            ButtonSegment(value: ViewMode.day, label: Text('Day')),
+                                                            ButtonSegment(value: ViewMode.week, label: Text('Week')),
+                                                            ButtonSegment(value: ViewMode.month, label: Text('Month')),
+                                                          ],
+                                                          selected: {view},
+                                                          onSelectionChanged: (s) async {
+                                                            setState(() {
+                                                              view = s.first;
+                                                            });
+                                                            await _refreshAll();
+                                                          },
+                                                        ),
+                                                        const SizedBox(width: 12),
+                                                        SegmentedButton<String>(
+                                                          segments: const [
+                                                            ButtonSegment(value: 'list', label: Text('List')),
+                                                            ButtonSegment(value: 'habits', label: Text('Habits')),
+                                                          ],
+                                                          selected: {_showHabits ? 'habits' : 'list'},
+                                                          onSelectionChanged: (s) {
+                                                            setState(() {
+                                                              _showHabits = (s.first == 'habits');
+                                                            });
+                                                          },
+                                                        ),
                                                       ],
-                                                      selected: {view},
-                                                      onSelectionChanged: (s) async {
-                                                        setState(() {
-                                                          view = s.first;
-                                                        });
-                                                        await _refreshAll();
-                                                      },
                                                     ),
                                                   ),
                                                 ],
@@ -2845,12 +2867,15 @@ class _HomePageState extends State<HomePage> {
                                               right: 16,
                                               bottom: 16,
                                               child: FabActions(
-                                                onCreateTask: () =>
-                                                    _showQuickAddTask(),
-                                                onCreateEvent: () =>
-                                                    _showQuickAddEvent(),
-                                                currentDate:
-                                                    _getCurrentViewDate(),
+                                                onCreateTask: () => _showQuickAddTask(),
+                                                onCreateEvent: () => _showQuickAddEvent(),
+                                                onCreateHabit: () {
+                                                  setState(() {
+                                                    _showHabits = true;
+                                                    _openHabitQuickAdd = true;
+                                                  });
+                                                },
+                                                currentDate: _getCurrentViewDate(),
                                               ),
                                             ),
                                           ],
@@ -2860,7 +2885,7 @@ class _HomePageState extends State<HomePage> {
                                   ),
                                 ),
                                 const VerticalDivider(width: 1),
-                                // Assistant area: handle + panel stacked
+                                // Sidebar with persistent tabs (List/Habits) and assistant panel
                                 SizedBox(
                                   width: assistantCollapsed ? 36 : 396,
                                   child: Stack(
@@ -2936,6 +2961,27 @@ class _HomePageState extends State<HomePage> {
                                             ),
                                           ),
                                         ),
+                                      if (!assistantCollapsed)
+                                        Positioned(
+                                          left: 36,
+                                          right: 0,
+                                          top: 0,
+                                          child: Padding(
+                                            padding: const EdgeInsets.only(top: 8, left: 8, right: 8),
+                                            child: SegmentedButton<String>(
+                                              segments: const [
+                                                ButtonSegment(value: 'list', label: Text('List')),
+                                                ButtonSegment(value: 'habits', label: Text('Habits')),
+                                              ],
+                                              selected: {_showHabits ? 'habits' : 'list'},
+                                              onSelectionChanged: (s) {
+                                                setState(() {
+                                                  _showHabits = (s.first == 'habits');
+                                                });
+                                              },
+                                            ),
+                                          ),
+                                        ),
                                     ],
                                   ),
                                 ),
@@ -2975,6 +3021,25 @@ class _HomePageState extends State<HomePage> {
   Widget _buildMainList() {
     final items = _currentList();
     final grouped = _groupByDate(items);
+
+    // Habits tab: render HabitsView regardless of calendar view
+    if (_showHabits) {
+      final a = parseYmd(anchor);
+      final sunday = a.subtract(Duration(days: a.weekday % 7));
+      final saturday = sunday.add(const Duration(days: 6));
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+        child: HabitsView(
+          weekStartYmd: ymd(sunday),
+          weekEndYmd: ymd(saturday),
+          contextFilter: selectedContext,
+          openQuickAdd: _openHabitQuickAdd,
+          onQuickAddClosed: () {
+            setState(() => _openHabitQuickAdd = false);
+          },
+        ),
+      );
+    }
 
     if (view == ViewMode.month) {
       if (mainView == MainView.tasks) {
@@ -3087,6 +3152,22 @@ class _HomePageState extends State<HomePage> {
       );
     }
 
+    // If habits view is toggled, show it full-screen instead of the list
+    if (_showHabits) {
+      final a = parseYmd(anchor);
+      final sunday = a.subtract(Duration(days: a.weekday % 7));
+      final saturday = sunday.add(const Duration(days: 6));
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+        child: HabitsView(
+          weekStartYmd: ymd(sunday),
+          weekEndYmd: ymd(saturday),
+          contextFilter: selectedContext,
+          openQuickAdd: _openHabitQuickAdd,
+        ),
+      );
+    }
+
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 400),
       transitionBuilder: (Widget child, Animation<double> animation) {
@@ -3103,6 +3184,20 @@ class _HomePageState extends State<HomePage> {
         padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
         children: [
           if (view == ViewMode.week) _buildWeekdayHeader(),
+          // Simple entry to open HabitsView
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.checklist_rtl),
+                label: Text(_showHabits ? 'Back to List' : 'Open Habits'),
+                onPressed: () {
+                  setState(() => _showHabits = !_showHabits);
+                },
+              ),
+            ),
+          ),
           for (final entry in grouped.entries) ...[
             Builder(
               builder: (context) {

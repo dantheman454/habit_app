@@ -355,6 +355,160 @@ export class DbService {
     };
   }
 
+  // Habits
+  createHabit({ title, notes = '', startedOn = null, recurrence = { type: 'none' }, weeklyTargetCount = null, context = 'personal' }) {
+    this.openIfNeeded();
+    const tz = process.env.TZ_NAME || 'America/New_York';
+    const isRepeating = !!(recurrence && recurrence.type && recurrence.type !== 'none');
+    if (isRepeating && (startedOn === null || startedOn === undefined)) {
+      throw new Error('missing_anchor_for_recurrence');
+    }
+    if (!isRepeating && (startedOn === null || startedOn === undefined)) {
+      try { startedOn = ymdInTimeZone(new Date(), tz); } catch { startedOn = new Date().toISOString().slice(0,10); }
+    }
+    const now = new Date().toISOString();
+    const stmt = this.db.prepare(`
+      INSERT INTO habits(title, notes, started_on, recurrence, weekly_target_count, context, created_at, updated_at)
+      VALUES (@title, @notes, @started_on, @recurrence, @weekly_target_count, @context, @created_at, @updated_at)
+    `);
+    const info = stmt.run({
+      title,
+      notes,
+      started_on: startedOn ?? null,
+      recurrence: JSON.stringify(recurrence || { type: 'none' }),
+      weekly_target_count: (weeklyTargetCount === null || weeklyTargetCount === undefined) ? null : parseInt(weeklyTargetCount, 10),
+      context: String(context || 'personal'),
+      created_at: now,
+      updated_at: now,
+    });
+    return this.getHabitById(info.lastInsertRowid);
+  }
+
+  getHabitById(id) {
+    this.openIfNeeded();
+    const row = this.db.prepare('SELECT * FROM habits WHERE id = ?').get(id);
+    if (!row) return null;
+    return this._mapHabit(row);
+  }
+
+  updateHabit(id, patch) {
+    this.openIfNeeded();
+    const h = this.getHabitById(id);
+    if (!h) throw new Error('not_found');
+    const filteredPatch = Object.fromEntries(
+      Object.entries(patch || {}).filter(([_, value]) => value !== undefined)
+    );
+    const merged = { ...h, ...filteredPatch };
+    const tz = process.env.TZ_NAME || 'America/New_York';
+    const isRepeating = !!(merged.recurrence && merged.recurrence.type && merged.recurrence.type !== 'none');
+    if (isRepeating && (merged.startedOn === null || merged.startedOn === undefined)) {
+      throw new Error('missing_anchor_for_recurrence');
+    }
+    if (!isRepeating && (merged.startedOn === null || merged.startedOn === undefined)) {
+      try { merged.startedOn = ymdInTimeZone(new Date(), tz); } catch { merged.startedOn = new Date().toISOString().slice(0,10); }
+    }
+    const now = new Date().toISOString();
+    this.db.prepare('UPDATE habits SET title=@title, notes=@notes, started_on=@started_on, recurrence=@recurrence, weekly_target_count=@weekly_target_count, context=@context, updated_at=@updated_at WHERE id=@id').run({
+      id,
+      title: merged.title,
+      notes: merged.notes,
+      started_on: merged.startedOn ?? null,
+      recurrence: JSON.stringify(merged.recurrence || { type: 'none' }),
+      weekly_target_count: (merged.weeklyTargetCount === null || merged.weeklyTargetCount === undefined) ? null : parseInt(merged.weeklyTargetCount, 10),
+      context: String(merged.context || 'personal'),
+      updated_at: now,
+    });
+    return this.getHabitById(id);
+  }
+
+  deleteHabit(id) {
+    this.openIfNeeded();
+    this.db.prepare('DELETE FROM habits WHERE id = ?').run(id);
+  }
+
+  listHabits({ context = null } = {}) {
+    this.openIfNeeded();
+    let sql = 'SELECT * FROM habits';
+    const params = {};
+    if (context) {
+      sql += ' WHERE context = @context';
+      params.context = String(context);
+    }
+    sql += ' ORDER BY title ASC, id ASC';
+    const rows = this.db.prepare(sql).all(params);
+    return rows.map(r => this._mapHabit(r));
+  }
+
+  searchHabits({ q, context = null }) {
+    this.openIfNeeded();
+    if (!q || String(q).length < 2) {
+      const sql = 'SELECT * FROM habits ORDER BY id ASC';
+      const rows = this.db.prepare(sql).all();
+      let items = rows.map(r => this._mapHabit(r));
+      if (context) items = items.filter(h => String(h.context) === String(context));
+      return items;
+    }
+    const rows = this.db.prepare('SELECT h.* FROM habits h JOIN habits_fts f ON f.rowid = h.id WHERE habits_fts MATCH @q').all({ q: String(q) });
+    let items = rows.map(r => this._mapHabit(r));
+    if (context) items = items.filter(h => String(h.context) === String(context));
+    return items;
+  }
+
+  upsertHabitLog({ habitId, date, done = true, note = null }) {
+    this.openIfNeeded();
+    const stmt = this.db.prepare('INSERT OR REPLACE INTO habit_logs(habit_id, date, done, note) VALUES (@habit_id, @date, @done, @note)');
+    const info = stmt.run({ habit_id: habitId, date, done: done ? 1 : 0, note });
+    // Fetch the row back (id may change with REPLACE)
+    const row = this.db.prepare('SELECT * FROM habit_logs WHERE habit_id = @habit_id AND date = @date').get({ habit_id: habitId, date });
+    return this._mapHabitLog(row);
+  }
+
+  deleteHabitLog({ habitId, date }) {
+    this.openIfNeeded();
+    this.db.prepare('DELETE FROM habit_logs WHERE habit_id = @habit_id AND date = @date').run({ habit_id: habitId, date });
+  }
+
+  listHabitLogs({ habitId, from = null, to = null }) {
+    this.openIfNeeded();
+    const cond = ['habit_id = @habit_id'];
+    const params = { habit_id: habitId };
+    if (from) { cond.push('date >= @from'); params.from = from; }
+    if (to) { cond.push("date < date(@to, '+1 day')"); params.to = to; }
+    const sql = `SELECT * FROM habit_logs WHERE ${cond.join(' AND ')} ORDER BY date ASC, id ASC`;
+    const rows = this.db.prepare(sql).all(params);
+    return rows.map(r => this._mapHabitLog(r));
+  }
+
+  getHabitWeekCount({ habitId, weekStartYmd, weekEndYmd }) {
+    this.openIfNeeded();
+    const sql = "SELECT COUNT(*) AS c FROM habit_logs WHERE habit_id=@habit_id AND done=1 AND date >= @from AND date <= @to";
+    const row = this.db.prepare(sql).get({ habit_id: habitId, from: weekStartYmd, to: weekEndYmd });
+    return row ? row.c : 0;
+  }
+
+  _mapHabit(r) {
+    return {
+      id: r.id,
+      title: r.title,
+      notes: r.notes,
+      startedOn: r.started_on,
+      recurrence: (() => { try { return JSON.parse(r.recurrence || '{"type":"none"}'); } catch { return { type: 'none' }; } })(),
+      weeklyTargetCount: (r.weekly_target_count === null || r.weekly_target_count === undefined) ? null : Number(r.weekly_target_count),
+      context: r.context,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    };
+  }
+
+  _mapHabitLog(r) {
+    return {
+      id: r.id,
+      habitId: r.habit_id,
+      date: r.date,
+      done: !!r.done,
+      note: r.note ?? null,
+    };
+  }
 }
 
 const instance = new DbService(process.env.APP_DB_PATH || './data/app.db');
